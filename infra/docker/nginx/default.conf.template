@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Rendered at container start by the nginx image's envsubst step (only ${BLOODY_*} variables are
+# substituted — NGINX_ENVSUBST_FILTER=^BLOODY_). Output: /etc/nginx/conf.d/default.conf.
+server {
+  listen 8080 default_server;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # Liveness/readiness for orchestrators; does not touch the API.
+  location = /healthz {
+    access_log off;
+    default_type text/plain;
+    return 200 "ok\n";
+  }
+
+  # Control-plane API: same origin, so session + CSRF cookies are first-party.
+  location ^~ /api/ {
+    proxy_pass ${BLOODY_API_UPSTREAM};
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $bloody_forwarded_proto;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Request-Id $bloody_request_id;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $bloody_connection_upgrade;
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 120s;
+    # AI chat / report generation can stream; the API sends X-Accel-Buffering: no for streams.
+    proxy_read_timeout 300s;
+    client_max_body_size ${BLOODY_CLIENT_MAX_BODY_SIZE};
+    proxy_hide_header X-Powered-By;
+  }
+
+  # Content-hashed bundles: cache forever.
+  location /assets/ {
+    include /etc/nginx/snippets/security-headers.conf;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+    try_files $uri =404;
+  }
+
+  # Never serve source maps, dotfiles or editor backups.
+  location ~* (\.map|~|\.bak|\.swp)$ {
+    return 404;
+  }
+  location ~ /\. {
+    return 404;
+  }
+
+  # SPA entry point: always revalidate so deployments take effect immediately.
+  location = /index.html {
+    include /etc/nginx/snippets/security-headers.conf;
+    add_header Cache-Control "no-store" always;
+  }
+
+  # Client-side routes fall back to the SPA shell.
+  location / {
+    include /etc/nginx/snippets/security-headers.conf;
+    add_header Cache-Control "no-cache" always;
+    try_files $uri $uri/ /index.html;
+  }
+}
