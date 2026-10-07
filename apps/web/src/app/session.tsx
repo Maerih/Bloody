@@ -78,55 +78,59 @@ export function SessionProvider({ me, children }: { me: MeResponse; children: Re
 
   const fallbackOrg = canSelectAll ? null : (organizations[0]?.id ?? null);
 
-  const [selected, setSelected] = useState<string | null>(() => {
-    const fromUrl = parseOrg(searchParams.get(ORG_PARAM));
-    if (fromUrl !== undefined) return fromUrl;
-    const stored = readStorage<string>(storageKeyOrg, (v): v is string => typeof v === "string");
-    const fromStorage = parseOrg(stored);
-    return fromStorage !== undefined ? fromStorage : fallbackOrg;
+  // Last selection (localStorage) — used when the URL does not carry a valid ?org=.
+  const [stored, setStored] = useState<string | null>(() => {
+    const value = readStorage<string>(storageKeyOrg, (v): v is string => typeof v === "string");
+    const parsed = parseOrg(value);
+    return parsed !== undefined ? parsed : fallbackOrg;
   });
-
   // Organizations can be created/removed while signed in; never keep an invalid selection.
-  const organizationId = selected === null ? (canSelectAll ? null : fallbackOrg) : orgIds.has(selected) ? selected : fallbackOrg;
+  const storedValid = stored === null ? (canSelectAll ? null : fallbackOrg) : orgIds.has(stored) ? stored : fallbackOrg;
 
   const encode = (id: string | null) => id ?? ALL_ORGS_PARAM;
   const urlOrg = searchParams.get(ORG_PARAM);
+  const urlParsed = multiChoice ? parseOrg(urlOrg) : undefined;
 
-  // URL ⇄ state sync. A valid ?org= (deep link) wins; otherwise the URL is corrected to the
-  // current selection so links are shareable.
+  // The URL is the source of truth (deep links, back/forward, shareable views); storage only
+  // fills it in when absent or invalid.
+  const organizationId = urlParsed !== undefined ? urlParsed : storedValid;
+
   useEffect(() => {
     if (!multiChoice) return;
-    const parsed = parseOrg(urlOrg);
-    if (parsed !== undefined) {
-      if (parsed !== organizationId) {
-        setSelected(parsed);
-        writeStorage(storageKeyOrg, encode(parsed));
-      }
+    if (urlParsed === undefined) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set(ORG_PARAM, encode(storedValid));
+          return next;
+        },
+        { replace: true },
+      );
       return;
     }
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set(ORG_PARAM, encode(organizationId));
-        return next;
-      },
-      { replace: true },
-    );
-  }, [urlOrg, organizationId, multiChoice, parseOrg]);
+    if (urlParsed !== stored) {
+      setStored(urlParsed);
+      writeStorage(storageKeyOrg, encode(urlParsed));
+    }
+  }, [multiChoice, urlParsed, storedValid, stored, setSearchParams, storageKeyOrg]);
 
   const setOrganizationId = useCallback(
     (id: string | null) => {
       const valid = parseOrg(encode(id));
       if (valid === undefined) return;
-      setSelected(valid);
       writeStorage(storageKeyOrg, encode(valid));
+      if (!multiChoice) {
+        setStored(valid);
+        return;
+      }
+      // The URL drives the selection; the effect above syncs `stored` once it lands.
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         next.set(ORG_PARAM, encode(valid));
         return next;
       });
     },
-    [parseOrg, setSearchParams, storageKeyOrg],
+    [parseOrg, setSearchParams, storageKeyOrg, multiChoice],
   );
 
   const storageKeyRole = `dashboardRole.${principal.tenantId}.${principal.id}`;

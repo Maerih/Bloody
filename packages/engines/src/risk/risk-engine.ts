@@ -168,6 +168,13 @@ export interface RiskEngineOptions {
   weights?: Record<string, number>;
   /** SLA days per vulnerability priority. */
   vulnerabilitySlaDays?: Record<VulnerabilityPriorityLevel, number>;
+  /**
+   * Attack-path feasibility = chainProbability^exponent (default 0.5). Step probabilities are
+   * priors, and treating them as fully independent over-penalizes long but realistic chains
+   * (an attacker who succeeds once is likely to succeed at similar steps); the exponent damps
+   * that compounding. 1 = raw product, 0 = ignore path complexity.
+   */
+  pathComplexityExponent?: number;
 }
 
 /** Default factor weights (see model.ts for semantics). Tunable per tenant via `weights`. */
@@ -246,12 +253,14 @@ export class RiskEngine {
   private readonly curve: RiskCurve;
   private readonly weights: Record<string, number>;
   private readonly slaDays: Record<VulnerabilityPriorityLevel, number>;
+  private readonly pathExponent: number;
 
   constructor(options: RiskEngineOptions = {}) {
     this.clock = options.clock ?? systemClock;
     this.curve = options.curve ?? DEFAULT_RISK_CURVE;
     this.weights = { ...DEFAULT_WEIGHTS, ...(options.weights ?? {}) };
     this.slaDays = options.vulnerabilitySlaDays ?? DEFAULT_VULN_SLA_DAYS;
+    this.pathExponent = clamp01(options.pathComplexityExponent ?? 0.5);
   }
 
   private w(key: string): number {
@@ -693,9 +702,16 @@ export class RiskEngine {
     if (input.blastRadius.reachableNodes > 0) I.push(this.f("path", "blast_radius", "Blast radius", noisyOr([saturate(input.blastRadius.reachableNodes, 25), 0.8 * saturate(input.blastRadius.reachableCrownJewels, 1)]), describeBlast(input.blastRadius)));
 
     const ctl: FactorInput[] = [];
-    const complexity = clamp01(1 - input.chainProbability);
+    const feasibility = clamp01(input.chainProbability) ** this.pathExponent;
+    const complexity = clamp01(1 - feasibility);
     if (complexity > 0) {
-      ctl.push({ key: "path_complexity", label: "Path complexity", value: complexity, weight: 1, explanation: `${input.steps} step(s); probability that every step succeeds is ${round(input.chainProbability * 100, 1)}%.` });
+      ctl.push({
+        key: "path_complexity",
+        label: "Path complexity",
+        value: complexity,
+        weight: 1,
+        explanation: `${input.steps} step(s); combined step success probability ${round(input.chainProbability * 100, 1)}% (complexity-adjusted feasibility ${round(feasibility * 100, 1)}%).`,
+      });
     }
     for (const c of input.controls) {
       ctl.push({ key: `control_${c.key}`, label: `${c.label} on ${c.on}`, value: 1, weight: clamp01(c.strength), explanation: `${c.label} on ${c.on} reduces the chance this step succeeds.` });
