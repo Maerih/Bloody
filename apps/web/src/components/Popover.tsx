@@ -16,6 +16,8 @@ export interface PopoverProps {
   trigger: (props: PopoverTriggerProps) => ReactNode;
   children: ReactNode | ((close: () => void) => ReactNode);
   align?: "start" | "end";
+  /** Open below (default) or above the trigger. */
+  side?: "bottom" | "top";
   className?: string;
   panelClassName?: string;
   open?: boolean;
@@ -25,7 +27,7 @@ export interface PopoverProps {
 }
 
 /** Anchored panel with outside-click / Escape dismissal; controlled or uncontrolled. */
-export function Popover({ trigger, children, align = "start", className, panelClassName, open: controlled, onOpenChange, role = "dialog", label }: PopoverProps) {
+export function Popover({ trigger, children, align = "start", side = "bottom", className, panelClassName, open: controlled, onOpenChange, role = "dialog", label }: PopoverProps) {
   const [uncontrolled, setUncontrolled] = useState(false);
   const open = controlled ?? uncontrolled;
   const id = useId();
@@ -59,7 +61,8 @@ export function Popover({ trigger, children, align = "start", className, panelCl
           role={role}
           aria-label={label}
           className={clsx(
-            "absolute top-full z-50 mt-1 animate-fade-in rounded-md border border-line bg-surface text-fg shadow-pop",
+            "absolute z-50 animate-fade-in rounded-md border border-line bg-surface text-fg shadow-pop",
+            side === "top" ? "bottom-full mb-2" : "top-full mt-1",
             align === "end" ? "right-0" : "left-0",
             panelClassName,
           )}
