@@ -108,22 +108,11 @@ describe("Data egress governance", () => {
   });
 
   it("governed provider redacts outgoing content, re-hydrates tool arguments and blocks cloud egress", async () => {
-    const { fetch, requests } = fakeFetch([
-      {
-        json: {
-          model: "gpt-test",
-          choices: [{ finish_reason: "tool_calls", message: { content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "search_events", arguments: "" } }] } }],
-          usage: { prompt_tokens: 10, completion_tokens: 2 },
-        },
-      },
-    ]);
     const config = providerConfig({ kind: "openai", redactSensitive: true, allowCloudData: true });
-    const provider = createProvider(config, "sk-test-key", fetch);
     const vault = new RedactionVault();
     const userText = "Investigate logons by jane.doe@corp.example with password=Winter2026!";
     // Model echoes the placeholder it saw back as a tool argument.
     const emailPh = vault.placeholder("email", "jane.doe@corp.example");
-    (requests as unknown[]).length = 0;
     const scripted = fakeFetch([
       {
         json: {
@@ -141,7 +130,6 @@ describe("Data egress governance", () => {
     expect(res.message.toolCalls![0]!.arguments).toEqual({ query: 'user.email:"jane.doe@corp.example"' });
     expect(res.message.content).toBe("Searching jane.doe@corp.example");
     expect(res.redactions!.total).toBeGreaterThanOrEqual(2);
-    expect(provider).toBeDefined();
 
     const blocked = createProvider(providerConfig({ kind: "openai", allowCloudData: false }), "sk-test-key", scripted.fetch);
     await expect(blocked.chat({ messages: [{ role: "user", content: "hi" }] })).rejects.toBeInstanceOf(AiPolicyError);
