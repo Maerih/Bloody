@@ -163,7 +163,6 @@ export function DataTable<T>({
       hidden: initialState?.hidden ?? columns.filter((c) => c.defaultHidden).map((c) => c.id),
     }),
     // Columns are usually declared inline; only the initial snapshot matters here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
   const [state, setState] = useState<DataTableViewState>(defaultState);
