@@ -50,7 +50,8 @@ export function Popover({ trigger, children, align = "start", side = "bottom", c
   }, [setOpen]);
 
   const refs = useMemo(() => [wrapperRef], []);
-  useDismiss(refs, closeAndFocus, open);
+  // Outside clicks just close (focus stays where the user clicked); Escape returns focus.
+  useDismiss(refs, close, open, closeAndFocus);
 
   return (
     <div ref={wrapperRef} className={clsx("relative inline-flex", className)}>

@@ -1,5 +1,4 @@
 import {
-  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -92,6 +91,16 @@ export const queryKeys = {
   reportSchedules: (orgId: string | null) => ["reports", "schedules", orgKey(orgId)] as const,
   billingUsage: ["billing", "usage"] as const,
 };
+
+/**
+ * Like keepPreviousData, but only while the organization scope (second key segment) is
+ * unchanged — after an org switch the UI shows loading states, never the previous
+ * organization's numbers under the new organization's name.
+ */
+function keepPreviousWithinOrg<T>(orgId: string | null) {
+  return (previous: T | undefined, previousQuery: { queryKey: readonly unknown[] } | undefined): T | undefined =>
+    previousQuery && previousQuery.queryKey[1] === orgKey(orgId) ? previous : undefined;
+}
 
 function useScope(explicit: string | null | undefined): string | null {
   const current = useCurrentOrganizationId();
@@ -204,7 +213,7 @@ export function useCommandCenterSummary(windowDays = 90, options: { organization
     queryFn: ({ signal }) =>
       api.get<CommandCenterSummary>("/command-center/summary", { signal, query: { organizationId: orgId, windowDays } }),
     refetchInterval: options.refetchIntervalMs ?? 60_000,
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousWithinOrg<CommandCenterSummary>(orgId),
   });
 }
 
@@ -238,7 +247,7 @@ export function useIncidents(filters: IncidentFilters = {}, options: { enabled?:
     queryKey: queryKeys.incidents(orgId, rest),
     queryFn: async ({ signal }) =>
       toPage(await api.get<Page<Incident> | Incident[]>("/incidents", { signal, query: incidentQuery(orgId, rest) })),
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousWithinOrg<Page<Incident>>(orgId),
     enabled: options.enabled ?? true,
   });
 }
@@ -351,7 +360,7 @@ export function useEscalations(filters: EscalationFilters = {}, options: { enabl
     },
     enabled: options.enabled ?? true,
     refetchInterval: options.refetchIntervalMs,
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousWithinOrg<Page<Escalation>>(orgId),
   });
 }
 
@@ -427,7 +436,7 @@ export function useGlobalSearch(q: string, options: { organizationId?: string | 
       normalizeSearchResponse(await api.get<unknown>("/search", { signal, query: { q: term, organizationId: orgId, limit: 25 } })),
     enabled: term.length >= (options.minLength ?? 2),
     staleTime: 15_000,
-    placeholderData: keepPreviousData,
+    placeholderData: keepPreviousWithinOrg<SearchHit[]>(orgId),
   });
 }
 
