@@ -1,0 +1,13 @@
+{
+  "$comment": [
+    "Reviewed exceptions to the Bloody dependency licence policy (scripts/license-check.mjs, docs/LICENSES.md).",
+    "Each entry is pinned to the exact declared licence string: if an upstream release changes its licence the entry",
+    "stops matching and the gate fails until the change is re-reviewed. Required: package, license, justification",
+    "(>= 20 chars), approvedBy. Optional: versions (exact version, list, or \"*\"), scope (prod | dev | any),",
+    "expires (ISO date), exceptionRef (mandatory for denied licences: link to the legal sign-off / ADR).",
+    "Investigated and NOT needing an entry (all alternatives/operands permissive): pako '(MIT AND Zlib)',",
+    "victory-vendor 'MIT AND ISC', nodemailer 'MIT-0', tslib '0BSD', caniuse-lite 'CC-BY-4.0' (dev-only browser",
+    "support data used by autoprefixer/browserslist at build time; never shipped)."
+  ],
+  "entries": []
+}
