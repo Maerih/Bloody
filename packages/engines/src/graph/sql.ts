@@ -93,6 +93,49 @@ export interface GraphEdgeRow extends Record<string, unknown> {
 export const GRAPH_NODES_TABLE = "graph_nodes";
 export const GRAPH_EDGES_TABLE = "graph_edges";
 
+/**
+ * Reference DDL for the expected table shape (Postgres ≥ 14). The control plane owns the
+ * actual migration; this constant documents the contract the engines rely on and can be
+ * used verbatim or diffed against the migration in tests.
+ */
+export const GRAPH_SCHEMA_SQL = `
+create table if not exists graph_nodes (
+  id              uuid primary key,
+  tenant_id       uuid not null,
+  organization_id uuid null,
+  kind            text not null,
+  key             text not null,
+  label           text not null,
+  props           jsonb not null default '{}'::jsonb,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create unique index if not exists graph_nodes_natural_key
+  on graph_nodes (tenant_id, coalesce(organization_id, '00000000-0000-0000-0000-000000000000'::uuid), kind, key);
+create index if not exists graph_nodes_kind_key on graph_nodes (tenant_id, kind, key text_pattern_ops);
+create index if not exists graph_nodes_props on graph_nodes using gin (props jsonb_path_ops);
+
+create table if not exists graph_edges (
+  id              uuid primary key,
+  tenant_id       uuid not null,
+  organization_id uuid null,
+  kind            text not null,
+  from_id         uuid not null references graph_nodes(id) on delete cascade,
+  to_id           uuid not null references graph_nodes(id) on delete cascade,
+  props           jsonb not null default '{}'::jsonb,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (tenant_id, from_id, kind, to_id)
+);
+create index if not exists graph_edges_from on graph_edges (tenant_id, from_id, kind);
+create index if not exists graph_edges_to on graph_edges (tenant_id, to_id, kind);
+
+alter table graph_nodes enable row level security;
+alter table graph_edges enable row level security;
+create policy graph_nodes_tenant on graph_nodes using (tenant_id = current_setting('app.tenant_id')::uuid);
+create policy graph_edges_tenant on graph_edges using (tenant_id = current_setting('app.tenant_id')::uuid);
+`.trim();
+
 /** Map a `graph_nodes` row to a contract node, verifying the tenant and the kind. */
 export function nodeFromRow(row: GraphNodeRow, expectedTenantId: string): GraphNode {
   if (row.tenant_id !== expectedTenantId) throw new GraphError("tenant_mismatch", `Row ${row.id} belongs to another tenant`);

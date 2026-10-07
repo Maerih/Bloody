@@ -154,3 +154,12 @@ describe("SQL row mapping", () => {
     expect(escapeLikePattern("50%_off\\")).toBe("50\\%\\_off\\\\");
   });
 });
+
+describe("GRAPH_SCHEMA_SQL", () => {
+  it("documents both tables with tenant isolation and the dedupe keys", async () => {
+    const { GRAPH_SCHEMA_SQL } = await import("./sql.js");
+    expect(GRAPH_SCHEMA_SQL).toMatch(/create table if not exists graph_nodes/);
+    expect(GRAPH_SCHEMA_SQL).toMatch(/unique \(tenant_id, from_id, kind, to_id\)/);
+    expect(GRAPH_SCHEMA_SQL).toMatch(/row level security/);
+  });
+});
