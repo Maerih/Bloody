@@ -231,21 +231,24 @@ export class PlaybookEngine {
     if (TERMINAL.has(exec.status)) return exec;
     const next = this.clone(exec);
     const now = this.clock.now().toISOString();
+    const pendingApprovals: string[] = [];
     for (const s of next.steps) {
-      if (s.status === "pending_approval" && s.approvalId) {
-        try {
-          await this.deps.approvals.cancel(tenantId, s.approvalId, actor, `playbook execution cancelled: ${reason}`);
-        } catch {
-          // already decided — the execution state below is authoritative
-        }
-      }
+      if (s.status === "pending_approval" && s.approvalId) pendingApprovals.push(s.approvalId);
       if (s.status === "pending" || s.status === "pending_approval" || s.status === "approved") s.status = "cancelled";
     }
     next.status = "cancelled";
     next.finishedAt = now;
     this.log(next, { stepId: null, action: null, status: "info", attempt: 0, startedAt: now, finishedAt: now, message: `cancelled by ${actor.id}: ${reason}` });
+    // Persist the cancellation first: approval listeners that fire below then see a terminal execution.
     const saved = await this.save(next, exec.version);
     if (!saved) throw new AutomationError("concurrent_modification", "execution changed concurrently; retry");
+    for (const approvalId of pendingApprovals) {
+      try {
+        await this.deps.approvals.cancel(tenantId, approvalId, actor, `playbook execution cancelled: ${reason}`);
+      } catch {
+        // already decided — the execution state above is authoritative
+      }
+    }
     await this.auditExecution(saved, "playbook.cancelled", actor);
     return saved;
   }

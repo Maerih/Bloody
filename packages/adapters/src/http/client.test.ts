@@ -110,6 +110,10 @@ describe("EngineClient", () => {
     expect(() => client.resolve("/../admin")).toThrow(EngineError);
     expect(() => client.resolve("//evil.example/x")).toThrow(EngineError);
     expect(() => client.resolve("relative")).toThrow(EngineError);
+    expect(() => client.resolve("/x?admin=1")).toThrow(EngineError);
+    const prefixed = new EngineClient({ engine: "t", baseUrl: "https://e.acme.example/api/", fetch, resolveHost: testResolver });
+    expect(() => prefixed.resolve("/%2e%2e/admin")).toThrow(EngineError);
+    expect(prefixed.resolve("/items").pathname).toBe("/api/items");
     await expect(client.get("/r")).rejects.toMatchObject({ code: "redirect_blocked" });
     const rebinding = new EngineClient({ engine: "t", baseUrl: "https://rebind.example.com", fetch, resolveHost: testResolver });
     await expect(rebinding.get("/x")).rejects.toMatchObject({ code: "unsafe_url" });

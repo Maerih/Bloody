@@ -261,7 +261,7 @@ export class SyslogSender implements NotificationSender {
   async send(channel: NotificationChannel, message: NotificationMessage): Promise<DeliveryResult> {
     const cfg = parseConfig(SyslogConfig, channel);
     const line = buildSyslogMessage(message, cfg, this.deps.hostname ?? osHostname());
-    let payload = Buffer.from(line, "utf8");
+    let payload: Buffer = Buffer.from(line, "utf8");
     const warnings: string[] = [];
     if (cfg.protocol === "udp") {
       const max = this.deps.maxUdpBytes ?? 2048;

@@ -1,5 +1,5 @@
 import type { Severity } from "@bloody/contracts";
-import { escapeHtml, stripControlChars, textToHtml } from "../template.js";
+import { escapeHtml, stripControlChars } from "../template.js";
 import { eventLabel, SEVERITY_COLORS, SEVERITY_LABEL, type Branding, type NotificationFact } from "./types.js";
 
 /**
@@ -218,4 +218,4 @@ export function renderEmailText(input: Omit<EmailLayoutInput, "bodyHtml" | "logo
   return lines.join("\n");
 }
 
-export { textToHtml };
+
