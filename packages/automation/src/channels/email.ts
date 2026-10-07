@@ -185,7 +185,7 @@ export class EmailSender implements NotificationSender {
 
   async compose(channel: NotificationChannel, message: NotificationMessage): Promise<SendMailOptions> {
     const config = parseConfig(EmailConfig, channel);
-    const brand = await (this.deps.branding ?? defaultBrandingResolver)(channel.tenantId, channel.organizationId);
+    const brand = await (this.deps.branding ?? defaultBrandingResolver)(channel.tenantId, message.organizationId ?? channel.organizationId);
     const fromName = brand.name === "Bloody" ? this.deps.from.name : `${brand.name} Security Operations`;
     const total = (message.attachments ?? []).reduce((n, a) => n + a.content.length, 0);
     const max = this.deps.maxAttachmentBytes ?? 15 * 1024 * 1024;
