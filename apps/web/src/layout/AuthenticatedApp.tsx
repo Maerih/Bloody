@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { setUnauthorizedHandler } from "../api/client";
@@ -29,7 +29,7 @@ export function AuthRedirectBridge() {
   return null;
 }
 
-export function FullPageStatus({ children }: { children: React.ReactNode }) {
+export function FullPageStatus({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-canvas p-6">
       <LogoMark size={40} />
