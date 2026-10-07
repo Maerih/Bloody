@@ -1,13 +1,11 @@
 import type { AttackTechnique, EventCategory, Severity } from "@bloody/contracts";
 import { mergeTechniques, technique } from "../core/attack.js";
-import { defineAdapter, type Adapter, type EventDraft, type MapOutput } from "../core/adapter.js";
+import { defineAdapter, type Adapter, type AdapterExtras, type EventDraft, type MapOutput } from "../core/adapter.js";
 import { ObservableSet } from "../core/indicators.js";
 import { basename, field, int, num, port, rec, redactKeys, str, strArr, uint, type JsonRecord } from "../core/json.js";
 import { atLeast, DEFAULT_SENSITIVE_KEYS, severityFromCvss, severityFromWord } from "../core/severity.js";
 import { toIso } from "../core/time.js";
 import { inferDirection } from "../net/ip.js";
-import type { ResponseActionHandler } from "../response/types.js";
-import type { ResponseActionKey } from "@bloody/contracts";
 import { mapWindowsEvent } from "./windows.js";
 
 /**
@@ -261,14 +259,10 @@ function mapAlert(alert: unknown): MapOutput {
   return draft;
 }
 
-export interface WazuhAdapterOptions {
-  /** Response handlers (see `createWazuhActiveResponse`). */
-  actions?: Partial<Record<ResponseActionKey, ResponseActionHandler>>;
-  healthCheck?: Adapter["healthCheck"];
-}
-
-export function createWazuhAdapter(opts: WazuhAdapterOptions = {}): Adapter {
+/** Extras: `actions` from `createWazuhActiveResponse`, `healthCheck` = `wazuhHealthCheck`. */
+export function createWazuhAdapter(extras: AdapterExtras = {}): Adapter {
   return defineAdapter({
+    ...extras,
     key: "wazuh",
     version: WAZUH_ADAPTER_VERSION,
     name: "Wazuh alerts",
@@ -286,8 +280,6 @@ export function createWazuhAdapter(opts: WazuhAdapterOptions = {}): Adapter {
       return mapAlert(src ?? record);
     },
     redactRaw: (r) => redactKeys(r, DEFAULT_SENSITIVE_KEYS),
-    ...(opts.actions ? { actions: opts.actions } : {}),
-    ...(opts.healthCheck ? { healthCheck: opts.healthCheck } : {}),
   });
 }
 

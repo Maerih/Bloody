@@ -52,9 +52,21 @@ export interface ToolDefinition<S extends z.ZodTypeAny = z.ZodTypeAny, R = unkno
   handler: (ctx: ToolHandlerContext, args: z.output<S>) => Promise<R>;
 }
 
-/** Erased form stored in the gateway registry. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyToolDefinition = ToolDefinition<z.ZodTypeAny, any>;
+/** Erased form stored in the gateway registry (arguments are validated by `parameters` first). */
+export interface AnyToolDefinition {
+  name: string;
+  description: string;
+  tier: AiToolTier;
+  permission: Permission;
+  parameters: z.ZodTypeAny;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  risk?: ActionRisk | ((args: any) => ActionRisk);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  describe?: (args: any) => string;
+  timeoutMs?: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handler: (ctx: ToolHandlerContext, args: any) => Promise<unknown>;
+}
 
 export function defineTool<S extends z.ZodTypeAny, R>(def: ToolDefinition<S, R>): ToolDefinition<S, R> {
   return def;
