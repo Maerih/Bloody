@@ -210,12 +210,14 @@ export class EngineClient {
 
   /** Resolve a relative path against the base URL, refusing anything that escapes it. */
   resolve(path: string, query?: Record<string, QueryValue>): URL {
-    if (!path.startsWith("/") || path.startsWith("//") || /(^|\/)\.\.?(\/|$)/.test(path) || path.includes("\\") || /[\u0000-\u001f]/.test(path)) {
+    if (!path.startsWith("/") || path.startsWith("//") || /(^|\/)\.\.?(\/|$)/.test(path) || /[\\?#\u0000-\u001f]/.test(path)) {
       throw new EngineError("unsafe_url", "request path must be an absolute, normalized path", { engine: this.engine, retryable: false });
     }
-    const url = new URL(`${this.baseUrl.pathname.replace(/\/$/, "")}${path}${encodeQuery(query)}`, this.baseUrl.origin);
-    if (url.origin !== this.baseUrl.origin) {
-      throw new EngineError("unsafe_url", "request escaped the engine origin", { engine: this.engine, retryable: false });
+    const prefix = this.baseUrl.pathname.replace(/\/$/, "");
+    const url = new URL(`${prefix}${path}${encodeQuery(query)}`, this.baseUrl.origin);
+    // WHATWG URL parsing also folds "%2e%2e" segments; the result must stay under the base path.
+    if (url.origin !== this.baseUrl.origin || !url.pathname.startsWith(`${prefix}/`)) {
+      throw new EngineError("unsafe_url", "request escaped the engine base URL", { engine: this.engine, retryable: false });
     }
     return url;
   }
@@ -330,6 +332,7 @@ export class EngineClient {
       try {
         const status = res.status;
         if (status >= 300 && status < 400) {
+          await res.body?.cancel().catch(() => undefined);
           throw new EngineError("redirect_blocked", `engine answered with redirect ${status}; redirects are not followed`, { engine: this.engine, status, url: safeUrl, retryable: false });
         }
         if (status === 401 && !refreshedAuth && this.opts.auth?.kind === "token_provider" && !req.skipAuth) {

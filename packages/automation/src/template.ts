@@ -63,7 +63,7 @@ export function stripControlChars(value: string): string {
 
 /** Single-line header value (e-mail subject etc.): no CR/LF (header injection), trimmed, bounded. */
 export function sanitizeHeaderValue(value: string, max = 250): string {
-  const single = stripControlChars(value).replace(/[\r\n\t  ]+/g, " ").replace(/\s{2,}/g, " ").trim();
+  const single = stripControlChars(value).replace(/[\r\n\t\u2028\u2029]+/g, " ").replace(/\s{2,}/g, " ").trim();
   return single.length > max ? `${single.slice(0, max - 1)}…` : single;
 }
 
