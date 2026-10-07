@@ -53,13 +53,13 @@ export class NodeHttpTransport implements HttpTransport {
     };
   }
 
-  request(req: HttpRequest): Promise<HttpResponse> {
+  async request(req: HttpRequest): Promise<HttpResponse> {
     const policy: SsrfPolicy = { ...this.opts.ssrf, ...req.ssrf };
     const url = assertSafeUrl(req.url, policy);
     const host = url.hostname.replace(/^\[|\]$/g, "");
     if (isIP(host)) {
       const v = checkAddress(host, policy);
-      if (v.blocked) return Promise.reject(new SsrfBlockedError(v.reason ?? "destination blocked", { host }));
+      if (v.blocked) throw new SsrfBlockedError(v.reason ?? "destination blocked", { host });
     }
     const lookup = createGuardedLookup(policy, this.opts.lookup);
     const timeoutMs = Math.min(req.timeoutMs ?? this.opts.timeoutMs, 60_000);

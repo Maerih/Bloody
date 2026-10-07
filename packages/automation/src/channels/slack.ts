@@ -113,7 +113,7 @@ export class SlackSender implements NotificationSender {
   async send(channel: NotificationChannel, message: NotificationMessage): Promise<DeliveryResult> {
     const cfg = parseConfig(SlackConfig, channel);
     const url = await resolveUrl(this.deps.secrets, channel.tenantId, cfg);
-    const brand = await (this.deps.branding ?? defaultBrandingResolver)(channel.tenantId, channel.organizationId);
+    const brand = await (this.deps.branding ?? defaultBrandingResolver)(channel.tenantId, message.organizationId ?? channel.organizationId);
     const res = await this.deps.http.request({
       url,
       method: "POST",
