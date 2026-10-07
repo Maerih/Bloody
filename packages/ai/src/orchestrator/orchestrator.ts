@@ -323,7 +323,18 @@ export class AiOrchestrator {
         if (calls.length === 0) {
           answer = res.message.content;
           run.push({ role: "assistant", content: answer });
-          finishReason = finalize && step === limits.maxSteps && (res.message.toolCalls?.length ?? 0) > 0 ? "max_steps" : res.finishReason === "length" ? "length" : res.finishReason === "content_filter" ? "content_filter" : finalize && step < limits.maxSteps ? "token_budget" : "completed";
+          // The model wanted more tools but was forced to conclude → report which limit applied.
+          const ignoredCalls = finalize && (res.message.toolCalls?.length ?? 0) > 0;
+          finishReason =
+            res.finishReason === "length"
+              ? "length"
+              : res.finishReason === "content_filter"
+                ? "content_filter"
+                : ignoredCalls
+                  ? step === limits.maxSteps
+                    ? "max_steps"
+                    : "token_budget"
+                  : "completed";
           break;
         }
 
@@ -414,7 +425,9 @@ export class AiOrchestrator {
             ? `I queued ${pendingApprovals.length} action(s) for human approval; nothing has been executed yet.`
             : "The model did not return an answer. Review the tool trace or retry with a more specific question.";
     }
-    if (finishReason === "max_steps" && run[run.length - 1]?.role !== "assistant") run.push({ role: "assistant", content: answer });
+    const last = run[run.length - 1];
+    if (!last || last.role !== "assistant" || (last.toolCalls?.length ?? 0) > 0) run.push({ role: "assistant", content: answer });
+    else if (last.content !== answer) last.content = answer;
 
     const completedAt = this.clock.now();
     if (retain) {

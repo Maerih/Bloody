@@ -166,7 +166,7 @@ const RULES: Rule[] = [
   {
     kind: "connection_secret",
     // Case-sensitive on purpose: matches connection strings, not e.g. the PWD= environment variable.
-    pattern: /(\b(?:AccountKey|SharedAccessKey|SharedAccessSignature|Password|password|Pwd)\s*=\s*)([^;&\s"']{6,})/g,
+    pattern: /(\b(?:AccountKey|SharedAccessKey|SharedAccessSignature|Pwd)\s*=\s*)([^;&\s"']{6,})/g,
     secretGroup: 2,
   },
   { kind: "aws_secret_key", pattern: /(\baws_?secret_?access_?key["']?\s*[:=]\s*["']?)([A-Za-z0-9/+=]{40})/gi, secretGroup: 2 },
@@ -211,32 +211,48 @@ export class Redactor {
   redactText(text: string, vault: RedactionVault, stats?: RedactionStats): string {
     if (!text || this.rules.length === 0) return text;
     let out = text;
-    for (const rule of this.rules) {
-      rule.pattern.lastIndex = 0;
-      out = out.replace(rule.pattern, (...args: unknown[]) => {
-        const match = args[0] as string;
-        // replace() callback args: match, ...captureGroups, offset, input (no named groups used).
-        const groups = args.slice(1, args.length - 2) as (string | undefined)[];
-        const secret = rule.secretGroup === 0 ? match : groups[rule.secretGroup - 1];
-        if (!secret || secret.startsWith(PLACEHOLDER_PREFIX)) return match;
-        if (rule.validate && !rule.validate(secret)) return match;
-        if (stats) {
-          stats.total += 1;
-          stats.byKind[rule.kind] = (stats.byKind[rule.kind] ?? 0) + 1;
-        }
-        const ph = vault.placeholder(rule.kind, secret);
-        if (rule.secretGroup === 0) return ph;
-        // Re-assemble: groups partition the match; replace only the secret group.
-        let rebuilt = "";
-        for (let i = 0; i < groups.length; i++) {
-          const g = groups[i];
-          if (g === undefined) continue;
-          rebuilt += i === rule.secretGroup - 1 ? ph : g;
-        }
-        return rebuilt;
-      });
-    }
+    for (const rule of this.rules) out = this.applyOutsidePlaceholders(out, rule, vault, stats);
     return out;
+  }
+
+  /** Apply one rule to the text between existing placeholders (placeholders are never rewritten). */
+  private applyOutsidePlaceholders(text: string, rule: Rule, vault: RedactionVault, stats?: RedactionStats): string {
+    if (!text.includes(PLACEHOLDER_PREFIX)) return this.applyRule(text, rule, vault, stats);
+    let out = "";
+    let last = 0;
+    const re = new RegExp(PLACEHOLDER_RE.source, "g");
+    for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+      out += this.applyRule(text.slice(last, m.index), rule, vault, stats) + m[0];
+      last = m.index + m[0].length;
+    }
+    return out + this.applyRule(text.slice(last), rule, vault, stats);
+  }
+
+  private applyRule(text: string, rule: Rule, vault: RedactionVault, stats?: RedactionStats): string {
+    if (!text) return text;
+    rule.pattern.lastIndex = 0;
+    return text.replace(rule.pattern, (...args: unknown[]) => {
+      const match = args[0] as string;
+      // replace() callback args: match, ...captureGroups, offset, input (no named groups used).
+      const groups = args.slice(1, args.length - 2) as (string | undefined)[];
+      const secret = rule.secretGroup === 0 ? match : groups[rule.secretGroup - 1];
+      if (!secret || secret.startsWith(PLACEHOLDER_PREFIX)) return match;
+      if (rule.validate && !rule.validate(secret)) return match;
+      if (stats) {
+        stats.total += 1;
+        stats.byKind[rule.kind] = (stats.byKind[rule.kind] ?? 0) + 1;
+      }
+      const ph = vault.placeholder(rule.kind, secret);
+      if (rule.secretGroup === 0) return ph;
+      // Groups partition the match; replace only the secret group.
+      let rebuilt = "";
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        if (g === undefined) continue;
+        rebuilt += i === rule.secretGroup - 1 ? ph : g;
+      }
+      return rebuilt;
+    });
   }
 
   /** Deep-redact a JSON-like value. Values under sensitive keys are always replaced. */
