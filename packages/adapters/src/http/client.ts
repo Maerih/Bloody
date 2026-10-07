@@ -312,6 +312,8 @@ export class EngineClient {
       } catch (err) {
         clearTimeout(timer);
         req.signal?.removeEventListener("abort", onExternalAbort);
+        // Errors raised while obtaining credentials (token login, 2FA refusal) are final.
+        if (err instanceof EngineError) throw err;
         const aborted = controller.signal.aborted;
         const code: EngineErrorCode = req.signal?.aborted ? "aborted" : aborted ? "timeout" : "network";
         lastError = new EngineError(code, code === "timeout" ? `timed out after ${timeoutMs} ms` : `request failed: ${sanitizeSnippet((err as Error).message ?? "")}`, {

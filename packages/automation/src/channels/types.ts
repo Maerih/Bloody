@@ -153,6 +153,15 @@ export const UrlOrRef = z
   })
   .refine((v) => Boolean(v.url) !== Boolean(v.urlRef), { message: "exactly one of url or urlRef is required" });
 
+/** `new URL` that returns null instead of throwing. */
+export function safeUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveUrl(secrets: SecretResolver, tenantId: string, cfg: { url?: string | undefined; urlRef?: string | undefined }): Promise<string> {
   if (cfg.url) return cfg.url;
   if (cfg.urlRef) return (await secrets.resolve(tenantId, cfg.urlRef)).trim();
