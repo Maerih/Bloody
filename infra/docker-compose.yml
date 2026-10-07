@@ -1,0 +1,300 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Bloody — development core stack.
+#
+#   docker compose -f infra/docker-compose.yml up -d --build          # core: Postgres, Valkey, API, web, Mailpit
+#   docker compose -f infra/docker-compose.yml --profile sso up -d    # + Keycloak (OIDC)
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.engines.yml --profile endpoint up -d
+#                                                                     # + open-source engine layer (see that file)
+#
+# Endpoints (bound to 127.0.0.1 only):
+#   http://localhost:8080        Command Center (nginx → /api proxied to the API)
+#   http://localhost:4000        API (/api/v1/healthz, /api/v1/readyz, /api/v1/metrics)
+#   http://localhost:8025        Mailpit — every notification / scheduled-report e-mail lands here
+#   localhost:5432               Postgres (superuser postgres/postgres for `pnpm test`, dev only)
+#   http://localhost:8180        Keycloak (profile sso)
+#
+# All credentials below are DEVELOPMENT DEFAULTS, overridable from infra/.env (see /.env.example).
+# They are not secrets and must never be reused: production secrets come from the secret store
+# (Kubernetes ExternalSecret, infra/k8s). The API refuses dev secrets when NODE_ENV=production
+# and BLOODY_ENV=production (docs/OPERATIONS.md §Security hardening).
+#
+# Networks
+#   edge     published UI entry points
+#   core     control plane (API, Postgres, Valkey, Mailpit) — not reachable from engine containers
+#   engines  internal-only engine network (no internet egress); the API joins it to drive engines
+name: bloody
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+x-api-build: &api-build
+  image: ${BLOODY_API_IMAGE:-bloody/api:dev}
+  build:
+    context: ..
+    dockerfile: infra/docker/api.Dockerfile
+    args:
+      GIT_SHA: ${GIT_SHA:-dev}
+
+services:
+  # ── PKI for local TLS (Mailpit STARTTLS; Bloody never disables certificate verification) ──
+  dev-certs:
+    image: alpine/openssl:3.5.9
+    entrypoint: ["/bin/sh", "/scripts/dev-certs.sh"]
+    environment:
+      CERT_DIR: /certs
+      DEV_CERT_LEAVES: "mailpit localhost"
+    volumes:
+      - ../scripts/dev-certs.sh:/scripts/dev-certs.sh:ro
+      - dev-certs:/certs
+    network_mode: none
+    restart: "no"
+    logging: *logging
+
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_DB: bloody
+      POSTGRES_USER: postgres
+      # Matches the vitest default DATABASE_URL (postgres://postgres:postgres@localhost:5432/bloody_test).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --data-checksums"
+      BLOODY_DB_OWNER_PASSWORD: ${BLOODY_DB_OWNER_PASSWORD:-bloody-owner-dev-only}
+      BLOODY_DB_APP_PASSWORD: ${BLOODY_DB_APP_PASSWORD:-bloody-app-dev-only}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-dev-only}
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - password_encryption=scram-sha-256
+      - -c
+      - max_connections=300
+      - -c
+      - log_min_duration_statement=500ms
+      - -c
+      - log_lock_waits=on
+      - -c
+      - wal_level=replica
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    shm_size: 256mb
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bloody -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [core]
+    restart: unless-stopped
+    logging: *logging
+
+  valkey:
+    image: valkey/valkey:8.1.10-alpine
+    user: "999:1000"
+    command:
+      - valkey-server
+      - --requirepass
+      - ${VALKEY_PASSWORD:-valkey-dev-only}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 512mb
+      # Cache, rate-limit and lock keys carry TTLs; never evict keys without one.
+      - --maxmemory-policy
+      - volatile-lru
+      - --protected-mode
+      - "yes"
+    environment:
+      REDISCLI_AUTH: ${VALKEY_PASSWORD:-valkey-dev-only}
+    volumes:
+      - valkey-data:/data
+    <<: *hardened
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [core]
+    restart: unless-stopped
+    logging: *logging
+
+  # ── Mail catcher for notification channels and scheduled report delivery ──
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "10000"
+      MP_SMTP_TLS_CERT: /certs/mailpit.crt
+      MP_SMTP_TLS_KEY: /certs/mailpit.key
+      MP_SMTP_REQUIRE_STARTTLS: "true"
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      TZ: UTC
+    volumes:
+      - dev-certs:/certs:ro
+      - mailpit-data:/data
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+      - "127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025"
+    <<: *hardened
+    depends_on:
+      dev-certs:
+        condition: service_completed_successfully
+    networks: [core]
+    restart: unless-stopped
+    logging: *logging
+
+  # ── Schema migrations (runs as the schema owner, then exits) ──
+  migrate:
+    <<: [*api-build, *hardened]
+    command: ["dist/db/migrate.js"]
+    environment:
+      NODE_ENV: production
+      BLOODY_ENV: development
+      DATABASE_URL: postgres://bloody_owner:${BLOODY_DB_OWNER_PASSWORD:-bloody-owner-dev-only}@postgres:5432/bloody
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [core]
+    restart: "no"
+    logging: *logging
+
+  api:
+    <<: [*api-build, *hardened]
+    environment:
+      NODE_ENV: production
+      BLOODY_ENV: development
+      HOST: 0.0.0.0
+      PORT: "4000"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      BLOODY_PUBLIC_URL: ${BLOODY_PUBLIC_URL:-http://localhost:8080}
+      BLOODY_CORS_ORIGINS: ${BLOODY_CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      BLOODY_COOKIE_SECURE: "false"
+      BLOODY_TRUST_PROXY: "true"
+      # Runtime role: DML only, RLS enforced (see infra/postgres/init).
+      DATABASE_URL: postgres://bloody_app:${BLOODY_DB_APP_PASSWORD:-bloody-app-dev-only}@postgres:5432/bloody
+      DATABASE_POOL_MAX: "20"
+      VALKEY_URL: redis://:${VALKEY_PASSWORD:-valkey-dev-only}@valkey:6379/0
+      BLOODY_JWT_SECRET: ${BLOODY_JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789abcdef}
+      BLOODY_ENCRYPTION_KEY: ${BLOODY_ENCRYPTION_KEY:-ZGV2LW9ubHktZW5jcnlwdGlvbi1rZXktMzJieXRlcyE=}
+      BLOODY_EVENT_BUS: ${BLOODY_EVENT_BUS:-memory}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      # Notifications & scheduled reports → Mailpit (STARTTLS, verified against the dev CA).
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      SMTP_USER: ${SMTP_USER:-bloody}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-mailpit-accepts-any}
+      SMTP_FROM: ${SMTP_FROM:-notifications@bloody.local}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Bloody Security Operations}
+      NODE_EXTRA_CA_CERTS: /certs/ca.crt
+      BLOODY_SCHEDULER_ENABLED: "true"
+      BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS: ${BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS:-false}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-bloody}
+      OIDC_CLIENT_SECRET: ${BLOODY_OIDC_CLIENT_SECRET:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: bloody-api
+    tmpfs:
+      - /tmp:size=64m
+    volumes:
+      - dev-certs:/certs:ro
+    ports:
+      - "127.0.0.1:${API_PORT:-4000}:4000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks: [core, engines]
+    restart: unless-stopped
+    logging: *logging
+
+  web:
+    image: ${BLOODY_WEB_IMAGE:-bloody/web:dev}
+    build:
+      context: ..
+      dockerfile: infra/docker/web.Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
+        VITE_SALES_CONTACT_URL: ${VITE_SALES_CONTACT_URL:-}
+        VITE_SUPPORT_URL: ${VITE_SUPPORT_URL:-}
+        VITE_DOCS_URL: ${VITE_DOCS_URL:-}
+        VITE_FEEDBACK_URL: ${VITE_FEEDBACK_URL:-}
+        VITE_HUB_URL: ${VITE_HUB_URL:-}
+    environment:
+      BLOODY_API_UPSTREAM: http://api:4000
+    <<: *hardened
+    tmpfs:
+      - /tmp:uid=101,gid=101,mode=0755,size=64m
+      - /etc/nginx/conf.d:uid=101,gid=101,mode=0755,size=1m
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [edge, core]
+    restart: unless-stopped
+    logging: *logging
+
+  # ── Optional: Keycloak as the OIDC identity provider (profile: sso) ──
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0
+    profiles: [sso, identity]
+    command: ["start-dev", "--import-realm", "--health-enabled=true", "--metrics-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-keycloak-admin-dev-only}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-dev-only}
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8180}
+      KC_HTTP_ENABLED: "true"
+      # Consumed by the realm import placeholders in keycloak/realm-bloody.json.
+      BLOODY_PUBLIC_URL: ${BLOODY_PUBLIC_URL:-http://localhost:8080}
+      BLOODY_OIDC_CLIENT_SECRET: ${BLOODY_OIDC_CLIENT_SECRET:-bloody-oidc-dev-only-secret}
+    volumes:
+      - ./keycloak/realm-bloody.json:/opt/keycloak/data/import/realm-bloody.json:ro
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [edge, core]
+    restart: unless-stopped
+    logging: *logging
+
+networks:
+  edge: {}
+  core: {}
+  engines:
+    internal: true
+
+volumes:
+  postgres-data: {}
+  valkey-data: {}
+  mailpit-data: {}
+  dev-certs: {}

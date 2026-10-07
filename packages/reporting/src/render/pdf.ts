@@ -112,7 +112,12 @@ class PdfReport {
       textOpts.ellipsis = true;
     }
     const h = d.heightOfString(str, textOpts);
+    // Draw without moving the flow cursor: callers manage layout explicitly.
+    const sx = d.x;
+    const sy = d.y;
     d.text(str, x, y, textOpts);
+    d.x = sx;
+    d.y = sy;
     return opts.height !== undefined ? Math.min(h, opts.height) : h;
   }
 
@@ -176,7 +181,7 @@ class PdfReport {
       ["CLASSIFICATION", this.r.classification],
     ];
     const colW = (CW - 24) / 3;
-    meta.forEach(([k, v], i) => {
+    meta.filter(([, v]) => v !== null && v !== "").forEach(([k, v], i) => {
       const cx = ML + (i % 3) * (colW + 12);
       const cy = y + Math.floor(i / 3) * 48;
       d.moveTo(cx, cy).lineTo(cx + colW, cy).lineWidth(0.6).stroke(INK.hairline);
@@ -456,7 +461,8 @@ class PdfReport {
 
   private table(t: TableSpec): void {
     const d = this.doc;
-    this.ensure(40);
+    // keep the caption together with the header and at least the first rows
+    this.ensure(t.rows.length === 0 ? 50 : Math.min(110, 40 + t.rows.length * 18));
     this.text(t.title, ML, d.y, { size: 10.5, font: BOLD });
     d.y += 16;
     if (t.rows.length === 0) {
@@ -470,11 +476,11 @@ class PdfReport {
     const fs = t.columns.length > 7 ? 7 : 7.8;
     const header = (): void => {
       const hh = Math.max(...t.columns.map((c, i) => this.measure(c.label.toUpperCase(), { size: 6.5, font: BOLD, width: widths[i]! - 8, lineGap: 0 }))) + 9;
-      d.rect(ML, d.y, CW, hh).fill("#F1F0EC");
-      t.columns.forEach((c, i) => this.text(c.label.toUpperCase(), xs[i]! + 4, d.y + 4.5, { size: 6.5, font: BOLD, color: INK.secondary, width: widths[i]! - 8, align: isNumericColumn(c) ? "right" : "left", lineGap: 0 }));
-      d.y += hh;
+      const hy = d.y;
+      d.rect(ML, hy, CW, hh).fill("#F1F0EC");
+      t.columns.forEach((c, i) => this.text(c.label.toUpperCase(), xs[i]! + 4, hy + 4.5, { size: 6.5, font: BOLD, color: INK.secondary, width: widths[i]! - 8, align: isNumericColumn(c) ? "right" : "left", lineGap: 0 }));
+      d.y = hy + hh;
     };
-    this.ensure(60);
     header();
     t.rows.forEach((row, ri) => {
       const cells = t.columns.map((c) => formatCell(row[c.key] ?? null, c, { ...(t.currency ? { currency: t.currency } : {}) }));
@@ -483,14 +489,15 @@ class PdfReport {
         this.newPage();
         header();
       }
-      if (ri % 2 === 1) d.rect(ML, d.y, CW, rh).fill("#FAFAF8");
+      const ry = d.y;
+      if (ri % 2 === 1) d.rect(ML, ry, CW, rh).fill("#FAFAF8");
       t.columns.forEach((c, i) => {
         const v = row[c.key] ?? null;
-        if (c.format === "severity" && typeof v === "string") this.sevMark(v, xs[i]! + 4, d.y + 4, fs);
-        else this.text(cells[i]!, xs[i]! + 4, d.y + 4, { size: fs, font: c.format === "code" ? MONO : FONT, width: widths[i]! - 8, align: isNumericColumn(c) ? "right" : "left", lineGap: 0.5, height: rh - 6 });
+        if (c.format === "severity" && typeof v === "string") this.sevMark(v, xs[i]! + 4, ry + 4, fs);
+        else this.text(cells[i]!, xs[i]! + 4, ry + 4, { size: fs, font: c.format === "code" ? MONO : FONT, width: widths[i]! - 8, align: isNumericColumn(c) ? "right" : "left", lineGap: 0.5, height: rh - 6 });
       });
-      d.moveTo(ML, d.y + rh).lineTo(ML + CW, d.y + rh).lineWidth(0.4).stroke(INK.hairline);
-      d.y += rh;
+      d.moveTo(ML, ry + rh).lineTo(ML + CW, ry + rh).lineWidth(0.4).stroke(INK.hairline);
+      d.y = ry + rh;
     });
     d.y += 6;
     const notes = [t.totalRows !== undefined && t.totalRows > t.rows.length ? `Showing ${formatNumber(t.rows.length)} of ${formatNumber(t.totalRows)}; the full list is in the CSV export.` : null, t.note ?? null].filter((n): n is string => n !== null);

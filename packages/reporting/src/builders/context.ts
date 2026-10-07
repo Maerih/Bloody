@@ -146,7 +146,7 @@ export const GLOSSARY: Record<string, string> = {
   MTTR: "Mean time to resolve — average time from detection to closure, for incidents closed during the period.",
   "SLA attainment": "Share of SLA objectives met: acknowledge and resolve targets per severity, evaluated for incidents detected in the period. Objectives not yet due are excluded; overdue open incidents count as breaches.",
   "False-positive rate": "Alerts closed as false positive divided by all alerts in the period.",
-  "Risk score": "Bloody Risk Engine score (0-100): explainable likelihood × impact model; each score lists the factors that contributed.",
+  "Risk score": "Risk Engine score (0-100): an explainable likelihood × impact model; each score lists the factors that contributed.",
   "Exposure score": "Aggregate exposure (0-100) from vulnerabilities, internet-facing assets, identity weaknesses and attack paths to crown jewels.",
   KEV: "Known Exploited Vulnerabilities — vulnerabilities with confirmed exploitation in the wild (e.g. the CISA KEV catalogue).",
   EPSS: "Exploit Prediction Scoring System — probability of exploitation in the next 30 days.",

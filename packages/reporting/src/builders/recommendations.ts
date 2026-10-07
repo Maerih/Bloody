@@ -95,7 +95,7 @@ export function deriveRecommendations(s: RecommendationSignals): Recommendation[
   if (n(s.overdueVulnerabilities) > 0) {
     out.push({
       priority: "medium",
-      title: `Clear ${n(s.overdueVulnerabilities)} vulnerabilities past their remediation SLA`,
+      title: `Clear ${n(s.overdueVulnerabilities)} ${n(s.overdueVulnerabilities) === 1 ? "vulnerability" : "vulnerabilities"} past their remediation SLA`,
       rationale: "Overdue findings accumulate risk and are a frequent audit finding. Patch, mitigate, or record a risk acceptance with an owner and expiry.",
       owner: customer ? "it" : "security_engineering",
     });
@@ -127,7 +127,7 @@ export function deriveRecommendations(s: RecommendationSignals): Recommendation[
   if (n(s.backlogOlderThan7d) > 0) {
     out.push({
       priority: "medium",
-      title: `Close out ${n(s.backlogOlderThan7d)} incidents open for more than 7 days`,
+      title: `Close out ${n(s.backlogOlderThan7d)} ${n(s.backlogOlderThan7d) === 1 ? "incident" : "incidents"} open for more than 7 days`,
       rationale: "Aged incidents indicate blocked investigations or missing customer input.",
       owner: "soc",
     });
@@ -135,19 +135,19 @@ export function deriveRecommendations(s: RecommendationSignals): Recommendation[
   if (n(s.failingCriticalControls) > 0) {
     out.push({
       priority: "high",
-      title: `Fix ${n(s.failingCriticalControls)} failing high-severity controls`,
+      title: `Fix ${n(s.failingCriticalControls)} failing high-severity ${n(s.failingCriticalControls) === 1 ? "control" : "controls"}`,
       rationale: "High-severity control failures are the gaps most likely to be cited in audits and exploited by attackers.",
       owner: customer ? "it" : "security_engineering",
     });
   }
   if (n(s.outdatedAgents) > 0) {
-    out.push({ priority: "low", title: `Update ${n(s.outdatedAgents)} outdated agents`, rationale: "Older agent versions miss detection content and fixes.", owner: customer ? "it" : "soc" });
+    out.push({ priority: "low", title: `Update ${n(s.outdatedAgents)} outdated ${n(s.outdatedAgents) === 1 ? "agent" : "agents"}`, rationale: "Older agent versions miss detection content and fixes.", owner: customer ? "it" : "soc" });
   }
   if (n(s.playbookFailures) > 0) {
-    out.push({ priority: "low", title: `Review ${n(s.playbookFailures)} failed playbook runs`, rationale: "Failed automations usually point at expired integration credentials or changed APIs.", owner: "security_engineering" });
+    out.push({ priority: "low", title: `Review ${n(s.playbookFailures)} failed playbook ${n(s.playbookFailures) === 1 ? "run" : "runs"}`, rationale: "Failed automations usually point at expired integration credentials or changed APIs.", owner: "security_engineering" });
   }
   if (n(s.pendingApprovals) > 0) {
-    out.push({ priority: "medium", title: `Decide ${n(s.pendingApprovals)} pending response approvals`, rationale: "High-risk containment actions are waiting for a human approver.", owner: "soc" });
+    out.push({ priority: "medium", title: `Decide ${n(s.pendingApprovals)} pending response ${n(s.pendingApprovals) === 1 ? "approval" : "approvals"}`, rationale: "High-risk containment actions are waiting for a human approver.", owner: "soc" });
   }
   return out.sort((a, b) => ORDER[a.priority] - ORDER[b.priority]);
 }

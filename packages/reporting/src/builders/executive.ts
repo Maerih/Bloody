@@ -46,7 +46,7 @@ export async function buildExecutive(ctx: BuildContext): Promise<BuilderResult> 
   if (posture.riskScore === null) ctx.notes.push("No organization risk score is available for the period end.");
 
   const kpis = [
-    kpi({ key: "risk_score", label: "Risk score", value: posture.riskScore, unit: "score", previous: prevPosture.riskScore, betterWhen: "lower", thresholds: { good: 39, warn: 69 }, explanation: "Bloody Risk Engine organization score at period end (0-100, explainable factors)." }),
+    kpi({ key: "risk_score", label: "Risk score", value: posture.riskScore, unit: "score", previous: prevPosture.riskScore, betterWhen: "lower", thresholds: { good: 39, warn: 69 }, explanation: "Risk Engine organization score at period end (0-100, explainable factors)." }),
     kpi({ key: "incidents", label: "Incidents", value: detected.length, unit: "count", previous: prevDetected.length, betterWhen: "lower", explanation: "Incidents detected during the period." }),
     kpi({ key: "critical_incidents", label: "Critical incidents", value: sev.critical, unit: "count", previous: prevSev.critical, betterWhen: "lower", explanation: "Incidents of critical severity detected during the period." }),
     kpi({ key: "mttr", label: "Mean time to resolve", value: timings.mttr.mean, unit: "minutes", previous: prevTimings.mttr.mean, betterWhen: "lower", explanation: `Mean detection-to-closure time over ${timings.mttr.n} incidents closed in the period.` }),

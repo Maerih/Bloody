@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Transport: Kafka (Apache-2.0) — topics bloody.raw.<adapter>, value = raw vendor record (JSON).
+# Message key = collector integration id (ordering per collector); headers carry the routing
+# metadata the ingest consumer needs to resolve tenant + organization from the integration.
+# Production: SASL_SSL with per-collector principals and topic ACLs (docs/OPERATIONS.md).
+
+transforms:
+  kafka_envelope:
+    type: remap
+    inputs: [zeek, suricata, wazuh, opencanary, nuclei, syslog]
+    source: |
+      ._bloody.headers = {
+        "bloody-source": ._bloody.source,
+        "bloody-integration-id": ._bloody.key,
+        "bloody-collector": "${HOSTNAME:-vector}",
+        "bloody-schema": "raw.v1"
+      }
+
+sinks:
+  bloody_kafka:
+    type: kafka
+    inputs: [kafka_envelope]
+    bootstrap_servers: "${KAFKA_BROKERS:-kafka:9092}"
+    topic: "bloody.raw.{{ _bloody.source }}"
+    key_field: _bloody.key
+    headers_key: _bloody.headers
+    compression: zstd
+    encoding:
+      codec: json
+      except_fields: ["_bloody"]
+    acknowledgements:
+      enabled: true
+    buffer:
+      type: disk
+      max_size: 1073741824
+      when_full: block
+    librdkafka_options:
+      "enable.idempotence": "true"
+      "acks": "all"
+      "linger.ms": "50"
+      "message.timeout.ms": "300000"
