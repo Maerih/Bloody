@@ -4,7 +4,7 @@ import { arr, int, isRecord, num, rec, str, type JsonRecord } from "../core/json
 import { jsonRecords, payloadToText, type SplitItem } from "../core/records.js";
 import { severityFromCvss } from "../core/severity.js";
 import { toIso } from "../core/time.js";
-import { parseXml, xmlChild, xmlChildren, xmlDescendants, xmlText, type XmlElement } from "../core/xml.js";
+import { parseXml, xmlChild, xmlChildren, xmlText, type XmlElement } from "../core/xml.js";
 import { isIp } from "../net/ip.js";
 
 /**
@@ -150,15 +150,14 @@ function* splitGreenbone(raw: unknown): Generator<SplitItem> {
       yield { ok: false, index: 0, error: `invalid GMP XML: ${(err as Error).message}` };
       return;
     }
-    const reports = doc.name === "report" ? [doc] : xmlDescendants(doc, "report").filter((r) => xmlChild(r, "results") !== undefined);
+    // gvmd wraps the report: <get_reports_response><report><task/>…<report><results>…
+    const outers = doc.name === "report" ? [doc] : xmlChildren(doc, "report");
     let index = 0;
-    const seen = new Set<XmlElement>();
-    for (const report of reports.length > 0 ? reports : [doc]) {
-      const info = { id: report.attrs["id"], taskName: xmlText(report, "task/name") };
-      for (const results of xmlChildren(report, "results")) {
+    for (const outer of outers.length > 0 ? outers : [doc]) {
+      const inner = xmlChild(outer, "report") ?? outer;
+      const info = { id: inner.attrs["id"] ?? outer.attrs["id"], taskName: xmlText(outer, "task/name") ?? xmlText(inner, "task/name") };
+      for (const results of xmlChildren(inner, "results")) {
         for (const el of xmlChildren(results, "result")) {
-          if (seen.has(el)) continue;
-          seen.add(el);
           yield { ok: true, index: index++, value: new ParsedGmpResult(greenboneResultFromXml(el, info)) };
         }
       }

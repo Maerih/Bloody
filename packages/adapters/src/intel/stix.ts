@@ -185,16 +185,16 @@ export function stixIndicatorToRecords(ind: JsonRecord, objects: Map<string, Jso
   const declared = int(ind["confidence"]) ?? int(ind["x_opencti_score"]);
   let confidence = declared ?? opts.defaultConfidence ?? 50;
   scoring.push(declared !== undefined ? `confidence ${declared} declared by the producer` : `no producer confidence; default ${confidence}`);
+  if (parsed.conjunctive && confidence > 80) {
+    confidence = 80;
+    scoring.push("confidence capped at 80: pattern is conjunctive, only self-sufficient hash observables were extracted");
+  }
   let severity: Severity = severityFromConfidence(confidence);
+  scoring.push(`severity ${severity} from confidence ${confidence}`);
   if (types.includes("anomalous-activity") || types.includes("unknown")) {
     severity = severity === "high" ? "medium" : severity === "medium" ? "low" : severity;
-    scoring.push("severity lowered: indicator type is anomalous/unknown activity");
+    scoring.push(`severity lowered to ${severity}: indicator type is anomalous/unknown activity`);
   }
-  if (parsed.conjunctive) {
-    scoring.push("pattern is conjunctive; only self-sufficient hash observables were extracted");
-    confidence = Math.min(confidence, 80);
-  }
-  scoring.push(`severity ${severity} from confidence ${confidence}`);
   const tlp = tlpOf(strArr(ind["object_marking_refs"]), objects);
   const references = arr(ind["external_references"])
     .map((r) => (isRecord(r) ? str(r["url"]) : undefined))
