@@ -1,0 +1,41 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "email": "admin@mssp.example",
+      "role_id": 1,
+      "role_name": "admin"
+    },
+    {
+      "id": 2,
+      "username": "analyst1",
+      "email": "analyst1@mssp.example",
+      "role_id": 2,
+      "role_name": "analyst"
+    },
+    {
+      "id": 7,
+      "username": "jane.ciso",
+      "email": "jane@acme.example",
+      "role_id": 4,
+      "role_name": "customer_user"
+    },
+    {
+      "id": 8,
+      "username": "max.it",
+      "email": "max@acme-eu.example",
+      "role_id": 4,
+      "role_name": "customer_user"
+    },
+    {
+      "id": 9,
+      "username": "weird.portal",
+      "email": null,
+      "role_id": 4,
+      "role_name": "customer_user"
+    }
+  ],
+  "message": "Users retrieved",
+  "success": true
+}

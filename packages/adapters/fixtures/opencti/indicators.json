@@ -1,0 +1,271 @@
+{
+  "data": {
+    "indicators": {
+      "edges": [
+        {
+          "node": {
+            "id": "opencti-int-1",
+            "standard_id": "indicator--00000001-1111-4222-8333-444455556666",
+            "name": "[ipv4-addr:value = '198.51.100.23']",
+            "description": null,
+            "pattern": "[ipv4-addr:value = '198.51.100.23']",
+            "pattern_type": "stix",
+            "indicator_types": [
+              "malicious-activity"
+            ],
+            "x_opencti_main_observable_type": "IPv4-Addr",
+            "x_opencti_score": 80,
+            "valid_from": "2026-09-01T00:00:00.000Z",
+            "valid_until": "2026-12-01T00:00:00.000Z",
+            "revoked": false,
+            "confidence": 70,
+            "created": "2026-09-01T00:00:00.000Z",
+            "modified": "2026-10-01T12:00:00.000Z",
+            "createdBy": {
+              "name": "ACME CTI Team"
+            },
+            "objectLabel": [
+              {
+                "value": "c2"
+              }
+            ],
+            "objectMarking": [
+              {
+                "definition_type": "TLP",
+                "definition": "TLP:AMBER"
+              }
+            ],
+            "killChainPhases": [
+              {
+                "kill_chain_name": "mitre-attack",
+                "phase_name": "command-and-control"
+              }
+            ],
+            "externalReferences": {
+              "edges": [
+                {
+                  "node": {
+                    "source_name": "acme-report",
+                    "external_id": "R-12",
+                    "url": "https://intel.acme.example/r/12"
+                  }
+                }
+              ]
+            },
+            "stixCoreRelationships": {
+              "edges": [
+                {
+                  "node": {
+                    "to": {
+                      "entity_type": "Malware",
+                      "name": "Cobalt Strike"
+                    }
+                  }
+                },
+                {
+                  "node": {
+                    "to": {
+                      "entity_type": "Intrusion-Set",
+                      "name": "FIN-SPIDER"
+                    }
+                  }
+                },
+                {
+                  "node": {
+                    "to": {
+                      "entity_type": "Attack-Pattern",
+                      "name": "Application Layer Protocol",
+                      "x_mitre_id": "T1071"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "cursor": "c1"
+        },
+        {
+          "node": {
+            "id": "opencti-int-2",
+            "standard_id": "indicator--00000002-1111-4222-8333-444455556666",
+            "name": "[file:hashes.'SHA-256' = '5e585fd3fab5cb85a941179b4df835cef988f0281af9f47878024f539c302df5']",
+            "description": null,
+            "pattern": "[file:hashes.'SHA-256' = '5e585fd3fab5cb85a941179b4df835cef988f0281af9f47878024f539c302df5']",
+            "pattern_type": "stix",
+            "indicator_types": [
+              "malicious-activity"
+            ],
+            "x_opencti_main_observable_type": "StixFile",
+            "x_opencti_score": 95,
+            "valid_from": "2026-09-01T00:00:00.000Z",
+            "valid_until": "2026-12-01T00:00:00.000Z",
+            "revoked": false,
+            "confidence": 70,
+            "created": "2026-09-01T00:00:00.000Z",
+            "modified": "2026-10-01T12:00:00.000Z",
+            "createdBy": {
+              "name": "ACME CTI Team"
+            },
+            "objectLabel": {
+              "edges": [
+                {
+                  "node": {
+                    "value": "loader"
+                  }
+                }
+              ]
+            },
+            "objectMarking": {
+              "edges": [
+                {
+                  "node": {
+                    "definition_type": "TLP",
+                    "definition": "TLP:RED"
+                  }
+                }
+              ]
+            },
+            "killChainPhases": [
+              {
+                "kill_chain_name": "mitre-attack",
+                "phase_name": "command-and-control"
+              }
+            ],
+            "externalReferences": {
+              "edges": [
+                {
+                  "node": {
+                    "source_name": "acme-report",
+                    "external_id": "R-12",
+                    "url": "https://intel.acme.example/r/12"
+                  }
+                }
+              ]
+            },
+            "stixCoreRelationships": {
+              "edges": []
+            }
+          },
+          "cursor": "c2"
+        },
+        {
+          "node": {
+            "id": "opencti-int-3",
+            "standard_id": "indicator--00000003-1111-4222-8333-444455556666",
+            "name": "rule bloody_test { condition: true }",
+            "description": null,
+            "pattern": "rule bloody_test { condition: true }",
+            "pattern_type": "yara",
+            "indicator_types": [
+              "malicious-activity"
+            ],
+            "x_opencti_main_observable_type": "StixFile",
+            "x_opencti_score": 80,
+            "valid_from": "2026-09-01T00:00:00.000Z",
+            "valid_until": "2026-12-01T00:00:00.000Z",
+            "revoked": false,
+            "confidence": 70,
+            "created": "2026-09-01T00:00:00.000Z",
+            "modified": "2026-10-01T12:00:00.000Z",
+            "createdBy": {
+              "name": "ACME CTI Team"
+            },
+            "objectLabel": [
+              {
+                "value": "c2"
+              }
+            ],
+            "objectMarking": [
+              {
+                "definition_type": "TLP",
+                "definition": "TLP:AMBER"
+              }
+            ],
+            "killChainPhases": [
+              {
+                "kill_chain_name": "mitre-attack",
+                "phase_name": "command-and-control"
+              }
+            ],
+            "externalReferences": {
+              "edges": [
+                {
+                  "node": {
+                    "source_name": "acme-report",
+                    "external_id": "R-12",
+                    "url": "https://intel.acme.example/r/12"
+                  }
+                }
+              ]
+            },
+            "stixCoreRelationships": {
+              "edges": []
+            }
+          },
+          "cursor": "c3"
+        },
+        {
+          "node": {
+            "id": "opencti-int-4",
+            "standard_id": "indicator--00000004-1111-4222-8333-444455556666",
+            "name": "[domain-name:value = 'old.badcdn.net']",
+            "description": null,
+            "pattern": "[domain-name:value = 'old.badcdn.net']",
+            "pattern_type": "stix",
+            "indicator_types": [
+              "malicious-activity"
+            ],
+            "x_opencti_main_observable_type": "Domain-Name",
+            "x_opencti_score": 80,
+            "valid_from": "2026-09-01T00:00:00.000Z",
+            "valid_until": "2026-12-01T00:00:00.000Z",
+            "revoked": true,
+            "confidence": 70,
+            "created": "2026-09-01T00:00:00.000Z",
+            "modified": "2026-10-01T12:00:00.000Z",
+            "createdBy": {
+              "name": "ACME CTI Team"
+            },
+            "objectLabel": [
+              {
+                "value": "c2"
+              }
+            ],
+            "objectMarking": [
+              {
+                "definition_type": "TLP",
+                "definition": "TLP:AMBER"
+              }
+            ],
+            "killChainPhases": [
+              {
+                "kill_chain_name": "mitre-attack",
+                "phase_name": "command-and-control"
+              }
+            ],
+            "externalReferences": {
+              "edges": [
+                {
+                  "node": {
+                    "source_name": "acme-report",
+                    "external_id": "R-12",
+                    "url": "https://intel.acme.example/r/12"
+                  }
+                }
+              ]
+            },
+            "stixCoreRelationships": {
+              "edges": []
+            }
+          },
+          "cursor": "c4"
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "c4",
+        "hasNextPage": false,
+        "globalCount": 4
+      }
+    }
+  }
+}

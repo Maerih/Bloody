@@ -1,0 +1,217 @@
+{
+  "alerts": [
+    {
+      "id": 101,
+      "alert_creation_time": "2026-10-07T09:00:00.000Z",
+      "time_closed": null,
+      "alert_name": "Mimikatz credential dumping detected on acme-dc01",
+      "alert_description": "Mimikatz credential dumping detected on acme-dc01",
+      "status": "OPEN",
+      "customer_code": "ACME",
+      "source": "wazuh",
+      "assigned_to": "analyst1",
+      "escalated": true,
+      "verdict": null,
+      "verdict_reason": null,
+      "verdict_note": null,
+      "verdict_by": null,
+      "verdict_at": null,
+      "severity": "Critical",
+      "comments": [
+        {
+          "user_name": "analyst1",
+          "alert_id": 101,
+          "id": 1,
+          "comment": "investigating",
+          "created_at": "2026-10-07T09:20:00.000Z"
+        }
+      ],
+      "assets": [
+        {
+          "asset_name": "acme-dc01",
+          "agent_id": "001",
+          "customer_code": "ACME",
+          "index_id": "x",
+          "alert_linked": 1,
+          "id": 1,
+          "alert_context_id": 1,
+          "velociraptor_id": null,
+          "index_name": "wazuh-acme_1"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "T1003.001",
+          "id": 1
+        },
+        {
+          "tag": "credential-access",
+          "id": 2
+        }
+      ],
+      "linked_cases": [
+        {
+          "case_name": "DC credential theft",
+          "case_description": "x",
+          "case_creation_time": "2026-10-07T09:10:00",
+          "case_status": "IN_PROGRESS",
+          "assigned_to": "analyst1",
+          "id": 900
+        }
+      ],
+      "iocs": [
+        {
+          "value": "198.51.100.23",
+          "type": "IP",
+          "description": "C2",
+          "id": 1
+        },
+        {
+          "value": "c6b438b0c071b0875f3579207f8391b6a60e1319b25832a0ad3fe4bc0a5ae7ea",
+          "type": "HASH",
+          "description": null,
+          "id": 2
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "alert_creation_time": "2026-10-07T08:00:00.000Z",
+      "time_closed": null,
+      "alert_name": "Suspicious PowerShell download cradle",
+      "alert_description": "Suspicious PowerShell download cradle",
+      "status": "PENDING_CUSTOMER",
+      "customer_code": "ACME",
+      "source": "wazuh",
+      "assigned_to": null,
+      "escalated": false,
+      "verdict": null,
+      "verdict_reason": null,
+      "verdict_note": null,
+      "verdict_by": null,
+      "verdict_at": null,
+      "severity": "High",
+      "comments": [],
+      "assets": [
+        {
+          "asset_name": "acme-ws-17",
+          "agent_id": "002",
+          "customer_code": "ACME",
+          "index_id": "x",
+          "alert_linked": 1,
+          "id": 1,
+          "alert_context_id": 1,
+          "velociraptor_id": null,
+          "index_name": "wazuh-acme_1"
+        }
+      ],
+      "tags": [
+        {
+          "tag": "T1059.001",
+          "id": 3
+        }
+      ],
+      "linked_cases": [],
+      "iocs": []
+    },
+    {
+      "id": 103,
+      "alert_creation_time": "2026-10-07T09:00:00.000Z",
+      "time_closed": "2026-10-07T10:00:00.000Z",
+      "alert_name": "Port scan from internal host",
+      "alert_description": "Port scan from internal host",
+      "status": "CLOSED",
+      "customer_code": "ACME_EU",
+      "source": "wazuh",
+      "assigned_to": null,
+      "escalated": false,
+      "verdict": "FALSE_POSITIVE",
+      "verdict_reason": null,
+      "verdict_note": null,
+      "verdict_by": null,
+      "verdict_at": "2026-10-07T10:00:00.000Z",
+      "severity": "Medium",
+      "comments": [],
+      "assets": [
+        {
+          "asset_name": "eu-fin-01",
+          "agent_id": "004",
+          "customer_code": "ACME_EU",
+          "index_id": "x",
+          "alert_linked": 1,
+          "id": 1,
+          "alert_context_id": 1,
+          "velociraptor_id": null,
+          "index_name": "wazuh-acme_1"
+        }
+      ],
+      "tags": [],
+      "linked_cases": [],
+      "iocs": []
+    },
+    {
+      "id": 104,
+      "alert_creation_time": "2026-10-07T09:00:00.000Z",
+      "time_closed": null,
+      "alert_name": "Office365 impossible travel",
+      "alert_description": "Office365 impossible travel",
+      "status": "OPEN",
+      "customer_code": "GLOBEX",
+      "source": "office365",
+      "assigned_to": null,
+      "escalated": false,
+      "verdict": null,
+      "verdict_reason": null,
+      "verdict_note": null,
+      "verdict_by": null,
+      "verdict_at": null,
+      "severity": null,
+      "comments": [],
+      "assets": [
+        {
+          "asset_name": "unknown-laptop",
+          "agent_id": null,
+          "customer_code": "GLOBEX",
+          "index_id": "y",
+          "alert_linked": 1,
+          "id": 2,
+          "alert_context_id": 2,
+          "index_name": "o365"
+        }
+      ],
+      "tags": [],
+      "linked_cases": [],
+      "iocs": []
+    },
+    {
+      "id": 105,
+      "alert_creation_time": "2026-10-07T09:00:00.000Z",
+      "time_closed": null,
+      "alert_name": "Alert for a customer outside our scope",
+      "alert_description": "Alert for a customer outside our scope",
+      "status": "OPEN",
+      "customer_code": "INITECH",
+      "source": "wazuh",
+      "assigned_to": null,
+      "escalated": false,
+      "verdict": null,
+      "verdict_reason": null,
+      "verdict_note": null,
+      "verdict_by": null,
+      "verdict_at": null,
+      "severity": "Low",
+      "comments": [],
+      "assets": [],
+      "tags": [],
+      "linked_cases": [],
+      "iocs": []
+    }
+  ],
+  "total": 5,
+  "open": 3,
+  "in_progress": 0,
+  "closed": 1,
+  "pending_customer": 1,
+  "success": true,
+  "message": "Alerts retrieved successfully"
+}

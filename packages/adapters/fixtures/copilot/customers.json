@@ -1,0 +1,48 @@
+{
+  "customers": [
+    {
+      "customer_code": "ACME",
+      "customer_name": "Acme Corporation",
+      "contact_first_name": "Jane",
+      "contact_last_name": "Doe",
+      "parent_customer_code": null,
+      "phone": "+1-555-0100",
+      "address_line1": "1 Main St",
+      "city": "Springfield",
+      "state": "IL",
+      "postal_code": "62701",
+      "country": "US",
+      "customer_type": "enterprise",
+      "logo_file": null,
+      "is_provisioned": true
+    },
+    {
+      "customer_code": "ACME_EU",
+      "customer_name": "Acme Europe GmbH",
+      "contact_first_name": "Max",
+      "contact_last_name": "Muster",
+      "parent_customer_code": "ACME",
+      "phone": "+49-30-0000",
+      "country": "DE",
+      "customer_type": "subsidiary",
+      "is_provisioned": true
+    },
+    {
+      "customer_code": "GLOBEX",
+      "customer_name": "Globex Ltd",
+      "contact_first_name": "Hank",
+      "contact_last_name": "Scorpio",
+      "parent_customer_code": null,
+      "country": "GB",
+      "customer_type": "smb",
+      "is_provisioned": false
+    },
+    {
+      "customer_code": "ORPHAN",
+      "customer_name": "Orphan Co",
+      "parent_customer_code": "DOES_NOT_EXIST"
+    }
+  ],
+  "success": true,
+  "message": "Customers retrieved successfully"
+}

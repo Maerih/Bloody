@@ -1,0 +1,66 @@
+[
+  {
+    "id": "e1",
+    "time": 1791370000000,
+    "type": "LOGIN",
+    "realmId": "acme",
+    "clientId": "bloody-portal",
+    "userId": "u-alice",
+    "sessionId": "s1",
+    "ipAddress": "198.51.100.7",
+    "details": {
+      "auth_method": "openid-connect",
+      "auth_type": "code",
+      "username": "alice@acme.example",
+      "redirect_uri": "https://portal/cb"
+    }
+  },
+  {
+    "id": "e2",
+    "time": 1791370001000,
+    "type": "LOGIN_ERROR",
+    "realmId": "acme",
+    "clientId": "bloody-portal",
+    "userId": "u-bob",
+    "ipAddress": "203.0.113.66",
+    "error": "invalid_user_credentials",
+    "details": {
+      "username": "bob@acme.example",
+      "auth_method": "openid-connect",
+      "password": "should-never-be-here"
+    }
+  },
+  {
+    "id": "e3",
+    "time": 1791370002000,
+    "type": "REMOVE_TOTP",
+    "realmId": "acme",
+    "clientId": "account-console",
+    "userId": "u-bob",
+    "ipAddress": "203.0.113.66",
+    "details": {
+      "username": "bob@acme.example"
+    }
+  },
+  {
+    "id": "e4",
+    "time": 1791370003000,
+    "type": "IMPERSONATE",
+    "realmId": "acme",
+    "clientId": "security-admin-console",
+    "userId": "u-carol",
+    "ipAddress": "10.0.10.30",
+    "details": {
+      "username": "carol@acme.example",
+      "impersonator": "admin"
+    }
+  },
+  {
+    "time": 1791370004000,
+    "type": "CLIENT_LOGIN",
+    "realmId": "acme",
+    "clientId": "svc-reporting",
+    "ipAddress": "10.0.20.5",
+    "details": {}
+  }
+]

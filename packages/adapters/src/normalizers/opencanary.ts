@@ -3,6 +3,7 @@ import { technique } from "../core/attack.js";
 import { defineAdapter, skip, type Adapter, type AdapterExtras, type MapOutput } from "../core/adapter.js";
 import { ObservableSet } from "../core/indicators.js";
 import { int, isRecord, port, rec, redactKeys, str, type JsonRecord } from "../core/json.js";
+import { isSensitiveKey } from "../core/severity.js";
 import { toIso } from "../core/time.js";
 import { inferDirection } from "../net/ip.js";
 
@@ -125,7 +126,7 @@ export function createOpenCanaryAdapter(extras: AdapterExtras = {}): Adapter {
     consumes: ["OpenCanary JSON log lines / webhook alerts (logtype 2000-19001, user-defined 99000+)"],
     map: mapCanary,
     // Captured credentials are replaced before the record is embedded as provenance.
-    redactRaw: (r) => redactKeys(r, SECRET_LOGDATA),
+    redactRaw: (r) => redactKeys(r, (k) => SECRET_LOGDATA.has(k) || isSensitiveKey(k)),
   });
 }
 

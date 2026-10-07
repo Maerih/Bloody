@@ -3,7 +3,7 @@ import { mergeTechniques, technique } from "../core/attack.js";
 import { defineAdapter, type Adapter, type AdapterExtras, type EventDraft, type MapOutput } from "../core/adapter.js";
 import { ObservableSet } from "../core/indicators.js";
 import { basename, field, int, num, port, rec, redactKeys, str, strArr, uint, type JsonRecord } from "../core/json.js";
-import { atLeast, DEFAULT_SENSITIVE_KEYS, severityFromCvss, severityFromWord } from "../core/severity.js";
+import { atLeast, isSensitiveKey, severityFromCvss, severityFromWord } from "../core/severity.js";
 import { toIso } from "../core/time.js";
 import { inferDirection } from "../net/ip.js";
 import { mapWindowsEvent } from "./windows.js";
@@ -279,7 +279,7 @@ export function createWazuhAdapter(extras: AdapterExtras = {}): Adapter {
       const src = rec(field(record, "_source"));
       return mapAlert(src ?? record);
     },
-    redactRaw: (r) => redactKeys(r, DEFAULT_SENSITIVE_KEYS),
+    redactRaw: (r) => redactKeys(r, isSensitiveKey),
   });
 }
 

@@ -173,13 +173,17 @@ export function unique<T>(values: Iterable<T>, keyOf: (v: T) => string = (v) => 
   return out;
 }
 
-/** Deep-clone a JSON value while replacing the listed keys (case-insensitive, any depth). */
-export function redactKeys(value: unknown, keys: ReadonlySet<string>, replacement = "[REDACTED]"): unknown {
-  if (Array.isArray(value)) return value.map((v) => redactKeys(v, keys, replacement));
+/**
+ * Deep-clone a JSON value while replacing sensitive keys (any depth). `keys` is a set of
+ * lower-case key names or a predicate receiving the lower-cased key.
+ */
+export function redactKeys(value: unknown, keys: ReadonlySet<string> | ((lowerKey: string) => boolean), replacement = "[REDACTED]"): unknown {
+  const match = typeof keys === "function" ? keys : (k: string) => keys.has(k);
+  if (Array.isArray(value)) return value.map((v) => redactKeys(v, match, replacement));
   if (!isRecord(value)) return value;
   const out: JsonRecord = {};
   for (const [k, v] of Object.entries(value)) {
-    out[k] = keys.has(k.toLowerCase()) ? replacement : redactKeys(v, keys, replacement);
+    out[k] = match(k.toLowerCase()) ? replacement : redactKeys(v, match, replacement);
   }
   return out;
 }

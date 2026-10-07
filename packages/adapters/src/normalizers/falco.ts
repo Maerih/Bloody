@@ -3,7 +3,7 @@ import { normalizeTactic, techniquesInText } from "../core/attack.js";
 import { defineAdapter, type Adapter, type AdapterExtras, skip, type EventDraft, type MapOutput } from "../core/adapter.js";
 import { ObservableSet } from "../core/indicators.js";
 import { basename, field, int, isRecord, port, rec, redactKeys, str, strArr } from "../core/json.js";
-import { DEFAULT_SENSITIVE_KEYS } from "../core/severity.js";
+import { isSensitiveKey } from "../core/severity.js";
 import { toIso } from "../core/time.js";
 import { inferDirection } from "../net/ip.js";
 
@@ -144,6 +144,6 @@ export function createFalcoAdapter(extras: AdapterExtras = {}): Adapter {
     vendor: "The Falco Authors",
     consumes: ["Falco JSON alerts (syscall, k8s_audit)", "Falcosidekick webhook payloads"],
     map: mapFalco,
-    redactRaw: (r) => redactKeys(r, DEFAULT_SENSITIVE_KEYS),
+    redactRaw: (r) => redactKeys(r, isSensitiveKey),
   });
 }
