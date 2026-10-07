@@ -1,0 +1,151 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens. Values are RGB triplets so Tailwind can apply alpha (`bg-surface/80`).
+ * Brand crimson is used sparingly (logo, brand accents). Severity colours are fixed semantics:
+ * critical red, high orange, medium amber, low purple; "healthy" teal matches the donuts.
+ */
+@layer base {
+  :root {
+    --canvas: 238 240 243;
+    --surface: 255 255 255;
+    --surface-2: 247 248 250;
+    --surface-3: 241 243 246;
+    --border: 225 228 233;
+    --border-strong: 203 208 216;
+    --fg: 33 41 54;
+    --fg-muted: 96 106 122;
+    --fg-subtle: 139 147 160;
+    --fg-inverse: 255 255 255;
+    --heading: 47 77 112;
+
+    --topbar: 43 50 64;
+    --topbar-fg: 233 236 241;
+    --topbar-muted: 160 170 186;
+    --topbar-hover: 58 67 84;
+
+    --rail: 229 232 236;
+    --rail-active: 214 240 246;
+    --rail-fg: 84 95 112;
+
+    --brand: 196 18 48;
+    --brand-soft: 253 232 236;
+    --primary: 29 127 216;
+    --primary-hover: 22 108 188;
+    --primary-soft: 228 241 252;
+    --healthy: 30 189 160;
+    --healthy-soft: 224 247 242;
+
+    --sev-critical: 229 57 53;
+    --sev-high: 243 146 18;
+    --sev-medium: 222 172 12;
+    --sev-low: 112 70 205;
+    --sev-info: 100 116 139;
+
+    color-scheme: light;
+  }
+
+  :root.dark {
+    --canvas: 14 17 23;
+    --surface: 23 27 35;
+    --surface-2: 29 34 44;
+    --surface-3: 35 41 52;
+    --border: 44 51 64;
+    --border-strong: 62 71 88;
+    --fg: 226 230 237;
+    --fg-muted: 156 165 180;
+    --fg-subtle: 115 125 142;
+    --fg-inverse: 14 17 23;
+    --heading: 150 184 222;
+
+    --topbar: 19 23 31;
+    --topbar-fg: 233 236 241;
+    --topbar-muted: 140 150 168;
+    --topbar-hover: 36 42 54;
+
+    --rail: 19 23 30;
+    --rail-active: 26 58 68;
+    --rail-fg: 150 160 176;
+
+    --brand: 230 50 78;
+    --brand-soft: 64 20 30;
+    --primary: 64 152 235;
+    --primary-hover: 92 168 240;
+    --primary-soft: 22 46 72;
+    --healthy: 45 200 172;
+    --healthy-soft: 18 56 52;
+
+    --sev-critical: 239 83 80;
+    --sev-high: 247 160 50;
+    --sev-medium: 234 190 40;
+    --sev-low: 150 112 235;
+    --sev-info: 128 142 165;
+
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-canvas text-base text-fg font-sans;
+    font-feature-settings: "tnum" 1, "cv11" 1;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--primary));
+    outline-offset: 1px;
+  }
+
+  ::selection {
+    background: rgb(var(--primary) / 0.25);
+  }
+}
+
+@layer components {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--border-strong)) transparent;
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: rgb(var(--surface-3));
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgb(var(--surface) / 0.6), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  .kbd {
+    @apply inline-flex min-w-[18px] items-center justify-center rounded border border-line-strong bg-surface-2 px-1 font-mono text-2xs text-fg-muted;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
