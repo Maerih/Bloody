@@ -29,6 +29,8 @@ export interface AiConversation {
 export interface StoredAiMessage {
   seq: number;
   at: string;
+  /** Content expiry (retentionDays after the message was written); null = no expiry configured. */
+  expiresAt: string | null;
   message: AiMessage;
 }
 
@@ -51,7 +53,7 @@ export interface ConversationStore {
   listActions(tenantId: string, conversationId: string): Promise<AiActionRecord[]>;
   getAction(tenantId: string, actionId: string): Promise<{ action: AiActionRecord; organizationId: string } | null>;
   list(tenantId: string, filter: ConversationListFilter): Promise<Page<AiConversation>>;
-  /** Delete message content of conversations past `expiresAt`. Returns conversations purged. */
+  /** Delete every message whose `expiresAt` has passed. Returns the number of messages purged. */
   purgeExpired(now: Date): Promise<number>;
 }
 
@@ -144,11 +146,13 @@ export class InMemoryConversationStore implements ConversationStore {
     let purged = 0;
     const iso = now.toISOString();
     for (const b of this.tenants.values()) {
-      for (const c of b.conversations.values()) {
-        if (c.expiresAt && c.expiresAt <= iso && (b.messages.get(c.id)?.length ?? 0) > 0) {
-          b.messages.delete(c.id);
-          c.messageCount = 0;
-          purged += 1;
+      for (const [conversationId, list] of b.messages) {
+        const kept = list.filter((m) => m.expiresAt === null || m.expiresAt > iso);
+        purged += list.length - kept.length;
+        if (kept.length !== list.length) {
+          b.messages.set(conversationId, kept);
+          const conv = b.conversations.get(conversationId);
+          if (conv) conv.messageCount = kept.length;
         }
       }
     }

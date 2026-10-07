@@ -9,7 +9,7 @@ export interface HttpClientOptions {
   fetch: FetchLike;
   providerKind: AiProviderKind;
   providerId?: string | null;
-  /** Per-attempt timeout (connect + full body). Default 60s. */
+  /** Per-attempt timeout (connect + full body, incl. streamed generations). Default 120 s. */
   timeoutMs?: number;
   /** Retries for 408/425/429/5xx/529, timeouts and network errors. Default 2. */
   maxRetries?: number;
@@ -130,7 +130,7 @@ export class HttpClient {
     this.fetchImpl = opts.fetch;
     this.kind = opts.providerKind;
     this.providerId = opts.providerId ?? null;
-    this.timeoutMs = opts.timeoutMs ?? 60_000;
+    this.timeoutMs = opts.timeoutMs ?? 120_000;
     this.maxRetries = Math.max(0, opts.maxRetries ?? 2);
     this.retryBaseMs = opts.retryBaseMs ?? 500;
     this.retryMaxMs = opts.retryMaxMs ?? 8_000;

@@ -432,7 +432,8 @@ export class AiOrchestrator {
     const completedAt = this.clock.now();
     if (retain) {
       const at = completedAt.toISOString();
-      const stored: StoredAiMessage[] = [userMessage, ...run].map((message, i) => ({ seq: conversation!.messageCount + i + 1, at, message }));
+      const messageExpiry = new Date(completedAt.getTime() + config.retentionDays * 86_400_000).toISOString();
+      const stored: StoredAiMessage[] = [userMessage, ...run].map((message, i) => ({ seq: conversation!.messageCount + i + 1, at, expiresAt: messageExpiry, message }));
       await this.deps.store.appendMessages(tenantId, conversationId, stored);
       conversation.messageCount += stored.length;
     }
@@ -531,7 +532,7 @@ export class AiOrchestrator {
     const conv = await this.deps.store.get(tenantId, conversationId);
     if (!conv || !conv.retainMessages) return;
     const at = this.clock.now().toISOString();
-    await this.deps.store.appendMessages(tenantId, conversationId, [{ seq: conv.messageCount + 1, at, message: { role: "assistant", content: `[system note] ${text}` } }]);
+    await this.deps.store.appendMessages(tenantId, conversationId, [{ seq: conv.messageCount + 1, at, expiresAt: conv.expiresAt, message: { role: "assistant", content: `[system note] ${text}` } }]);
     await this.deps.store.update(tenantId, conversationId, { messageCount: conv.messageCount + 1, updatedAt: at });
   }
 

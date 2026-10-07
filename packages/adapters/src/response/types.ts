@@ -134,6 +134,9 @@ export interface PreparedCall {
   path: string;
   query?: Record<string, string | number | boolean | ReadonlyArray<string | number> | undefined>;
   json?: unknown;
+  /** Pre-serialized body (e.g. when it is signed); sent verbatim with `contentType`. */
+  body?: string;
+  contentType?: string;
   headers?: Record<string, string>;
   /** Body as it may be stored in audit (secrets removed). Defaults to `json`. */
   auditBody?: unknown;
@@ -220,20 +223,21 @@ export async function executeResponse(
   };
 
   let call: PreparedCall;
+  let url: URL;
   try {
     guardRequest(req, supported);
     call = prepare(req);
+    url = deps.client.resolve(call.path, call.query);
   } catch (err) {
-    const code = err instanceof ResponseGuardError ? err.code : "invalid_request";
+    const code = err instanceof ResponseGuardError ? err.code : err instanceof EngineError ? err.code : "invalid_request";
     return finish("rejected", { summary: `Rejected ${req.action}: ${(err as Error).message}`, error: { code, message: (err as Error).message } });
   }
 
-  const url = deps.client.resolve(call.path, call.query);
   const auditBody = call.auditBody ?? call.json ?? null;
   const record: EngineCallRecord = {
     method: call.method,
     url: url.toString(),
-    bodySha256: call.json !== undefined ? sha256Hex(canonicalJson(call.json)) : null,
+    bodySha256: call.body !== undefined ? sha256Hex(call.body) : call.json !== undefined ? sha256Hex(canonicalJson(call.json)) : null,
     body: auditBody,
     status: null,
     durationMs: null,
@@ -247,8 +251,8 @@ export async function executeResponse(
       method: call.method,
       path: call.path,
       ...(call.query ? { query: call.query } : {}),
-      ...(call.json !== undefined ? { json: call.json } : {}),
-      headers: { "idempotency-key": req.actionId, ...call.headers },
+      ...(call.body !== undefined ? { body: call.body } : call.json !== undefined ? { json: call.json } : {}),
+      headers: { "idempotency-key": req.actionId, ...(call.body !== undefined ? { "content-type": call.contentType ?? "application/json" } : {}), ...call.headers },
       // Containment calls are never blindly retried: a timeout may still have executed.
       retry: false,
     });

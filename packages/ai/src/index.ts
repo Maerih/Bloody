@@ -58,6 +58,7 @@ export * from "./orchestrator/conversation-store.js";
 export * from "./orchestrator/usage.js";
 export * from "./orchestrator/context.js";
 export * from "./orchestrator/orchestrator.js";
+export * from "./orchestrator/automation.js";
 
 // reporting
 export * from "./reporting/narrative.js";

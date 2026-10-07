@@ -9,6 +9,7 @@ import { FixedClock, ORG_A1, TENANT_A, TENANT_B, noSleep, principal, providerCon
 import { createStandardSocTools } from "../tools/catalog.js";
 import { ToolGateway } from "../tools/gateway.js";
 import type { AiAuditEvent } from "../tools/types.js";
+import { buildAutomationRequest } from "./automation.js";
 import { InMemoryConversationStore } from "./conversation-store.js";
 import { AiOrchestrator, type AiOrchestratorLimits, type AiRunEvent } from "./orchestrator.js";
 import { BLOODY_BASE_SOC_POLICY } from "./policy.js";
@@ -280,6 +281,38 @@ describe("AiOrchestrator", () => {
     const transcript = await store.listMessages(TENANT_A, result.conversationId);
     expect(transcript.at(-1)!.message.content).toContain("approved by ir-lead");
     await expect(orchestrator.rejectAction({ approver: principal("incident_responder", { id: "ir-lead" }), actionId, reason: "late" })).rejects.toThrow(/not pending/);
+  });
+});
+
+describe("Retention and automation", () => {
+  it("purges each message after its own retention period", async () => {
+    const { orchestrator, store } = setup({ config: { retentionDays: 7 }, script: [() => ({ message: { role: "assistant", content: "ok" } })] });
+    const result = await orchestrator.run({ principal: analyst, request: { organizationId: ORG_A1, message: "keep me a week" } });
+    const stored = await store.listMessages(TENANT_A, result.conversationId);
+    expect(stored.map((m) => m.expiresAt)).toEqual(["2026-10-14T12:00:00.000Z", "2026-10-14T12:00:00.000Z"]);
+    expect(await store.purgeExpired(new Date("2026-10-10T00:00:00.000Z"))).toBe(0);
+    expect(await store.purgeExpired(new Date("2026-10-14T12:00:00.000Z"))).toBe(2);
+    expect(await store.listMessages(TENANT_A, result.conversationId)).toEqual([]);
+    expect((await store.get(TENANT_A, result.conversationId))!.messageCount).toBe(0);
+  });
+
+  it("runs automation-triggered triage under the service principal's RBAC and tool tier", async () => {
+    const { orchestrator, soc, provider } = setup({
+      config: { maxToolTier: "investigate" },
+      script: [
+        () => ({ message: toolCall("n1", "add_investigation_note", { investigationId: IDS.investigation, title: "AI triage", body: "LSASS dump via comsvcs.dll; lateral movement over SMB." }) }),
+        () => ({ message: { role: "assistant", content: "Triage recorded." } }),
+      ],
+    });
+    const automation = principal("soc_analyst_t1", { id: "svc-automation" });
+    const request = buildAutomationRequest("incident_triage", { organizationId: ORG_A1, entityId: IDS.incident, investigationId: IDS.investigation });
+    expect(request.context).toEqual({ kind: "incident", id: IDS.incident });
+    const result = await orchestrator.run({ principal: { ...automation, kind: "service" }, request });
+    expect(result.toolTrace[0]).toMatchObject({ tool: "add_investigation_note", status: "completed" });
+    expect(soc.notes[0]!.input.author).toMatchObject({ kind: "ai", onBehalfOf: "svc-automation" });
+    expect(provider.requests[0]!.tools!.map((t) => t.name)).not.toContain("request_response_action");
+    const customer = buildAutomationRequest("customer_update", { organizationId: ORG_A1, entityId: IDS.incident, channelIds: [IDS.channel] });
+    expect(customer.message).toContain("send_notification");
   });
 });
 
