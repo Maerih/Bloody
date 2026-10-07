@@ -178,22 +178,24 @@ export class HttpClient {
         const decoder = new TextDecoder();
         let total = 0;
         let pending = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          total += value.byteLength;
-          if (total > this.maxResponseBytes) {
-            await reader.cancel().catch(() => undefined);
-            throw tooLarge(this.kind, this.providerId, this.maxResponseBytes);
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > this.maxResponseBytes) throw tooLarge(this.kind, this.providerId, this.maxResponseBytes);
+            pending += decoder.decode(value, { stream: true });
+            let nl: number;
+            while ((nl = pending.indexOf("\n")) >= 0) {
+              const line = pending.slice(0, nl).replace(/\r$/, "");
+              pending = pending.slice(nl + 1);
+              delivered = true;
+              onLine(line);
+            }
           }
-          pending += decoder.decode(value, { stream: true });
-          let nl: number;
-          while ((nl = pending.indexOf("\n")) >= 0) {
-            const line = pending.slice(0, nl).replace(/\r$/, "");
-            pending = pending.slice(nl + 1);
-            delivered = true;
-            onLine(line);
-          }
+        } catch (err) {
+          await reader.cancel().catch(() => undefined);
+          throw err;
         }
         pending += decoder.decode();
         if (pending.length > 0) {
