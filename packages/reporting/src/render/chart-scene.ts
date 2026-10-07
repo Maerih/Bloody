@@ -71,7 +71,9 @@ function niceNum(range: number, round: boolean): number {
 export function niceScale(max: number, ticks = 4, unit?: string): { max: number; step: number; ticks: number[] } {
   let m = Number.isFinite(max) && max > 0 ? max : 1;
   if (unit === "percent" && m <= 100 && m > 60) m = 100;
-  const step = niceNum(niceNum(m, false) / ticks, true);
+  let step = niceNum(niceNum(m, false) / ticks, true);
+  // Counts, durations and money never get fractional gridlines.
+  if ((unit === "count" || unit === "minutes" || unit === "currency") && step < 1) step = 1;
   const top = Math.max(step, Math.ceil(m / step - 1e-9) * step);
   const out: number[] = [];
   for (let v = 0; v <= top + step / 2; v += step) out.push(Math.round(v * 1e6) / 1e6);
@@ -299,6 +301,7 @@ function layoutLine(spec: ChartSpec, width: number, height: number, surface: str
     items.push({ t: "text", x: left - 6, y: ty + 3.5, text: tickLabels[i]!, size: FONT_TICK, fill: INK.muted, anchor: "end" });
   });
   items.push({ t: "line", x1: left, y1: bottom, x2: left + plotW, y2: bottom, stroke: INK.axis, width: 1 });
+  const ends: { x: number; y: number; text: string }[] = [];
   spec.series.forEach((s, si) => {
     const color = colors[si]!;
     const segments: [number, number][][] = [];
@@ -330,9 +333,13 @@ function layoutLine(spec: ChartSpec, width: number, height: number, surface: str
     if (lastIdx !== undefined) {
       const v = s.values[lastIdx]!;
       items.push({ t: "circle", cx: x(lastIdx), cy: y(v), r: 4, fill: color, stroke: surface, strokeWidth: 2 });
-      if (endLabels) items.push({ t: "text", x: x(lastIdx) + 8, y: y(v) + 3.5, text: fmt(spec, v), size: FONT_TICK, fill: INK.primary, anchor: "start", weight: "bold" });
+      ends.push({ x: x(lastIdx) + 8, y: y(v), text: fmt(spec, v) });
     }
   });
+  // Direct end labels only when they do not collide; otherwise the legend carries identity.
+  const sortedEnds = [...ends].sort((a, b) => a.y - b.y);
+  const collide = sortedEnds.some((p, i) => i > 0 && p.y - sortedEnds[i - 1]!.y < 11);
+  if (endLabels && !collide) for (const p of ends) items.push({ t: "text", x: p.x, y: p.y + 3.5, text: p.text, size: FONT_TICK, fill: INK.primary, anchor: "start", weight: "bold" });
   const maxLabel = Math.max(...spec.categories.map((c) => textWidth(c, FONT_TICK)));
   const slot = n > 1 ? plotW / (n - 1) : plotW;
   const step = Math.max(1, Math.ceil((maxLabel + 10) / slot));

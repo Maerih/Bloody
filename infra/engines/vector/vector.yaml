@@ -1,0 +1,185 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Vector (MPL-2.0, run unmodified) — collection tier of the Bloody data fabric.
+# This file holds sources + per-engine shaping; the transport is chosen by adding ONE of:
+#   sinks/http.yaml   → POST /api/v1/ingest/events?source=<adapter> (API key, NDJSON)  [default]
+#   sinks/kafka.yaml  → Kafka topics bloody.raw.<adapter> (headers: source / integration / collector)
+#   vector --config vector.yaml --config sinks/${BLOODY_INGEST_TRANSPORT}.yaml
+#
+# Records are forwarded RAW (vendor JSON exactly as the engine wrote it). Normalisation into the
+# Bloody Canonical Event happens server-side in @bloody/adapters — collectors never interpret
+# vendor semantics, so adapters can evolve without redeploying collectors.
+# Unparseable records are never silently lost: they go to the dead-letter files (sinks below).
+
+data_dir: /var/lib/vector
+
+api:
+  enabled: true
+  address: 0.0.0.0:8686
+
+# End-to-end acknowledgements: file checkpoints only advance once the transport accepted the batch.
+acknowledgements:
+  enabled: true
+
+sources:
+  zeek_logs:
+    type: file
+    include: ["/logs/zeek/*.log"]
+    exclude:
+      - /logs/zeek/loaded_scripts.log
+      - /logs/zeek/packet_filter.log
+      - /logs/zeek/stats.log
+      - /logs/zeek/stderr.log
+      - /logs/zeek/stdout.log
+    read_from: beginning
+    max_line_bytes: 1048576
+    fingerprint:
+      strategy: device_and_inode
+
+  suricata_eve:
+    type: file
+    include: ["/logs/suricata/eve*.json"]
+    read_from: beginning
+    max_line_bytes: 4194304
+    fingerprint:
+      strategy: device_and_inode
+
+  wazuh_alerts:
+    type: file
+    include: ["/logs/wazuh/alerts/alerts.json"]
+    read_from: beginning
+    max_line_bytes: 4194304
+    fingerprint:
+      strategy: device_and_inode
+
+  opencanary_logs:
+    type: file
+    include: ["/logs/opencanary/*.log"]
+    read_from: beginning
+    fingerprint:
+      strategy: device_and_inode
+
+  nuclei_results:
+    type: file
+    include: ["/logs/nuclei/*.jsonl"]
+    read_from: beginning
+    max_line_bytes: 4194304
+    fingerprint:
+      strategy: device_and_inode
+
+  # Network devices / Linux hosts / appliances (RFC 5424 / 3164, embedded CEF). Unprivileged port.
+  syslog_udp:
+    type: socket
+    mode: udp
+    address: 0.0.0.0:5514
+    max_length: 65535
+
+  syslog_tcp:
+    type: socket
+    mode: tcp
+    address: 0.0.0.0:5514
+    framing:
+      method: newline_delimited
+      newline_delimited:
+        max_length: 65535
+
+  vector_metrics:
+    type: internal_metrics
+
+transforms:
+  # Each shaper parses the JSON line, keeps the vendor record as the event, and attaches routing
+  # metadata under `_bloody` (stripped by every sink before the record leaves the collector).
+  zeek:
+    type: remap
+    inputs: [zeek_logs]
+    drop_on_abort: true
+    reroute_dropped: true
+    source: |
+      file = string(.file) ?? ""
+      raw, err = parse_json(.message)
+      if err != null || !is_object(raw) { abort }
+      rec = object!(raw)
+      # Standalone Zeek omits `_path`; derive it from the log file name (conn.log → conn).
+      if !exists(rec._path) {
+        m, merr = parse_regex(file, r'/(?P<p>[a-z0-9_]+)(\.[0-9][^/]*)?\.log$')
+        if merr == null { rec._path = m.p }
+      }
+      . = rec
+      ._bloody = { "source": "zeek", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
+
+  suricata:
+    type: remap
+    inputs: [suricata_eve]
+    drop_on_abort: true
+    reroute_dropped: true
+    source: |
+      raw, err = parse_json(.message)
+      if err != null || !is_object(raw) { abort }
+      # Engine housekeeping, not security telemetry.
+      if raw.event_type == "stats" { abort }
+      . = object!(raw)
+      ._bloody = { "source": "suricata", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
+
+  wazuh:
+    type: remap
+    inputs: [wazuh_alerts]
+    drop_on_abort: true
+    reroute_dropped: true
+    source: |
+      raw, err = parse_json(.message)
+      if err != null || !is_object(raw) { abort }
+      . = object!(raw)
+      ._bloody = { "source": "wazuh", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
+
+  opencanary:
+    type: remap
+    inputs: [opencanary_logs]
+    drop_on_abort: true
+    reroute_dropped: true
+    source: |
+      raw, err = parse_json(.message)
+      if err != null || !is_object(raw) { abort }
+      . = object!(raw)
+      ._bloody = { "source": "opencanary", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
+
+  nuclei:
+    type: remap
+    inputs: [nuclei_results]
+    drop_on_abort: true
+    reroute_dropped: true
+    source: |
+      raw, err = parse_json(.message)
+      if err != null || !is_object(raw) { abort }
+      . = object!(raw)
+      # Request/response bodies can contain customer data and credentials; the adapter drops them
+      # too, but they never need to leave the scanner host.
+      del(.request)
+      del(.response)
+      ._bloody = { "source": "nuclei", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
+
+  syslog:
+    type: remap
+    inputs: [syslog_udp, syslog_tcp]
+    drop_on_abort: true
+    reroute_dropped: true
+    source: |
+      line = strip_whitespace(string(.message) ?? "")
+      if line == "" { abort }
+      # The syslog adapter detects CEF itself; keep the line verbatim plus the peer address.
+      . = { "message": line, "peer": .host }
+      ._bloody = { "source": "syslog", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
+
+sinks:
+  # Dead-letter: records that could not be parsed, kept for inspection / replay.
+  dead_letter:
+    type: file
+    inputs: [zeek.dropped, suricata.dropped, wazuh.dropped, opencanary.dropped, nuclei.dropped, syslog.dropped]
+    path: /var/lib/vector/dead-letter/%Y-%m-%d.ndjson
+    encoding:
+      codec: json
+
+  vector_prometheus:
+    type: prometheus_exporter
+    inputs: [vector_metrics]
+    address: 0.0.0.0:9598

@@ -16,7 +16,7 @@
 #
 # Runtime contract: listens on $PORT (default 4000), health at /api/v1/healthz, readiness at
 # /api/v1/readyz, metrics at /api/v1/metrics. Migrations: run the same image with
-# `dist/migrate.js` as the command (compose `migrate` service / Kubernetes `bloody-migrate` Job).
+# `dist/db/migrate.js` as the command (compose `migrate` service / Kubernetes `bloody-migrate` Job).
 
 ARG NODE_VERSION=22.23.3
 ARG DEBIAN_RELEASE=trixie
