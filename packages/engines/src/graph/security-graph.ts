@@ -451,6 +451,7 @@ export class SecurityGraph {
         assetId: asset.id,
         assetKind: asset.kind,
         hostname: asset.hostname ?? undefined,
+        hostKey: asset.hostname ? (normalizeHostname(asset.hostname) ?? undefined) : undefined,
         ips: asset.ipAddresses,
         os: asset.os ?? undefined,
         criticality: asset.criticality,
@@ -1042,6 +1043,7 @@ export class SecurityGraph {
       agentId: a.agentId?.toLowerCase(),
       cloudInstanceId: a.cloudInstanceId?.toLowerCase(),
       hostname: a.hostname,
+      hostKey: a.hostname ? (normalizeHostname(a.hostname) ?? undefined) : undefined,
       os: a.os,
     };
     if (a.ip && a.ip.length > 0) {
@@ -1060,7 +1062,7 @@ export class SecurityGraph {
     if (ids.agentId) probes.push(["agent", ids.agentId.toLowerCase(), () => this.firstAsset(org, { propEquals: { agentId: ids.agentId!.toLowerCase() } })]);
     if (ids.cloudInstanceId) probes.push(["cloud", ids.cloudInstanceId.toLowerCase(), () => this.firstAsset(org, { propEquals: { cloudInstanceId: ids.cloudInstanceId!.toLowerCase() } })]);
     const host = ids.hostname ? normalizeHostname(ids.hostname) : null;
-    if (host) probes.push(["host", host, () => this.firstAsset(org, { key: host })]);
+    if (host) probes.push(["host", host, async () => (await this.firstAsset(org, { key: host })) ?? this.firstAsset(org, { propEquals: { hostKey: host } })]);
     for (const [kind, value, probe] of probes) {
       const cached = this.aliasCache.get(`${org}|${kind}|${value}`);
       if (cached) {

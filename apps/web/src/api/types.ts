@@ -1,5 +1,7 @@
 import type {
   Account,
+  AutomationEvent,
+  PlaybookCondition,
   Alert,
   Asset,
   Entitlement,
@@ -185,4 +187,25 @@ export interface BillingUsage {
   plan: PlanKey;
   period?: { start: string; end: string };
   usage: Record<string, { used: number; limit: number | null }>;
+}
+
+/** POST /notifications/channels. Webhook/Slack/Teams URLs are write-only secrets server-side. */
+export interface CreateNotificationChannelInput {
+  name: string;
+  kind: NotificationChannelKind;
+  organizationId: string | null;
+  config: Record<string, unknown>;
+  enabled: boolean;
+}
+
+/** POST /automations — "When <event> and <conditions>, notify <channels> using <template>." */
+export interface CreateAutomationRuleInput {
+  name: string;
+  organizationId: string | null;
+  event: AutomationEvent;
+  conditions: PlaybookCondition[];
+  channelIds: string[];
+  template: { subject: string; body: string };
+  throttleMinutes: number;
+  enabled: boolean;
 }

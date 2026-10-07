@@ -16,6 +16,9 @@ const EscalationsPage = lazy(() => import("../pages/EscalationsPage"));
 const OrganizationsPage = lazy(() => import("../pages/OrganizationsPage"));
 const TrialManagerPage = lazy(() => import("../pages/TrialManagerPage"));
 const PreferencesPage = lazy(() => import("../pages/PreferencesPage"));
+const ReportsPage = lazy(() => import("../pages/reports/ReportsPage"));
+const NotificationChannelsPage = lazy(() => import("../pages/automation/NotificationChannelsPage"));
+const AutomationRulesPage = lazy(() => import("../pages/automation/AutomationRulesPage"));
 export const ModulePlaceholderPage = lazy(() => import("../pages/ModulePlaceholderPage"));
 
 /** Pages implemented in part A. */
@@ -28,6 +31,10 @@ export const CORE_ROUTES: AppRoute[] = [
   { path: "/organizations", element: <OrganizationsPage /> },
   { path: "/trials", element: <TrialManagerPage /> },
   { path: "/preferences", element: <PreferencesPage /> },
+  { path: "/reports", element: <ReportsPage /> },
+  { path: "/soar/channels", element: <NotificationChannelsPage /> },
+  { path: "/settings/notifications", element: <NotificationChannelsPage /> },
+  { path: "/soar/automations", element: <AutomationRulesPage /> },
 ];
 
 /**

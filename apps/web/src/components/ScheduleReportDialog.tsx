@@ -279,7 +279,7 @@ export function ScheduleReportDialog({ open, onClose, reports, defaultReport, or
                     <Badge size="xs" tone="outline">
                       {c.kind}
                     </Badge>
-                    {to !== null ? <span className="text-xs text-fg-subtle">{to} recipient{to === 1 ? "" : "s"}</span> : null}
+                    {to !== null ? <span className="text-xs text-fg-subtle">{`${to} recipient${to === 1 ? "" : "s"}`}</span> : null}
                   </li>
                 );
               })}

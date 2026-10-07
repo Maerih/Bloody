@@ -33,6 +33,8 @@ import { api, type ApiError, type DownloadResult } from "./client";
 import type {
   AlertFilters,
   BillingUsage,
+  CreateAutomationRuleInput,
+  CreateNotificationChannelInput,
   CreateReportScheduleInput,
   EntitlementView,
   EscalationFilters,
@@ -542,6 +544,14 @@ export function useNotificationChannels(options: { enabled?: boolean } = {}) {
   });
 }
 
+export function useCreateNotificationChannel() {
+  const qc = useQueryClient();
+  return useMutation<NotificationChannel, ApiError, CreateNotificationChannelInput>({
+    mutationFn: (input) => api.post<NotificationChannel>("/notifications/channels", input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.notificationChannels }),
+  });
+}
+
 export function useTestNotificationChannel() {
   return useMutation<{ ok: boolean; message?: string }, ApiError, string>({
     mutationFn: (id) => api.post<{ ok: boolean; message?: string }>(`/notifications/channels/${encodeURIComponent(id)}/test`),
@@ -554,6 +564,14 @@ export function useAutomationRules(options: { enabled?: boolean } = {}) {
     queryFn: async ({ signal }) => toArray(await api.get<Page<AutomationRule> | AutomationRule[]>("/automations", { signal })),
     enabled: options.enabled ?? true,
     staleTime: 60_000,
+  });
+}
+
+export function useCreateAutomationRule() {
+  const qc = useQueryClient();
+  return useMutation<AutomationRule, ApiError, CreateAutomationRuleInput>({
+    mutationFn: (input) => api.post<AutomationRule>("/automations", input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.automations }),
   });
 }
 
