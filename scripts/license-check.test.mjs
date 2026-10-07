@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
 // Copyright (c) 2026 Bloody. All rights reserved.
-// Run: node --test scripts/
+// Run: node --test scripts/*.test.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

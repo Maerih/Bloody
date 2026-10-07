@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Engine-log transport: Kafka (Apache-2.0). Merged on top of config.yaml.
+#   topic    bloody.raw.<engine>   (pre-created by the kafka-init service; auto-create is off)
+#   value    OTLP/JSON ExportLogsServiceRequest — body = raw vendor line, resource attributes
+#            bloody.source / bloody.integration_id / bloody.collector (see config.yaml)
+# Producer: idempotent-equivalent settings (acks=all), zstd, persistent queue, infinite retry.
+# Production: SASL_SSL with one principal per collector and prefix ACLs on bloody.raw.
+# (docs/OPERATIONS.md §Data fabric).
+
+exporters:
+  kafka/zeek:
+    brokers: ["${env:KAFKA_BROKERS:-kafka:9092}"]
+    client_id: bloody-otelcol-zeek
+    logs:
+      topic: bloody.raw.zeek
+      encoding: otlp_json
+    producer:
+      compression: zstd
+      required_acks: -1
+      max_message_bytes: 4000000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 60s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      queue_size: 5000
+  kafka/suricata:
+    brokers: ["${env:KAFKA_BROKERS:-kafka:9092}"]
+    client_id: bloody-otelcol-suricata
+    logs:
+      topic: bloody.raw.suricata
+      encoding: otlp_json
+    producer:
+      compression: zstd
+      required_acks: -1
+      max_message_bytes: 4000000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 60s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      queue_size: 5000
+  kafka/wazuh:
+    brokers: ["${env:KAFKA_BROKERS:-kafka:9092}"]
+    client_id: bloody-otelcol-wazuh
+    logs:
+      topic: bloody.raw.wazuh
+      encoding: otlp_json
+    producer:
+      compression: zstd
+      required_acks: -1
+      max_message_bytes: 4000000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 60s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      queue_size: 5000
+
+service:
+  pipelines:
+    logs/zeek:
+      receivers: [filelog/zeek]
+      processors: [memory_limiter, resource/zeek, batch]
+      exporters: [kafka/zeek]
+    logs/suricata:
+      receivers: [filelog/suricata]
+      processors: [memory_limiter, filter/suricata_stats, resource/suricata, batch]
+      exporters: [kafka/suricata]
+    logs/wazuh:
+      receivers: [filelog/wazuh]
+      processors: [memory_limiter, resource/wazuh, batch]
+      exporters: [kafka/wazuh]

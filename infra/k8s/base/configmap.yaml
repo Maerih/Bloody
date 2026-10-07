@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Non-secret runtime configuration of the control plane. Secrets (database URLs, JWT secret,
+# encryption key, SMTP / OIDC credentials) come from the `bloody-secrets` Secret materialised by
+# the ExternalSecret. Overlays patch hosts and sizes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bloody-config
+data:
+  NODE_ENV: production
+  BLOODY_ENV: production
+  HOST: 0.0.0.0
+  PORT: "4000"
+  LOG_LEVEL: info
+  BLOODY_PUBLIC_URL: https://bloody.example.com
+  BLOODY_CORS_ORIGINS: https://bloody.example.com
+  BLOODY_COOKIE_SECURE: "true"
+  # TLS terminates at the ingress controller; trust its X-Forwarded-* headers only.
+  BLOODY_TRUST_PROXY: "true"
+  DATABASE_POOL_MAX: "20"
+  BLOODY_EVENT_BUS: kafka
+  KAFKA_BROKERS: kafka-bootstrap.bloody-data.svc:9093
+  OPENSEARCH_URL: https://opensearch.bloody-data.svc:9200
+  SMTP_HOST: smtp.example.com
+  SMTP_PORT: "587"
+  SMTP_SECURE: "false"
+  SMTP_FROM: notifications@bloody.example.com
+  SMTP_FROM_NAME: Bloody Security Operations
+  # Local/private AI endpoints (Ollama, vLLM) must be allow-listed explicitly per deployment.
+  BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS: "false"
+  OIDC_ISSUER_URL: ""
+  OIDC_CLIENT_ID: bloody
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc:4318
+  OTEL_SERVICE_NAME: bloody-api
+  BLOODY_MIGRATIONS_DIR: /app/apps/api/migrations

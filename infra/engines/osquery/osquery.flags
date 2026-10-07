@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# osqueryd flags for Bloody's fleet-less deployment model (osquery is used under Apache-2.0):
+#  * configuration is distributed by the customer's config management (Ansible, MDM, GPO, image
+#    bake) — no Fleet/TLS config server is required;
+#  * results go to the local filesystem logger and are shipped by the co-located collector
+#    (Vector `osquery_results` source → bloody.raw.osquery / POST /api/v1/ingest/events?source=osquery);
+#  * the Bloody osquery adapter understands differential, batched and snapshot result formats.
+--config_plugin=filesystem
+--config_path=/etc/osquery/osquery.conf
+--logger_plugin=filesystem
+--logger_path=/logs/osquery
+--logger_rotate=true
+--logger_rotate_size=26214400
+--logger_rotate_max_files=5
+--database_path=/var/osquery/osquery.db
+--pidfile=/var/osquery/osqueryd.pid
+--host_identifier=hostname
+--utc
+--disable_extensions=true
+--watchdog_level=0

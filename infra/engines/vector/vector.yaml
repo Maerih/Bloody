@@ -60,6 +60,15 @@ sources:
     fingerprint:
       strategy: device_and_inode
 
+  osquery_results:
+    type: file
+    # osqueryd filesystem logger (results + snapshots). Status logs are not security telemetry.
+    include: ["/logs/osquery/osqueryd.results.log", "/logs/osquery/osqueryd.snapshots.log"]
+    read_from: beginning
+    max_line_bytes: 4194304
+    fingerprint:
+      strategy: device_and_inode
+
   nuclei_results:
     type: file
     include: ["/logs/nuclei/*.jsonl"]
@@ -143,6 +152,17 @@ transforms:
       . = object!(raw)
       ._bloody = { "source": "opencanary", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
 
+  osquery:
+    type: remap
+    inputs: [osquery_results]
+    drop_on_abort: true
+    reroute_dropped: true
+    source: |
+      raw, err = parse_json(.message)
+      if err != null || !is_object(raw) { abort }
+      . = object!(raw)
+      ._bloody = { "source": "osquery", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
+
   nuclei:
     type: remap
     inputs: [nuclei_results]
@@ -174,7 +194,7 @@ sinks:
   # Dead-letter: records that could not be parsed, kept for inspection / replay.
   dead_letter:
     type: file
-    inputs: [zeek.dropped, suricata.dropped, wazuh.dropped, opencanary.dropped, nuclei.dropped, syslog.dropped]
+    inputs: [zeek.dropped, suricata.dropped, wazuh.dropped, osquery.dropped, opencanary.dropped, nuclei.dropped, syslog.dropped]
     path: /var/lib/vector/dead-letter/%Y-%m-%d.ndjson
     encoding:
       codec: json

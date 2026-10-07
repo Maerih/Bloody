@@ -1,0 +1,53 @@
+Bloody — Proprietary Software Licence
+SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+
+Copyright (c) 2026 Bloody. All rights reserved.
+Owner: Bloody / Dorisec Africa.
+
+1. Ownership. This software, including its source code, object code, documentation, designs,
+   schemas, detection content, models, configuration and all associated materials (together, the
+   "Software"), is the confidential and proprietary property of Bloody and its licensors and is
+   protected by copyright, trade-secret and other intellectual-property laws. All rights not
+   expressly granted in a separate written agreement signed by an authorised representative of
+   Bloody are reserved.
+
+2. No licence by default. No licence or other right — express, implied, by estoppel or
+   otherwise — is granted to any person by the possession, viewing or receipt of the Software.
+   In particular, and unless a separate written agreement expressly permits it, you may not:
+     (a) copy, reproduce, modify, translate, adapt or create derivative works of the Software;
+     (b) distribute, publish, sublicense, sell, rent, lease, lend, transfer or otherwise make the
+         Software available to any third party, including as a hosted, managed or
+         software-as-a-service offering;
+     (c) reverse engineer, decompile, disassemble or otherwise attempt to derive source code,
+         algorithms, models or trade secrets from the Software, except to the extent such
+         restriction is prohibited by applicable law;
+     (d) remove, alter or obscure any proprietary notice, label or marking on the Software;
+     (e) use the Software to build a competing product or service, or for benchmarking intended
+         for publication, without prior written consent.
+
+3. Confidentiality. The Software constitutes confidential information and trade secrets of
+   Bloody. Persons granted access (employees, contractors, partners, customers under contract)
+   must hold it in strict confidence, use it solely for the purpose authorised in their
+   agreement, and protect it with at least reasonable care.
+
+4. Third-party components. The Software interoperates with, and may be distributed alongside,
+   separately licensed open-source components (for example security engines run as separate,
+   unmodified services, and permissively licensed libraries). Those components remain under
+   their own licences, which are listed in docs/LICENSES.md and in the software bill of
+   materials. Nothing in this notice restricts rights granted by those licences for those
+   components, and no open-source licence applies to the Software itself.
+
+5. No warranty. Except as expressly agreed in a signed written agreement, the Software is
+   provided "AS IS", without warranty of any kind, express or implied, including warranties of
+   merchantability, fitness for a particular purpose, title and non-infringement.
+
+6. Limitation of liability. To the maximum extent permitted by law, in no event shall Bloody or
+   its licensors be liable for any indirect, incidental, special, consequential or punitive
+   damages, or any loss of profits, revenue, data or goodwill, arising out of or related to the
+   Software, however caused and on any theory of liability.
+
+7. Termination and enforcement. Any use of the Software outside the scope of a written
+   agreement is unauthorised and automatically terminates any rights you may have had. Bloody
+   may seek injunctive relief in addition to any other remedy available at law.
+
+For licensing enquiries contact Bloody / Dorisec Africa.

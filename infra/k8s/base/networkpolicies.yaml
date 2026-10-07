@@ -1,0 +1,182 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Zero-trust pod networking for the `bloody` namespace: deny everything, then allow exactly the
+# flows the control plane needs. Namespaces are matched by the immutable
+# kubernetes.io/metadata.name label. Data services are expected in `bloody-data`, collectors and
+# engines in `bloody-engines`, Prometheus in `monitoring`, the OTel collector in `observability`;
+# adjust namespace names / CIDRs in the overlay for managed services outside the cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+# Ingress controller → SPA; SPA → API (its /api reverse proxy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: bloody
+      app.kubernetes.io/component: web
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - { protocol: TCP, port: 8080 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: bloody
+              app.kubernetes.io/component: api
+      ports:
+        - { protocol: TCP, port: 4000 }
+---
+# Who may call the API: ingress controller, the SPA, collectors/engines (ingest + webhooks),
+# Prometheus (metrics on the same port).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: bloody
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: bloody
+              app.kubernetes.io/component: web
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bloody-engines
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - { protocol: TCP, port: 4000 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scheduler-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: bloody
+      app.kubernetes.io/component: scheduler
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - { protocol: TCP, port: 4000 }
+---
+# Outbound flows of the API and scheduler.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-plane-egress
+spec:
+  podSelector:
+    matchExpressions:
+      - { key: app.kubernetes.io/name, operator: In, values: [bloody] }
+      - { key: app.kubernetes.io/component, operator: In, values: [api, scheduler] }
+  policyTypes: [Egress]
+  egress:
+    # Postgres, Valkey, Kafka (TLS listener), OpenSearch.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bloody-data
+      ports:
+        - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 6379 }
+        - { protocol: TCP, port: 9093 }
+        - { protocol: TCP, port: 9200 }
+    # Engine APIs driven by adapters (Wazuh 55000, Velociraptor 8001/8889, MISP/OpenCTI/IRIS/
+    # Shuffle/CoPilot 443/8080, GMP 9390, Trivy 4954, Arkime 8005).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bloody-engines
+    # OTLP traces/metrics/logs.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - { protocol: TCP, port: 4317 }
+        - { protocol: TCP, port: 4318 }
+    # Internet: cloud AI providers, OIDC IdPs, webhooks / Slack / Teams, SMTP submission, open
+    # intel feeds (KEV, EPSS, NVD). Cloud metadata endpoints are never reachable (SSRF defence in
+    # depth — the API's URL guard is the first line). Private ranges are excluded; allow-list
+    # specific self-hosted model endpoints in the overlay.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 587 }
+        - { protocol: TCP, port: 465 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: migrate-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: bloody
+      app.kubernetes.io/component: migrate
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: bloody-data
+      ports:
+        - { protocol: TCP, port: 5432 }

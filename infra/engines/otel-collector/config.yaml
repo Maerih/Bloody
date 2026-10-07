@@ -1,0 +1,139 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# OpenTelemetry Collector (contrib distribution, Apache-2.0, run unmodified).
+#
+# Two jobs in one collector:
+#   1. Bloody's OWN observability — the API exports OTLP traces/metrics/logs here
+#      (OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318). Pipelines `*/platform`.
+#   2. Alternative engine-log collector (Vector is the default): tails Zeek / Suricata / Wazuh
+#      output and forwards it to the Bloody data fabric. The transport is a second config file:
+#        engines-kafka.yaml  → Kafka topics bloody.raw.<engine>            (default)
+#        engines-http.yaml   → POST /api/v1/ingest/events?source=<engine>   (API key)
+#      otelcol-contrib --config /etc/otelcol/config.yaml --config /etc/otelcol/engines-${BLOODY_INGEST_TRANSPORT}.yaml
+#
+# Engine records leave the collector as OTLP log records whose body is the RAW vendor line
+# (no parsing here), with resource attributes:
+#   bloody.source          adapter key (zeek | suricata | wazuh) — routing key server-side
+#   bloody.integration_id  integration the collector is registered as (tenant/org are resolved
+#                          from it server-side; never trusted from the payload)
+#   bloody.collector       collector instance name
+# and the log attribute log.file.name (Zeek derives the log type from it, e.g. conn.log → conn).
+# Normalisation into the Bloody Canonical Event happens in @bloody/adapters.
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # Persistent read offsets (file receivers) and exporter queues survive restarts.
+  file_storage/offsets:
+    directory: /var/lib/otelcol/offsets
+    create_directory: true
+  file_storage/queue:
+    directory: /var/lib/otelcol/queue
+    create_directory: true
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  filelog/zeek:
+    include: [/logs/zeek/*.log]
+    exclude:
+      - /logs/zeek/loaded_scripts.log
+      - /logs/zeek/packet_filter.log
+      - /logs/zeek/stats.log
+      - /logs/zeek/stderr.log
+      - /logs/zeek/stdout.log
+    start_at: beginning
+    include_file_name: true
+    max_log_size: 1MiB
+    storage: file_storage/offsets
+
+  filelog/suricata:
+    include: [/logs/suricata/eve*.json]
+    start_at: beginning
+    include_file_name: true
+    max_log_size: 4MiB
+    storage: file_storage/offsets
+
+  filelog/wazuh:
+    include: [/logs/wazuh/alerts/alerts.json]
+    start_at: beginning
+    include_file_name: true
+    max_log_size: 4MiB
+    storage: file_storage/offsets
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch:
+    send_batch_size: 1000
+    send_batch_max_size: 2000
+    timeout: 2s
+  resource/zeek:
+    attributes:
+      - { key: bloody.source, value: zeek, action: upsert }
+      - { key: bloody.integration_id, value: "${env:BLOODY_INTEGRATION_ID:-unassigned}", action: upsert }
+      - { key: bloody.collector, value: "${env:HOSTNAME:-otel-collector}", action: upsert }
+  resource/suricata:
+    attributes:
+      - { key: bloody.source, value: suricata, action: upsert }
+      - { key: bloody.integration_id, value: "${env:BLOODY_INTEGRATION_ID:-unassigned}", action: upsert }
+      - { key: bloody.collector, value: "${env:HOSTNAME:-otel-collector}", action: upsert }
+  resource/wazuh:
+    attributes:
+      - { key: bloody.source, value: wazuh, action: upsert }
+      - { key: bloody.integration_id, value: "${env:BLOODY_INTEGRATION_ID:-unassigned}", action: upsert }
+      - { key: bloody.collector, value: "${env:HOSTNAME:-otel-collector}", action: upsert }
+  # Engine housekeeping, not security telemetry (Suricata periodic stats records).
+  filter/suricata_stats:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'IsMatch(body, "\"event_type\"\\s*:\\s*\"stats\"")'
+
+exporters:
+  # Development sink for the platform's own telemetry. Production overlays replace it with the
+  # organisation's tracing / metrics backend (docs/OPERATIONS.md §Observability).
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+  prometheus/platform:
+    endpoint: 0.0.0.0:8889
+    namespace: bloody
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  extensions: [health_check, file_storage/offsets, file_storage/queue]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces/platform:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+    metrics/platform:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus/platform]
+    logs/platform:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

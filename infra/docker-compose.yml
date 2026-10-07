@@ -47,6 +47,7 @@ x-api-build: &api-build
 
 services:
   # ── PKI for local TLS (Mailpit STARTTLS; Bloody never disables certificate verification) ──
+  # docker-compose.engines.yml extends DEV_CERT_LEAVES with engine endpoints (gvmd, iris).
   dev-certs:
     image: alpine/openssl:3.5.9
     entrypoint: ["/bin/sh", "/scripts/dev-certs.sh"]
@@ -189,8 +190,11 @@ services:
       VALKEY_URL: redis://:${VALKEY_PASSWORD:-valkey-dev-only}@valkey:6379/0
       BLOODY_JWT_SECRET: ${BLOODY_JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789abcdef}
       BLOODY_ENCRYPTION_KEY: ${BLOODY_ENCRYPTION_KEY:-ZGV2LW9ubHktZW5jcnlwdGlvbi1rZXktMzJieXRlcyE=}
+      # memory = in-process EventBus (single node); kafka = data fabric from docker-compose.engines.yml
       BLOODY_EVENT_BUS: ${BLOODY_EVENT_BUS:-memory}
       KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      # Empty = event search served from Postgres; http://opensearch:9200 with the `search` profile.
+      OPENSEARCH_URL: ${OPENSEARCH_URL:-}
       # Notifications & scheduled reports → Mailpit (STARTTLS, verified against the dev CA).
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"

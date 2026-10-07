@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Default: the collector handles only Bloody's own telemetry; engine logs are shipped by Vector.
+# Select engines-kafka.yaml or engines-http.yaml (BLOODY_OTEL_ENGINE_LOGS) to enable them here.
+# (Never enable both collectors for the same files: ingest is idempotent, but it doubles load.)
+service: {}

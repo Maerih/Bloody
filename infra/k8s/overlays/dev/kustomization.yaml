@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Development / preview environment: single replicas, staging certificates, verbose logs.
+#   kustomize build infra/k8s/overlays/dev | kubectl apply --server-side -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bloody-dev
+
+resources:
+  - ../../base
+
+labels:
+  - pairs:
+      bloody.io/environment: dev
+    includeSelectors: false
+    includeTemplates: true
+
+images:
+  - name: bloody/api
+    newName: registry.example.com/bloody/api
+    newTag: main
+  - name: bloody/web
+    newName: registry.example.com/bloody/web
+    newTag: main
+
+patches:
+  - target: { kind: Namespace, name: bloody }
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: bloody-dev
+  - target: { kind: ConfigMap, name: bloody-config }
+    patch: |-
+      - op: replace
+        path: /data/BLOODY_ENV
+        value: development
+      - op: replace
+        path: /data/LOG_LEVEL
+        value: debug
+      - op: replace
+        path: /data/BLOODY_PUBLIC_URL
+        value: https://bloody.dev.example.com
+      - op: replace
+        path: /data/BLOODY_CORS_ORIGINS
+        value: https://bloody.dev.example.com
+  - target: { kind: Deployment, name: bloody-(api|web) }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints
+        value: []
+  - target: { kind: HorizontalPodAutoscaler }
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+  # One replica: a minAvailable PDB would block node drains.
+  - target: { kind: PodDisruptionBudget }
+    patch: |-
+      - op: remove
+        path: /spec/minAvailable
+      - op: add
+        path: /spec/maxUnavailable
+        value: 1
+  - target: { kind: Ingress, name: bloody }
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: letsencrypt-staging
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: bloody.dev.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: bloody.dev.example.com
