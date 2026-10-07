@@ -87,6 +87,11 @@ class PdfReport {
     return PAGE_H - MB;
   }
 
+  /** pdfkit supports named destinations; @types/pdfkit lacks the declaration. */
+  private namedDestination(name: string): void {
+    (this.doc as Doc & { addNamedDestination(name: string, ...args: unknown[]): void }).addNamedDestination(name, "XYZ", 0, 0, null);
+  }
+
   private newPage(): void {
     this.doc.addPage({ size: "A4", margins: { top: MT, bottom: MB, left: ML, right: MR } });
     this.doc.x = ML;
@@ -237,7 +242,7 @@ class PdfReport {
   private section(id: string, title: string, description: string | null, blocks: ReportBlock[], index: number): void {
     this.newPage();
     const dest = `sec-${id}`;
-    this.doc.addNamedDestination(dest);
+    this.namedDestination(dest);
     this.doc.outline.addItem(pdfSafe(`${index}. ${title}`));
     this.toc.push({ title, dest, page: this.doc.bufferedPageRange().start + this.doc.bufferedPageRange().count });
     this.sectionHeader(String(index).padStart(2, "0"), title, description);
@@ -246,7 +251,7 @@ class PdfReport {
 
   private appendix(): void {
     this.newPage();
-    this.doc.addNamedDestination("appendix");
+    this.namedDestination("appendix");
     this.doc.outline.addItem("Methodology & data notes");
     this.toc.push({ title: "Methodology & data notes", dest: "appendix", page: this.doc.bufferedPageRange().start + this.doc.bufferedPageRange().count });
     this.sectionHeader("A", "Methodology & data notes", null);
@@ -633,8 +638,8 @@ export function renderPdf(report: ReportData, opts: PdfRenderOptions = {}): Prom
       Author: pdfSafe(report.branding.name),
       Subject: pdfSafe(report.typeLabel),
       Keywords: pdfSafe(`${report.type}, security, report, ${report.classification}`),
-      Creator: "Bloody Reporting",
-      Producer: "Bloody Reporting",
+      Creator: pdfSafe(`${report.branding.name} Reporting`),
+      Producer: pdfSafe(`${report.branding.name} Reporting`),
       CreationDate: new Date(report.generatedAt),
       ModDate: new Date(report.generatedAt),
     },

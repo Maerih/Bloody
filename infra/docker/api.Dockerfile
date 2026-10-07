@@ -9,8 +9,8 @@
 # Stages
 #   base     Node + pinned pnpm (corepack)
 #   fetch    pnpm store populated from the lockfile only (cached across source changes)
-#   build    offline install → typecheck + tsup bundle (workspace packages bundled, npm deps external)
-#            → `pnpm deploy --prod` flat node_modules containing ONLY the API's production closure
+#   build      offline install → typecheck + tsup bundle (workspace packages bundled, npm deps external)
+#   prod-deps  frozen-lockfile, offline, production-only install of the @bloody/api closure
 #   runtime  distroless Node 22, non-root (65532), no shell / package manager, root-owned
 #            read-only application files; works with readOnlyRootFilesystem (writes nothing).
 #
@@ -53,13 +53,19 @@ RUN pnpm --filter @bloody/api run build \
     fi \
  && test -f apps/api/dist/server.js \
  && mkdir -p apps/api/migrations
-# Flat production node_modules for the API only. @bloody/* is already bundled into dist/, so the
-# injected copies are dropped together with binaries, docs and tests we never execute.
+
+# ─── prod-deps: production closure of @bloody/api only, straight from the frozen lockfile ──
+# shamefully-hoist exposes the closure at /repo/node_modules so the npm imports of the bundled
+# workspace packages (nodemailer, pdfkit, yaml…) resolve from dist/. No devDependencies, no web deps.
+# @bloody/* is bundled into dist/, so the workspace links, binaries, docs and tests are dropped.
+FROM fetch AS prod-deps
+COPY . .
 RUN --mount=type=cache,id=bloody-pnpm-store,target=/pnpm/store \
-    pnpm --filter @bloody/api deploy --prod --legacy --offline --config.node-linker=hoisted /deploy \
- && rm -rf /deploy/node_modules/@bloody /deploy/node_modules/.bin \
- && find /deploy/node_modules -type f \( -name '*.md' -o -name '*.markdown' -o -name '*.ts' ! -name '*.d.ts' \) -delete \
- && find /deploy/node_modules -type d \( -name test -o -name tests -o -name __tests__ -o -name example -o -name examples -o -name docs \) -prune -exec rm -rf {} +
+    pnpm install --prod --frozen-lockfile --offline \
+      --filter "@bloody/api..." --config.shamefully-hoist=true \
+ && rm -rf node_modules/@bloody apps/api/node_modules/@bloody node_modules/.bin apps/api/node_modules/.bin \
+ && find node_modules/.pnpm -type f \( -name '*.md' -o -name '*.markdown' -o \( -name '*.ts' ! -name '*.d.ts' \) \) -delete \
+ && find node_modules/.pnpm -type d \( -name __tests__ -o -name test -o -name tests -o -name example -o -name examples \) -prune -exec rm -rf {} +
 
 # ─── runtime ─────────────────────────────────────────────────────────────────────────────
 FROM ${RUNTIME_IMAGE} AS runtime
@@ -74,19 +80,22 @@ LABEL org.opencontainers.image.title="bloody-api" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
-WORKDIR /app
+WORKDIR /app/apps/api
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=4000 \
-    BLOODY_MIGRATIONS_DIR=/app/migrations \
+    BLOODY_MIGRATIONS_DIR=/app/apps/api/migrations \
     NODE_OPTIONS="--enable-source-maps"
 
 # Root-owned, world-readable: the non-root runtime user cannot modify the application.
-COPY --from=build /deploy/node_modules ./node_modules
+# Layout mirrors the workspace so Node resolution (dist → apps/api/node_modules → /app/node_modules)
+# and pnpm's relative symlinks keep working.
+COPY --from=prod-deps /repo/node_modules /app/node_modules
+COPY --from=prod-deps /repo/apps/api/node_modules /app/apps/api/node_modules
+COPY --from=build /repo/apps/api/package.json ./package.json
 COPY --from=build /repo/apps/api/dist ./dist
 COPY --from=build /repo/apps/api/migrations ./migrations
-COPY --from=build /repo/apps/api/package.json ./package.json
-COPY infra/docker/healthcheck.mjs ./healthcheck.mjs
+COPY infra/docker/healthcheck.mjs /app/healthcheck.mjs
 
 USER 65532:65532
 EXPOSE 4000

@@ -40,7 +40,6 @@ function kpiCard(k: Kpi, termIndex: Map<string, number>): string {
     delta = `<div class="kpi-delta" style="color:${SENTIMENT_COLOR[k.delta.sentiment]}"><span aria-hidden="true">${arrow}</span> ${k.delta.direction === "flat" ? "No change" : e(amount)} <span class="muted">vs previous period</span></div>`;
   }
   const status = k.status ? `<div class="kpi-status"><i style="background:${STATUS_COLOR[k.status]}"></i>${k.status === "good" ? "On target" : k.status === "warn" ? "Watch" : "Action needed"}${k.target !== null ? ` · target ${e(formatValue(k.target, k.unit, k.currency ? { currency: k.currency } : {}))}` : ""}</div>` : k.target !== null ? `<div class="kpi-status muted">Target ${e(formatValue(k.target, k.unit, k.currency ? { currency: k.currency } : {}))}</div>` : "";
-  void termIndex;
   return `<div class="kpi"><div class="kpi-label">${e(k.label)}</div><div class="kpi-value">${e(value)}</div>${delta}${status}<div class="kpi-note">${e(k.explanation)}</div></div>`;
 }
 
@@ -175,7 +174,7 @@ export function renderHtml(report: ReportData, opts: HtmlRenderOptions = {}): st
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">
-<meta name="generator" content="Bloody Reporting">
+<meta name="generator" content="${e(report.branding.name)} Reporting">
 <meta name="color-scheme" content="light">
 <title>${e(report.title)} — ${e(report.period.label)}</title>
 <style>
