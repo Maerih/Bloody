@@ -74,9 +74,7 @@ export function bySeverityDesc<T extends { severity: Severity }>(a: T, b: T): nu
 
 /** Change vs previous period. `betterWhen` decides whether "up" is good news. */
 export function computeDelta(current: number | null, previous: number | null, betterWhen: "higher" | "lower" | "neutral"): KpiDelta | null {
-  if (current === null || previous === null || !Number.isFinite(current) || !Number.isFinite(previous)) {
-    return previous === null && current !== null ? null : current === null ? null : null;
-  }
+  if (current === null || previous === null || !Number.isFinite(current) || !Number.isFinite(previous)) return null;
   const absolute = current - previous;
   const percent = previous === 0 ? null : (absolute / Math.abs(previous)) * 100;
   const flat = Math.abs(absolute) < 1e-9 || (percent !== null && Math.abs(percent) < 0.5);
