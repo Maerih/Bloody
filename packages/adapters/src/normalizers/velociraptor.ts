@@ -3,7 +3,7 @@ import { defineAdapter, skip, type Adapter, type AdapterExtras, type EventDraft,
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import { ObservableSet } from "../core/indicators.js";
 import { arr, basename, field, int, isRecord, port, rec, redactKeys, str, strArr, uint, type JsonRecord } from "../core/json.js";
-import { atLeast, DEFAULT_SENSITIVE_KEYS, severityFromWord } from "../core/severity.js";
+import { atLeast, isSensitiveKey, severityFromWord } from "../core/severity.js";
 import { toIso } from "../core/time.js";
 import { inferDirection } from "../net/ip.js";
 import { mapWindowsEvent } from "./windows.js";
@@ -253,6 +253,6 @@ export function createVelociraptorAdapter(extras: AdapterExtras = {}): Adapter {
     vendor: "Rapid7 / Velocidex",
     consumes: ["collection envelopes {artifact, client_id, rows}", "hunt / notebook JSONL exports (_Source, ClientId, Fqdn)"],
     map: mapVelociraptor,
-    redactRaw: (r) => redactKeys(r, DEFAULT_SENSITIVE_KEYS),
+    redactRaw: (r) => redactKeys(r, isSensitiveKey),
   });
 }

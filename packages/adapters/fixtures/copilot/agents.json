@@ -1,0 +1,91 @@
+{
+  "agents": [
+    {
+      "id": 1,
+      "agent_id": "001",
+      "hostname": "acme-dc01",
+      "ip_address": "10.10.0.5",
+      "os": "Microsoft Windows Server 2022 Datacenter",
+      "label": "domain-controller",
+      "critical_asset": true,
+      "wazuh_last_seen": "2026-10-07T11:55:00",
+      "velociraptor_id": "C.1a2b3c4d5e6f7a8b",
+      "velociraptor_last_seen": "2026-10-07T11:56:00",
+      "wazuh_agent_version": "Wazuh v4.9.0",
+      "velociraptor_agent_version": "0.7.1",
+      "customer_code": "ACME",
+      "wazuh_agent_status": "active",
+      "quarantined": false
+    },
+    {
+      "id": 2,
+      "agent_id": "002",
+      "hostname": "acme-ws-17",
+      "ip_address": "10.10.1.17",
+      "os": "Microsoft Windows 11 Pro",
+      "label": "workstation",
+      "critical_asset": false,
+      "wazuh_last_seen": "2026-10-05T08:00:00",
+      "velociraptor_id": null,
+      "wazuh_agent_version": "Wazuh v4.9.0",
+      "customer_code": "ACME",
+      "wazuh_agent_status": "disconnected",
+      "quarantined": false
+    },
+    {
+      "id": 3,
+      "agent_id": "003",
+      "hostname": "acme-web-01",
+      "ip_address": "10.10.2.10",
+      "os": "Ubuntu 22.04.4 LTS",
+      "label": "web",
+      "critical_asset": false,
+      "wazuh_last_seen": "2026-10-07T11:58:00",
+      "wazuh_agent_version": "Wazuh v4.5.2",
+      "customer_code": "ACME",
+      "wazuh_agent_status": "active",
+      "quarantined": true
+    },
+    {
+      "id": 4,
+      "agent_id": "004",
+      "hostname": "eu-fin-01",
+      "ip_address": "10.20.0.8",
+      "os": "Microsoft Windows 10 Enterprise",
+      "label": "finance",
+      "critical_asset": true,
+      "wazuh_last_seen": "2026-10-07T11:50:00",
+      "wazuh_agent_version": "Wazuh v4.5.2",
+      "customer_code": "ACME_EU",
+      "wazuh_agent_status": "active",
+      "quarantined": false
+    },
+    {
+      "id": 5,
+      "agent_id": "005",
+      "hostname": "globex-mac-1",
+      "ip_address": "192.168.5.20",
+      "os": "macOS 14.5",
+      "label": null,
+      "critical_asset": false,
+      "wazuh_last_seen": "1970-01-01T00:00:00",
+      "wazuh_agent_version": "Wazuh v4.9.0",
+      "customer_code": "GLOBEX",
+      "wazuh_agent_status": "never_connected",
+      "quarantined": false
+    },
+    {
+      "id": 6,
+      "agent_id": "006",
+      "hostname": "rogue-host",
+      "ip_address": "10.99.0.1",
+      "os": "Linux",
+      "customer_code": "INITECH",
+      "wazuh_agent_status": "active",
+      "wazuh_last_seen": "2026-10-07T11:00:00",
+      "wazuh_agent_version": "Wazuh v4.9.0"
+    }
+  ],
+  "success": true,
+  "message": "Agents retrieved"
+}

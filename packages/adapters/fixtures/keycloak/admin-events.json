@@ -1,0 +1,45 @@
+[
+  {
+    "id": "a1",
+    "time": 1791370100000,
+    "realmId": "acme",
+    "authDetails": {
+      "realmId": "master",
+      "clientId": "security-admin-console",
+      "userId": "u-admin",
+      "ipAddress": "10.0.10.30"
+    },
+    "operationType": "CREATE",
+    "resourceType": "REALM_ROLE_MAPPING",
+    "resourcePath": "users/u-mallory/role-mappings/realm",
+    "representation": "[{\"id\":\"r1\",\"name\":\"realm-admin\",\"composite\":true}]"
+  },
+  {
+    "id": "a2",
+    "time": 1791370200000,
+    "realmId": "acme",
+    "authDetails": {
+      "realmId": "master",
+      "clientId": "admin-cli",
+      "userId": "u-admin",
+      "ipAddress": "203.0.113.66"
+    },
+    "operationType": "UPDATE",
+    "resourceType": "IDENTITY_PROVIDER",
+    "resourcePath": "identity-provider/instances/partner-saml",
+    "representation": "{\"alias\":\"partner-saml\",\"config\":{\"clientSecret\":\"super-secret\"}}"
+  },
+  {
+    "id": "a3",
+    "time": 1791370300000,
+    "realmId": "acme",
+    "authDetails": {
+      "userId": "u-admin",
+      "ipAddress": "10.0.10.30"
+    },
+    "operationType": "CREATE",
+    "resourceType": "USER",
+    "resourcePath": "users/u-newbie",
+    "representation": "{\"username\":\"newbie\",\"credentials\":[{\"type\":\"password\",\"value\":\"P@ss\"}]}"
+  }
+]

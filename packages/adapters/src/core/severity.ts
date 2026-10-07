@@ -77,3 +77,13 @@ export const DEFAULT_SENSITIVE_KEYS: ReadonlySet<string> = new Set([
   "credentials",
   "session_token",
 ]);
+
+const SENSITIVE_KEY_RE = /(secret|passw|passphrase|token|api[_-]?key|private[_-]?key|credential|cookie|authorization|session[_-]?key)/;
+
+/**
+ * Heuristic used before raw payloads are embedded as provenance: exact known names plus any
+ * key that looks like it carries a secret (over-redaction of raw data is the safe failure).
+ */
+export function isSensitiveKey(lowerKey: string): boolean {
+  return DEFAULT_SENSITIVE_KEYS.has(lowerKey) || SENSITIVE_KEY_RE.test(lowerKey);
+}

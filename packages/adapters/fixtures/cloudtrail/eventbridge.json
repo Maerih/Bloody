@@ -1,0 +1,33 @@
+{
+  "version": "0",
+  "id": "eb-1",
+  "detail-type": "AWS API Call via CloudTrail",
+  "source": "aws.iam",
+  "account": "123456789012",
+  "time": "2026-10-07T11:09:00Z",
+  "region": "us-east-1",
+  "detail": {
+    "eventVersion": "1.09",
+    "userIdentity": {
+      "type": "IAMUser",
+      "userName": "ci-deployer",
+      "arn": "arn:aws:iam::123456789012:user/ci-deployer"
+    },
+    "eventTime": "2026-10-07T11:09:00Z",
+    "eventSource": "iam.amazonaws.com",
+    "eventName": "CreateAccessKey",
+    "awsRegion": "us-east-1",
+    "sourceIPAddress": "198.51.100.77",
+    "requestParameters": {
+      "userName": "ci-deployer"
+    },
+    "responseElements": {
+      "accessKey": {
+        "accessKeyId": "AKIANEWKEY0000000001",
+        "secretAccessKey": "never-store-this"
+      }
+    },
+    "eventID": "66666666-6666-4666-8666-666666666666",
+    "recipientAccountId": "123456789012"
+  }
+}

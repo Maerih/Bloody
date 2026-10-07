@@ -1,0 +1,242 @@
+{
+  "response": {
+    "Attribute": [
+      {
+        "id": "100",
+        "event_id": "4021",
+        "object_id": "0",
+        "category": "Network activity",
+        "type": "ip-dst",
+        "to_ids": true,
+        "uuid": "a0000000-0000-4000-8000-000000000100",
+        "timestamp": "1791300000",
+        "distribution": "5",
+        "comment": "Beacon C2",
+        "deleted": false,
+        "value": "198.51.100.23",
+        "first_seen": null,
+        "last_seen": null,
+        "Event": {
+          "org_id": "1",
+          "distribution": "1",
+          "id": "4021",
+          "info": "OSINT - Cobalt Strike infrastructure targeting finance",
+          "orgc_id": "2",
+          "uuid": "5f0c1b2a-0000-4000-8000-00000000e021",
+          "threat_level_id": "1",
+          "Tag": [
+            {
+              "name": "tlp:amber"
+            },
+            {
+              "name": "misp-galaxy:threat-actor=\"FIN-SPIDER\""
+            }
+          ]
+        },
+        "Tag": [
+          {
+            "name": "misp-galaxy:mitre-attack-pattern=\"Application Layer Protocol - T1071\""
+          },
+          {
+            "name": "kill-chain:command-and-control"
+          }
+        ]
+      },
+      {
+        "id": "101",
+        "event_id": "4021",
+        "category": "Network activity",
+        "type": "domain",
+        "to_ids": true,
+        "uuid": "a0000000-0000-4000-8000-000000000101",
+        "timestamp": "1791300100",
+        "value": "cdn-update.badcdn.net",
+        "Event": {
+          "org_id": "1",
+          "distribution": "1",
+          "id": "4021",
+          "info": "OSINT - Cobalt Strike infrastructure targeting finance",
+          "orgc_id": "2",
+          "uuid": "5f0c1b2a-0000-4000-8000-00000000e021",
+          "threat_level_id": "1",
+          "Tag": [
+            {
+              "name": "tlp:amber"
+            },
+            {
+              "name": "misp-galaxy:threat-actor=\"FIN-SPIDER\""
+            }
+          ]
+        },
+        "Tag": [
+          {
+            "name": "misp-galaxy:malpedia=\"Cobalt Strike\""
+          },
+          {
+            "name": "misp:confidence-level=\"confirmed\""
+          }
+        ]
+      },
+      {
+        "id": "102",
+        "event_id": "4021",
+        "category": "Payload delivery",
+        "type": "filename|sha256",
+        "to_ids": true,
+        "uuid": "a0000000-0000-4000-8000-000000000102",
+        "timestamp": "1791300200",
+        "value": "stage2.bin|5e585fd3fab5cb85a941179b4df835cef988f0281af9f47878024f539c302df5",
+        "Event": {
+          "org_id": "1",
+          "distribution": "1",
+          "id": "4021",
+          "info": "OSINT - Cobalt Strike infrastructure targeting finance",
+          "orgc_id": "2",
+          "uuid": "5f0c1b2a-0000-4000-8000-00000000e021",
+          "threat_level_id": "1",
+          "Tag": [
+            {
+              "name": "tlp:amber"
+            },
+            {
+              "name": "misp-galaxy:threat-actor=\"FIN-SPIDER\""
+            }
+          ]
+        }
+      },
+      {
+        "id": "103",
+        "event_id": "4021",
+        "category": "Network activity",
+        "type": "url",
+        "to_ids": false,
+        "uuid": "a0000000-0000-4000-8000-000000000103",
+        "timestamp": "1791300300",
+        "value": "hxxp://dl.badcdn[.]net/payload/stage2.bin",
+        "Event": {
+          "org_id": "1",
+          "distribution": "1",
+          "id": "4021",
+          "info": "OSINT - Cobalt Strike infrastructure targeting finance",
+          "orgc_id": "2",
+          "uuid": "5f0c1b2a-0000-4000-8000-00000000e021",
+          "threat_level_id": "1",
+          "Tag": [
+            {
+              "name": "tlp:amber"
+            },
+            {
+              "name": "misp-galaxy:threat-actor=\"FIN-SPIDER\""
+            }
+          ]
+        }
+      },
+      {
+        "id": "104",
+        "event_id": "4021",
+        "category": "External analysis",
+        "type": "vulnerability",
+        "to_ids": false,
+        "uuid": "a0000000-0000-4000-8000-000000000104",
+        "timestamp": "1791300400",
+        "value": "CVE-2021-44228",
+        "Event": {
+          "org_id": "1",
+          "distribution": "1",
+          "id": "4021",
+          "info": "OSINT - Cobalt Strike infrastructure targeting finance",
+          "orgc_id": "2",
+          "uuid": "5f0c1b2a-0000-4000-8000-00000000e021",
+          "threat_level_id": "3",
+          "Tag": [
+            {
+              "name": "tlp:green"
+            }
+          ]
+        }
+      },
+      {
+        "id": "105",
+        "event_id": "4021",
+        "category": "Persistence mechanism",
+        "type": "regkey",
+        "to_ids": true,
+        "uuid": "a0000000-0000-4000-8000-000000000105",
+        "timestamp": "1791300500",
+        "value": "HKLM\\Software\\Run\\x",
+        "Event": {
+          "org_id": "1",
+          "distribution": "1",
+          "id": "4021",
+          "info": "OSINT - Cobalt Strike infrastructure targeting finance",
+          "orgc_id": "2",
+          "uuid": "5f0c1b2a-0000-4000-8000-00000000e021",
+          "threat_level_id": "1",
+          "Tag": [
+            {
+              "name": "tlp:amber"
+            },
+            {
+              "name": "misp-galaxy:threat-actor=\"FIN-SPIDER\""
+            }
+          ]
+        }
+      },
+      {
+        "id": "106",
+        "event_id": "4021",
+        "category": "Network activity",
+        "type": "ip-src",
+        "to_ids": true,
+        "uuid": "a0000000-0000-4000-8000-000000000106",
+        "timestamp": "1791300600",
+        "value": "203.0.113.45",
+        "deleted": true,
+        "Event": {
+          "org_id": "1",
+          "distribution": "1",
+          "id": "4021",
+          "info": "OSINT - Cobalt Strike infrastructure targeting finance",
+          "orgc_id": "2",
+          "uuid": "5f0c1b2a-0000-4000-8000-00000000e021",
+          "threat_level_id": "1",
+          "Tag": [
+            {
+              "name": "tlp:amber"
+            },
+            {
+              "name": "misp-galaxy:threat-actor=\"FIN-SPIDER\""
+            }
+          ]
+        }
+      },
+      {
+        "id": "107",
+        "event_id": "4021",
+        "category": "Network activity",
+        "type": "ip-dst",
+        "to_ids": true,
+        "uuid": "a0000000-0000-4000-8000-000000000107",
+        "timestamp": "1791300700",
+        "value": "not-an-ip",
+        "Event": {
+          "org_id": "1",
+          "distribution": "1",
+          "id": "4021",
+          "info": "OSINT - Cobalt Strike infrastructure targeting finance",
+          "orgc_id": "2",
+          "uuid": "5f0c1b2a-0000-4000-8000-00000000e021",
+          "threat_level_id": "1",
+          "Tag": [
+            {
+              "name": "tlp:amber"
+            },
+            {
+              "name": "misp-galaxy:threat-actor=\"FIN-SPIDER\""
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

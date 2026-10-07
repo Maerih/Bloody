@@ -1,0 +1,125 @@
+{
+  "SchemaVersion": 2,
+  "CreatedAt": "2026-10-07T06:00:00.123456789Z",
+  "ArtifactName": "registry.local/payments-api:2.4.1",
+  "ArtifactType": "container_image",
+  "Metadata": {
+    "OS": {
+      "Family": "debian",
+      "Name": "12.5"
+    },
+    "ImageID": "sha256:b29814cf5792e684cd75d6a7fce7a67a11887e312f87ca2ac2496d81f365ff72",
+    "RepoDigests": [
+      "registry.local/payments-api@sha256:0bf474896363505e5ea5e5d6ace8ebfb13a760a409b1fb467d428fc716f9f284"
+    ]
+  },
+  "Results": [
+    {
+      "Target": "registry.local/payments-api:2.4.1 (debian 12.5)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-3094",
+          "PkgID": "xz-utils@5.6.0-0.2",
+          "PkgName": "xz-utils",
+          "InstalledVersion": "5.6.0-0.2",
+          "FixedVersion": "5.6.1+really5.4.5-1",
+          "Status": "fixed",
+          "SeveritySource": "debian",
+          "PrimaryURL": "https://avd.aquasec.com/nvd/cve-2024-3094",
+          "Title": "xz: malicious code in distributed source",
+          "Severity": "CRITICAL",
+          "CweIDs": [
+            "CWE-506"
+          ],
+          "CVSS": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+              "V3Score": 10.0
+            },
+            "redhat": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H",
+              "V3Score": 9.0
+            }
+          },
+          "PublishedDate": "2024-03-29T17:15:21.150Z"
+        },
+        {
+          "VulnerabilityID": "CVE-2023-4911",
+          "PkgID": "libc6@2.36-9",
+          "PkgName": "libc6",
+          "InstalledVersion": "2.36-9",
+          "FixedVersion": "2.36-9+deb12u3",
+          "Status": "fixed",
+          "Title": "glibc: buffer overflow in ld.so leading to privilege escalation",
+          "Severity": "HIGH",
+          "CVSS": {
+            "nvd": {
+              "V3Score": 7.8
+            }
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2011-3374",
+          "PkgID": "apt@2.6.1",
+          "PkgName": "apt",
+          "InstalledVersion": "2.6.1",
+          "Status": "affected",
+          "Severity": "LOW",
+          "Title": "apt: weak key check"
+        }
+      ]
+    },
+    {
+      "Target": "Dockerfile",
+      "Class": "config",
+      "Type": "dockerfile",
+      "Misconfigurations": [
+        {
+          "Type": "Dockerfile Security Check",
+          "ID": "DS002",
+          "AVDID": "AVD-DS-0002",
+          "Title": "Image user should not be 'root'",
+          "Message": "Specify at least 1 USER command in Dockerfile with non-root user as argument",
+          "Resolution": "Add 'USER <non root user name>' line",
+          "Severity": "HIGH",
+          "PrimaryURL": "https://avd.aquasec.com/misconfig/ds002",
+          "Status": "FAIL",
+          "CauseMetadata": {
+            "Code": {
+              "Lines": [
+                {
+                  "Number": 1,
+                  "Content": "FROM debian:12"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "Type": "Dockerfile Security Check",
+          "ID": "DS001",
+          "Title": "':latest' tag used",
+          "Severity": "MEDIUM",
+          "Status": "PASS"
+        }
+      ]
+    },
+    {
+      "Target": "/app/config/.env",
+      "Class": "secret",
+      "Secrets": [
+        {
+          "RuleID": "aws-access-key-id",
+          "Category": "AWS",
+          "Severity": "CRITICAL",
+          "Title": "AWS Access Key ID",
+          "StartLine": 3,
+          "EndLine": 3,
+          "Match": "AWS_ACCESS_KEY_ID=AKIA****************"
+        }
+      ]
+    }
+  ]
+}

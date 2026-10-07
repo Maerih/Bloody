@@ -4,7 +4,7 @@ import { defineAdapter, skip, type Adapter, type AdapterExtras, type MapOutput }
 import { ObservableSet } from "../core/indicators.js";
 import { arr, bool, field, isRecord, rec, redactKeys, str, truncate } from "../core/json.js";
 import { jsonRecords } from "../core/records.js";
-import { atLeast, DEFAULT_SENSITIVE_KEYS } from "../core/severity.js";
+import { atLeast, isSensitiveKey } from "../core/severity.js";
 import { toIso } from "../core/time.js";
 import { isIp } from "../net/ip.js";
 
@@ -183,7 +183,7 @@ function mapRecord(record: unknown): MapOutput {
     labels,
     dedupKey: str(r["eventID"]) ?? `${str(r["eventTime"]) ?? ""}:${key}:${arn ?? ""}`,
     source: { kind: "cloud", product: "aws_cloudtrail", vendor: "Amazon Web Services" },
-    raw: redactKeys(r, DEFAULT_SENSITIVE_KEYS),
+    raw: redactKeys(r, isSensitiveKey),
   };
 }
 

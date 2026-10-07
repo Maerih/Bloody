@@ -1,0 +1,28 @@
+{
+  "ClusterName": "prod-eks",
+  "Resources": [
+    {
+      "Namespace": "prod",
+      "Kind": "Deployment",
+      "Name": "payments-api",
+      "Results": [
+        {
+          "Target": "Deployment/payments-api",
+          "Class": "config",
+          "Type": "kubernetes",
+          "Misconfigurations": [
+            {
+              "ID": "KSV017",
+              "AVDID": "AVD-KSV-0017",
+              "Title": "Privileged container",
+              "Message": "Container 'api' should set 'securityContext.privileged' to false",
+              "Severity": "HIGH",
+              "Status": "FAIL",
+              "Type": "Kubernetes Security Check"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

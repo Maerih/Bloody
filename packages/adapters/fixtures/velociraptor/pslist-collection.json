@@ -1,0 +1,29 @@
+{
+  "artifact": "Windows.System.Pslist",
+  "client_id": "C.4f3e2d1c0b0a9988",
+  "hostname": "WS-ALICE.corp.local",
+  "flow_id": "F.CR2T8Q1NJ5K0",
+  "collected_at": "2026-10-07T10:30:00Z",
+  "rows": [
+    {
+      "Pid": 7344,
+      "Ppid": 5120,
+      "Name": "powershell.exe",
+      "Username": "CORP\\alice",
+      "Exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell.exe -nop -w hidden -enc SQBFAFgA",
+      "CreateTime": "2026-10-07T10:00:00.987Z",
+      "Hash": {
+        "MD5": "db8a53f4e5bde1c0918e4bdef5249fbe",
+        "SHA1": "d7af29a9f1b4d562f0412fd8597974cd85b61958",
+        "SHA256": "278a1a850e5ceadd6a08990441d0d41e18b438c8b4355683c562ab410c945052"
+      }
+    },
+    {
+      "Pid": 4,
+      "Ppid": 0,
+      "Name": "System",
+      "CreateTime": "2026-10-01T06:00:00Z"
+    }
+  ]
+}

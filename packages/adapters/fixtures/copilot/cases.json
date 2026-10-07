@@ -1,0 +1,157 @@
+{
+  "cases": [
+    {
+      "id": 900,
+      "case_name": "DC credential theft",
+      "case_description": "Mimikatz on domain controller; possible domain compromise",
+      "assigned_to": "analyst1",
+      "alerts": [
+        {
+          "id": 101,
+          "alert_creation_time": "2026-10-07T09:00:00.000Z",
+          "time_closed": null,
+          "alert_name": "Mimikatz credential dumping detected on acme-dc01",
+          "alert_description": "Mimikatz credential dumping detected on acme-dc01",
+          "status": "OPEN",
+          "customer_code": "ACME",
+          "source": "wazuh",
+          "assigned_to": "analyst1",
+          "escalated": true,
+          "verdict": null,
+          "verdict_reason": null,
+          "verdict_note": null,
+          "verdict_by": null,
+          "verdict_at": null,
+          "severity": "Critical",
+          "comments": [
+            {
+              "user_name": "analyst1",
+              "alert_id": 101,
+              "id": 1,
+              "comment": "investigating",
+              "created_at": "2026-10-07T09:20:00.000Z"
+            }
+          ],
+          "assets": [
+            {
+              "asset_name": "acme-dc01",
+              "agent_id": "001",
+              "customer_code": "ACME",
+              "index_id": "x",
+              "alert_linked": 1,
+              "id": 1,
+              "alert_context_id": 1,
+              "velociraptor_id": null,
+              "index_name": "wazuh-acme_1"
+            }
+          ],
+          "tags": [
+            {
+              "tag": "T1003.001",
+              "id": 1
+            },
+            {
+              "tag": "credential-access",
+              "id": 2
+            }
+          ],
+          "linked_cases": [
+            {
+              "case_name": "DC credential theft",
+              "case_description": "x",
+              "case_creation_time": "2026-10-07T09:10:00",
+              "case_status": "IN_PROGRESS",
+              "assigned_to": "analyst1",
+              "id": 900
+            }
+          ],
+          "iocs": [
+            {
+              "value": "198.51.100.23",
+              "type": "IP",
+              "description": "C2",
+              "id": 1
+            },
+            {
+              "value": "c6b438b0c071b0875f3579207f8391b6a60e1319b25832a0ad3fe4bc0a5ae7ea",
+              "type": "HASH",
+              "description": null,
+              "id": 2
+            }
+          ]
+        }
+      ],
+      "case_status": "IN_PROGRESS",
+      "case_creation_time": "2026-10-07T09:10:00",
+      "customer_code": "ACME",
+      "notification_invoked_number": 1,
+      "escalated": true,
+      "severity": null,
+      "comments": []
+    },
+    {
+      "id": 901,
+      "case_name": "Phishing follow-up awaiting customer",
+      "case_description": "Need confirmation from customer IT",
+      "assigned_to": null,
+      "alerts": [],
+      "case_status": "PENDING_CUSTOMER",
+      "case_creation_time": "2026-10-06T15:00:00",
+      "customer_code": "GLOBEX",
+      "escalated": false,
+      "severity": "Medium",
+      "comments": []
+    },
+    {
+      "id": 902,
+      "case_name": "FP scan",
+      "case_description": "closed",
+      "assigned_to": "analyst2",
+      "alerts": [
+        {
+          "id": 103,
+          "alert_creation_time": "2026-10-07T09:00:00.000Z",
+          "time_closed": "2026-10-07T10:00:00.000Z",
+          "alert_name": "Port scan from internal host",
+          "alert_description": "Port scan from internal host",
+          "status": "CLOSED",
+          "customer_code": "ACME_EU",
+          "source": "wazuh",
+          "assigned_to": null,
+          "escalated": false,
+          "verdict": "FALSE_POSITIVE",
+          "verdict_reason": null,
+          "verdict_note": null,
+          "verdict_by": null,
+          "verdict_at": "2026-10-07T10:00:00.000Z",
+          "severity": "Medium",
+          "comments": [],
+          "assets": [
+            {
+              "asset_name": "eu-fin-01",
+              "agent_id": "004",
+              "customer_code": "ACME_EU",
+              "index_id": "x",
+              "alert_linked": 1,
+              "id": 1,
+              "alert_context_id": 1,
+              "velociraptor_id": null,
+              "index_name": "wazuh-acme_1"
+            }
+          ],
+          "tags": [],
+          "linked_cases": [],
+          "iocs": []
+        }
+      ],
+      "case_status": "CLOSED",
+      "case_creation_time": "2026-10-07T09:30:00",
+      "customer_code": "ACME_EU",
+      "escalated": false,
+      "severity": null
+    }
+  ],
+  "total": 3,
+  "success": true,
+  "message": "Cases retrieved successfully"
+}

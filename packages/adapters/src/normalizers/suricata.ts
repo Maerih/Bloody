@@ -2,8 +2,8 @@ import type { AttackTechnique, Severity } from "@bloody/contracts";
 import { technique } from "../core/attack.js";
 import { defineAdapter, type Adapter, type AdapterExtras, skip, type EventDraft, type MapOutput } from "../core/adapter.js";
 import { ObservableSet } from "../core/indicators.js";
-import { arr, bool, field, int, isRecord, port, rec, str, strArr, uint, type JsonRecord } from "../core/json.js";
-import { atLeast, severityFromWord } from "../core/severity.js";
+import { arr, bool, field, int, isRecord, omitKeys, port, rec, redactKeys, str, strArr, uint, type JsonRecord } from "../core/json.js";
+import { atLeast, isSensitiveKey, severityFromWord } from "../core/severity.js";
 import { toIso } from "../core/time.js";
 import { inferDirection, isIp } from "../net/ip.js";
 
@@ -262,5 +262,7 @@ export function createSuricataAdapter(extras: AdapterExtras = {}): Adapter {
     vendor: "OISF",
     consumes: ["EVE JSON: alert, dns (v2/v3), http, tls, flow, fileinfo"],
     map: mapEve,
+    // Header dumps and payload captures can carry cookies/credentials: never retained.
+    redactRaw: (r) => redactKeys(omitKeys(r, new Set(["request_headers", "response_headers", "payload", "payload_printable", "packet", "http_request_body", "http_response_body"])), isSensitiveKey),
   });
 }

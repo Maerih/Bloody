@@ -2,7 +2,8 @@ import type { EventCategory, Severity } from "@bloody/contracts";
 import { technique } from "../core/attack.js";
 import { defineAdapter, skip, type Adapter, type AdapterExtras, type EventDraft, type MapOutput } from "../core/adapter.js";
 import { ObservableSet } from "../core/indicators.js";
-import { arr, field, isRecord, rec, str, type JsonRecord } from "../core/json.js";
+import { arr, field, isRecord, rec, redactKeys, str, type JsonRecord } from "../core/json.js";
+import { isSensitiveKey } from "../core/severity.js";
 import { toIso } from "../core/time.js";
 
 /**
@@ -149,7 +150,7 @@ function mapUserEvent(r: JsonRecord, realmHint?: string): EventDraft {
     },
     dedupKey: str(r["id"]) ?? `user:${realm ?? ""}:${str(r["time"]) ?? ""}:${type}:${userId ?? ""}:${str(r["sessionId"]) ?? ""}`,
     source: { kind: "identity" },
-    raw: { ...r, details: { ...details, ...(details["password"] !== undefined ? { password: "[REDACTED]" } : {}) } },
+    raw: r,
   };
 }
 
@@ -215,5 +216,6 @@ export function createKeycloakAdapter(extras: AdapterExtras = {}): Adapter {
     vendor: "Keycloak",
     consumes: ["Admin REST /admin/realms/{realm}/events", "Admin REST /admin/realms/{realm}/admin-events", "event-listener webhook JSON"],
     map: mapKeycloak,
+    redactRaw: (r) => redactKeys(r, isSensitiveKey),
   });
 }
