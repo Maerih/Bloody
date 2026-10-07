@@ -141,6 +141,7 @@ export const ATTACK_TECHNIQUES: readonly AttackTechniqueInfo[] = [
   T("T1562.001", "Disable or Modify Tools", "Defense Evasion"),
   T("T1562.002", "Disable Windows Event Logging", "Defense Evasion"),
   T("T1562.004", "Disable or Modify System Firewall", "Defense Evasion"),
+  T("T1562.007", "Disable or Modify Cloud Firewall", "Defense Evasion"),
   T("T1562.008", "Disable or Modify Cloud Logs", "Defense Evasion"),
   T("T1564", "Hide Artifacts", "Defense Evasion"),
   T("T1578", "Modify Cloud Compute Infrastructure", "Defense Evasion"),
