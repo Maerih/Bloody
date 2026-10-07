@@ -13,7 +13,9 @@ export interface Route {
   method: string;
   path: string | RegExp;
   status?: number;
-  json?: unknown | ((call: RecordedCall) => unknown);
+  json?: unknown;
+  /** Build the JSON body from the request (takes precedence over `json`). */
+  respond?: (call: RecordedCall) => unknown;
   text?: string;
   headers?: Record<string, string>;
   /** Respond only this many times (then fall through to later routes). */
@@ -40,7 +42,7 @@ export function mockFetch(routes: Route[]): { fetch: FetchLike; calls: RecordedC
       const n = used.get(r) ?? 0;
       if (r.times !== undefined && n >= r.times) continue;
       used.set(r, n + 1);
-      const payload = typeof r.json === "function" ? (r.json as (c: RecordedCall) => unknown)(call) : r.json;
+      const payload = r.respond ? r.respond(call) : r.json;
       const text = r.text ?? (payload !== undefined ? JSON.stringify(payload) : "");
       return new Response(text, { status: r.status ?? 200, headers: { "content-type": r.text !== undefined ? "text/plain" : "application/json", ...r.headers } });
     }

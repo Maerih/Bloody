@@ -9,6 +9,7 @@ import {
   eventLabel,
   parseConfig,
   resolveUrl,
+  safeUrl,
   SEVERITY_COLORS,
   SEVERITY_LABEL,
   type Branding,
@@ -30,7 +31,14 @@ export const SlackConfig = z
     mentionOnCritical: z.enum(["here", "channel"]).nullable().default(null),
   })
   .refine((v) => Boolean(v.url) !== Boolean(v.urlRef), { message: "exactly one of url or urlRef is required" })
-  .refine((v) => !v.url || SLACK_HOSTS.some((h) => new URL(v.url!).hostname === h), { message: "url must be a Slack incoming-webhook URL (https://hooks.slack.com/…)" });
+  .refine(
+    (v) => {
+      if (!v.url) return true;
+      const u = safeUrl(v.url);
+      return u !== null && u.protocol === "https:" && SLACK_HOSTS.some((h) => u.hostname === h);
+    },
+    { message: "url must be a Slack incoming-webhook URL (https://hooks.slack.com/…)" },
+  );
 export type SlackConfig = z.output<typeof SlackConfig>;
 
 /** Escape Slack mrkdwn control characters (prevents <!channel>/<url|label> injection from event data). */
