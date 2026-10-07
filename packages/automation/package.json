@@ -1,0 +1,18 @@
+{
+  "name": "@bloody/automation",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "SOAR workflow engine, approval gates, automation rules and notification channels (email/webhook/Slack/Teams/syslog).",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "build": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": { "@bloody/contracts": "workspace:*", "zod": "^3.23.8", "nodemailer": "^6.9.16" },
+  "devDependencies": { "@types/nodemailer": "^6.4.16" }
+}
