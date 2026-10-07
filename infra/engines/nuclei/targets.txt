@@ -1,0 +1,4 @@
+# Authorised, in-scope ASM targets — one host, URL or CIDR per line.
+# Only list assets the customer has authorised for active scanning (written authorisation on
+# file). This development file is intentionally empty; Bloody's ASM scope manager owns it in
+# real deployments.

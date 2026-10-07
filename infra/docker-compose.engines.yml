@@ -1,0 +1,1523 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Bloody — open-source ENGINE LAYER (development / lab).
+#
+# Every engine below runs UNMODIFIED, as a separate container, from its upstream image at a pinned
+# version, and is reached by Bloody only through network APIs, event streams or file drops
+# (docs/adr/0004-open-source-engines-and-licence-policy.md). Nothing here is linked into Bloody.
+#
+#   # with the core stack (API joins the internal `engines` network):
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.engines.yml --profile endpoint --profile collection up -d
+#   # everything (needs ~32 GB RAM):
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.engines.yml --profile all up -d
+#
+# Profiles (combine freely; `all` enables everything):
+#   endpoint    Wazuh manager + indexer, Velociraptor, osquery (fleet-less demo agent)
+#   network     Zeek, Suricata (+ rule update), Arkime (offline PCAP indexing)
+#   search      OpenSearch — Bloody's event search store
+#   streaming   Apache Kafka (KRaft) + topic bootstrap (bloody.raw.<adapter>, bloody.dlq)
+#   collection  Vector (default engine-log collector), OpenTelemetry Collector (platform telemetry)
+#   intel       MISP (+ modules), OpenCTI (+ worker)
+#   case        DFIR-IRIS
+#   soar        Shuffle  (Orborus needs the Docker socket — see the warning on that service)
+#   vuln        Greenbone Community Edition containers (+ TLS GMP endpoint for Bloody)
+#   asm         Nuclei scan runner (authorised targets only)
+#   cloud       Trivy server
+#   identity    Keycloak — defined in infra/docker-compose.yml (profiles sso / identity)
+#   deception   OpenCanary
+#   forensics   Plaso (one-shot job) + Timesketch
+#   copilot     SOCFortress CoPilot (AGPL-3.0, unmodified; pinned by digest — upstream publishes `latest` only)
+#
+# Network segmentation
+#   engines         internal: true — no internet egress; engines ↔ engines ↔ Bloody API only
+#   engines-egress  feed / rule / template downloads (Wazuh CTI, suricata-update, MISP feeds,
+#                   Nuclei templates, Trivy DB, Shuffle apps) — only services that need it join
+#   engines-ui      published localhost ports for engine UIs (Docker cannot publish ports of
+#                   containers attached only to an internal network)
+#   host            Zeek / Suricata live capture (network_mode: host, CAPTURE_INTERFACE)
+#
+# Credentials: every value below is a DEVELOPMENT DEFAULT overridable from infra/.env
+# (see /.env.example). None is a real secret; production engines get credentials from the
+# secret store and run outside this file (infra/k8s, docs/OPERATIONS.md).
+name: bloody
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-nnp: &nnp
+  security_opt: ["no-new-privileges:true"]
+
+x-locked: &locked
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
+x-greenbone-data: &greenbone-data
+  profiles: [vuln, all]
+  network_mode: none
+  restart: "no"
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
+services:
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # Shared development PKI. Same definition as infra/docker-compose.yml (Compose merges the two);
+  # this file adds the engine endpoints that terminate TLS with the dev CA the API trusts.
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  dev-certs:
+    image: alpine/openssl:3.5.9
+    entrypoint: ["/bin/sh", "/scripts/dev-certs.sh"]
+    environment:
+      CERT_DIR: /certs
+      DEV_CERT_LEAVES: "mailpit localhost gvmd iris"
+    volumes:
+      - ../scripts/dev-certs.sh:/scripts/dev-certs.sh:ro
+      - dev-certs:/certs
+    network_mode: none
+    restart: "no"
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # Shared engine-tier infrastructure (separate from Bloody's control-plane data stores:
+  # engines never receive credentials to Bloody's Postgres / Valkey).
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  engine-volume-init:
+    image: busybox:1.37.0
+    profiles: [collection, streaming, all]
+    # Named volumes start root-owned; hand them to the non-root engine users.
+    command: ["sh", "-c", "chown -R 10001:10001 /otelcol && chown -R 1000:1000 /kafka && chmod 0750 /otelcol /kafka"]
+    volumes:
+      - otelcol-data:/otelcol
+      - kafka-data:/kafka
+    network_mode: none
+    restart: "no"
+    logging: *logging
+
+  engine-opensearch:
+    image: opensearchproject/opensearch:2.19.6
+    profiles: [network, intel, soar, forensics, all]
+    environment:
+      discovery.type: single-node
+      cluster.name: bloody-engines
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+      # Engine-internal search backend (Arkime, OpenCTI, Shuffle, Timesketch) on the internal
+      # network only. Development shortcut: production uses a TLS + fine-grained-access cluster.
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - engine-opensearch-data:/usr/share/opensearch/data
+    <<: *nnp
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  engine-valkey:
+    image: valkey/valkey:8.1.10-alpine
+    profiles: [intel, forensics, all]
+    user: "999:1000"
+    command:
+      - valkey-server
+      - --requirepass
+      - ${ENGINE_VALKEY_PASSWORD:-engine-valkey-dev-only}
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 1gb
+      # OpenCTI keeps streams here: never evict.
+      - --maxmemory-policy
+      - noeviction
+    environment:
+      REDISCLI_AUTH: ${ENGINE_VALKEY_PASSWORD:-engine-valkey-dev-only}
+    volumes:
+      - engine-valkey-data:/data
+    read_only: true
+    <<: *locked
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  engine-rabbitmq:
+    image: rabbitmq:4.3.6-management-alpine
+    profiles: [intel, case, all]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${ENGINE_RABBITMQ_USER:-bloody-engines}
+      RABBITMQ_DEFAULT_PASS: ${ENGINE_RABBITMQ_PASSWORD:-engine-rabbitmq-dev-only}
+      # OpenCTI workers hold long-running deliveries.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit consumer_timeout 86400000"
+    volumes:
+      - engine-rabbitmq-data:/var/lib/rabbitmq
+    <<: *nnp
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks:
+      engines:
+        # DFIR-IRIS' default broker host name.
+        aliases: [rabbitmq]
+    restart: unless-stopped
+    logging: *logging
+
+  # S3-compatible object storage (SeaweedFS, Apache-2.0) for OpenCTI and CoPilot. Replaces MinIO,
+  # which is AGPL-3.0 and no longer ships community container images.
+  engine-s3:
+    image: chrislusf/seaweedfs:4.48
+    profiles: [intel, copilot, all]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        umask 077
+        cat > /tmp/s3.json <<EOF
+        {"identities":[{"name":"engines","credentials":[{"accessKey":"$${ENGINE_S3_ACCESS_KEY}","secretKey":"$${ENGINE_S3_SECRET_KEY}"}],"actions":["Admin","Read","List","Tagging","Write"]}]}
+        EOF
+        exec weed server -dir=/data -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=1024 -volume.max=0 \
+          -s3 -s3.port=9000 -s3.config=/tmp/s3.json
+    environment:
+      ENGINE_S3_ACCESS_KEY: ${ENGINE_S3_ACCESS_KEY:-bloody-engines}
+      ENGINE_S3_SECRET_KEY: ${ENGINE_S3_SECRET_KEY:-engine-s3-dev-only-secret}
+    volumes:
+      - engine-s3-data:/data
+    tmpfs:
+      - /tmp:size=8m
+    <<: *nnp
+    networks:
+      engines:
+        # CoPilot's default object-store host name.
+        aliases: [copilot-minio]
+    restart: unless-stopped
+    logging: *logging
+
+  engine-mariadb:
+    image: mariadb:11.8.9
+    profiles: [intel, copilot, all]
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=512M
+      - --max-allowed-packet=64M
+      - --skip-name-resolve
+    environment:
+      MARIADB_ROOT_PASSWORD: ${ENGINE_MARIADB_ROOT_PASSWORD:-engine-mariadb-root-dev-only}
+      MARIADB_MYSQL_LOCALHOST_USER: "1"
+      MARIADB_AUTO_UPGRADE: "1"
+      MISP_DB_PASSWORD: ${MISP_DB_PASSWORD:-misp-db-dev-only}
+      COPILOT_DB_PASSWORD: ${COPILOT_DB_PASSWORD:-copilot-db-dev-only}
+    volumes:
+      - engine-mariadb-data:/var/lib/mysql
+      - ./engines/mariadb/init:/docker-entrypoint-initdb.d:ro
+    <<: *nnp
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  engine-postgres:
+    image: postgres:16.15-alpine
+    profiles: [forensics, all]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ENGINE_POSTGRES_PASSWORD:-engine-postgres-dev-only}
+      POSTGRES_DB: postgres
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --data-checksums"
+      TIMESKETCH_DB_PASSWORD: ${TIMESKETCH_DB_PASSWORD:-timesketch-db-dev-only}
+    volumes:
+      - engine-postgres-data:/var/lib/postgresql/data
+      - ./engines/engine-postgres/init:/docker-entrypoint-initdb.d:ro
+    <<: *nnp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # endpoint — Wazuh (GPL-2.0), Velociraptor (AGPL-3.0), osquery (Apache-2.0 option)
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  wazuh-certs:
+    image: wazuh/wazuh-certs-generator:0.0.4
+    profiles: [endpoint, all]
+    # Downloads Wazuh's certificate tool at run time, hence the egress network.
+    volumes:
+      - wazuh-certs:/certificates
+      - ./engines/wazuh/certs.yml:/config/certs.yml:ro
+    networks: [engines-egress]
+    restart: "no"
+    logging: *logging
+
+  wazuh-indexer:
+    image: wazuh/wazuh-indexer:4.14.8
+    profiles: [endpoint, all]
+    hostname: wazuh.indexer
+    environment:
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - wazuh-indexer-data:/var/lib/wazuh-indexer
+      - wazuh-certs:/usr/share/wazuh-indexer/certs:ro
+      - ./engines/wazuh/wazuh-indexer.yml:/usr/share/wazuh-indexer/opensearch.yml:ro
+    <<: *nnp
+    mem_limit: 2g
+    healthcheck:
+      # Any HTTPS answer (401 included) means the node is up; credentials are not needed here.
+      test: ["CMD-SHELL", "curl -sk -o /dev/null https://localhost:9200/"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+    depends_on:
+      wazuh-certs:
+        condition: service_completed_successfully
+    networks:
+      engines:
+        aliases: [wazuh.indexer]
+    restart: unless-stopped
+    logging: *logging
+
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.14.8
+    profiles: [endpoint, all]
+    hostname: wazuh.manager
+    environment:
+      INDEXER_URL: https://wazuh.indexer:9200
+      # The indexer ships Wazuh's default `admin` account; rotate it with wazuh-passwords-tool
+      # before anything beyond a laptop (docs/OPERATIONS.md §Engine credentials).
+      INDEXER_USERNAME: admin
+      INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD:-admin}
+      FILEBEAT_SSL_VERIFICATION_MODE: full
+      SSL_CERTIFICATE_AUTHORITIES: /etc/ssl/wazuh/root-ca.pem
+      SSL_CERTIFICATE: /etc/ssl/wazuh/wazuh.manager.pem
+      SSL_KEY: /etc/ssl/wazuh/wazuh.manager-key.pem
+      # REST API user used by Bloody's Wazuh adapter (agents, active response). Must satisfy
+      # Wazuh's password policy (8–64 chars, upper, lower, digit, symbol).
+      API_USERNAME: wazuh-wui
+      API_PASSWORD: ${WAZUH_API_PASSWORD:-Bloody.Dev-0nly.Wazuh}
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 655360, hard: 655360 }
+    volumes:
+      - wazuh-api-config:/var/ossec/api/configuration
+      - wazuh-etc:/var/ossec/etc
+      - wazuh-logs:/var/ossec/logs
+      - wazuh-queue:/var/ossec/queue
+      - wazuh-multigroups:/var/ossec/var/multigroups
+      - wazuh-integrations:/var/ossec/integrations
+      - wazuh-active-response:/var/ossec/active-response/bin
+      - wazuh-filebeat-etc:/etc/filebeat
+      - wazuh-filebeat-var:/var/lib/filebeat
+      - wazuh-certs:/etc/ssl/wazuh:ro
+    <<: *nnp
+    ports:
+      # Agent connection + enrollment. Set WAZUH_AGENT_BIND=0.0.0.0 to accept real agents.
+      - "${WAZUH_AGENT_BIND:-127.0.0.1}:1514:1514"
+      - "${WAZUH_AGENT_BIND:-127.0.0.1}:1515:1515"
+      - "127.0.0.1:${WAZUH_API_PORT:-55000}:55000"
+    depends_on:
+      wazuh-indexer:
+        condition: service_healthy
+    networks:
+      engines:
+        aliases: [wazuh.manager, wazuh]
+      engines-egress: {}
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  velociraptor:
+    image: ${BLOODY_VELOCIRAPTOR_IMAGE:-bloody/engine-velociraptor:0.76.3}
+    build:
+      context: ./engines/velociraptor
+      args:
+        VELOCIRAPTOR_VERSION: ${VELOCIRAPTOR_VERSION:-0.76.3}
+        # Mandatory: SHA-256 of the upstream release binary (the build fails closed without it).
+        VELOCIRAPTOR_SHA256: ${VELOCIRAPTOR_SHA256:-}
+    profiles: [endpoint, all]
+    environment:
+      VELOCIRAPTOR_FRONTEND_HOSTNAME: ${VELOCIRAPTOR_FRONTEND_HOSTNAME:-localhost}
+      VELOCIRAPTOR_GUI_PUBLIC_URL: ${VELOCIRAPTOR_GUI_PUBLIC_URL:-https://localhost:8889/}
+      VELOCIRAPTOR_ADMIN_USER: ${VELOCIRAPTOR_ADMIN_USER:-admin}
+      VELOCIRAPTOR_ADMIN_PASSWORD: ${VELOCIRAPTOR_ADMIN_PASSWORD:-velociraptor-dev-only}
+    volumes:
+      - velociraptor-data:/var/lib/velociraptor
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    <<: *locked
+    ports:
+      - "${VELOCIRAPTOR_CLIENT_BIND:-127.0.0.1}:8000:8000"
+      - "127.0.0.1:${VELOCIRAPTOR_GUI_PORT:-8889}:8889"
+    networks:
+      engines:
+        aliases: [velociraptor]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  # Fleet-less osquery: in production osqueryd runs natively on endpoints with this same config
+  # (distributed by config management) and a co-located collector ships its result logs. This
+  # container only demonstrates the pipeline — it can see its own namespace, not the host.
+  osquery:
+    image: osquery/osquery:5.17.0-ubuntu24.04
+    profiles: [endpoint, all]
+    entrypoint: ["osqueryd"]
+    command: ["--flagfile=/etc/osquery/osquery.flags"]
+    volumes:
+      - ./engines/osquery/osquery.conf:/etc/osquery/osquery.conf:ro
+      - ./engines/osquery/osquery.flags:/etc/osquery/osquery.flags:ro
+      - osquery-db:/var/osquery
+      - osquery-logs:/logs/osquery
+    <<: *nnp
+    network_mode: none
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # network — Zeek (BSD-3), Suricata (GPL-2.0), Arkime (Apache-2.0)
+  # Live capture uses host networking on CAPTURE_INTERFACE; logs land in volumes the collectors tail.
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  suricata-update:
+    image: jasonish/suricata:8.0.7
+    profiles: [network, all]
+    entrypoint: ["suricata-update"]
+    # ET Open ruleset by default (no registration / API key). Add sources with `suricata-update enable-source`.
+    command: ["--no-test", "--no-reload"]
+    volumes:
+      - suricata-rules:/var/lib/suricata
+    <<: *nnp
+    networks: [engines-egress]
+    restart: "no"
+    logging: *logging
+
+  suricata:
+    image: jasonish/suricata:8.0.7
+    profiles: [network, all]
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
+    <<: *nnp
+    # -k none: checksum offload makes container/VM captures look invalid otherwise.
+    command: ["-i", "${CAPTURE_INTERFACE:-eth0}", "-k", "none"]
+    volumes:
+      - suricata-logs:/var/log/suricata
+      - suricata-rules:/var/lib/suricata
+    depends_on:
+      suricata-update:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    logging: *logging
+
+  zeek:
+    image: zeek/zeek:8.0.10
+    profiles: [network, all]
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW]
+    <<: *nnp
+    working_dir: /logs/zeek
+    entrypoint: ["zeek"]
+    # JSON logs; hourly rotation keeps files bounded (collectors track files by inode, so renamed
+    # files are never re-read). Prune old rotations with the host's log retention policy.
+    command: ["-C", "-i", "${CAPTURE_INTERFACE:-eth0}", "local", "LogAscii::use_json=T", "Log::default_rotation_interval=1hr"]
+    volumes:
+      - zeek-logs:/logs/zeek
+    restart: unless-stopped
+    logging: *logging
+
+  arkime-init:
+    image: ghcr.io/arkime/arkime/arkime:v5.8.2
+    profiles: [network, all]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        /opt/arkime/db/db.pl --prefix arkime_ http://engine-opensearch:9200 init --ifneeded &&
+        /opt/arkime/bin/arkime_add_user.sh -c /opt/arkime/etc/config.ini
+        -o "passwordSecret=$${ARKIME_PASSWORD_SECRET}"
+        "$${ARKIME_ADMIN_USER}" "Bloody administrator" "$${ARKIME_ADMIN_PASSWORD}" --admin --createOnly
+    environment: &arkime-env
+      ARKIME_PASSWORD_SECRET: ${ARKIME_PASSWORD_SECRET:-arkime-password-secret-dev-only}
+      ARKIME_SERVER_SECRET: ${ARKIME_SERVER_SECRET:-arkime-server-secret-dev-only}
+      ARKIME_ADMIN_USER: ${ARKIME_ADMIN_USER:-admin}
+      ARKIME_ADMIN_PASSWORD: ${ARKIME_ADMIN_PASSWORD:-arkime-admin-dev-only}
+    volumes:
+      - ./engines/arkime/config.ini:/opt/arkime/etc/config.ini:ro
+    <<: *nnp
+    depends_on:
+      engine-opensearch:
+        condition: service_healthy
+    networks: [engines]
+    restart: "no"
+    logging: *logging
+
+  arkime-viewer:
+    image: ghcr.io/arkime/arkime/arkime:v5.8.2
+    profiles: [network, all]
+    working_dir: /opt/arkime/viewer
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        exec /opt/arkime/bin/node viewer.js -c /opt/arkime/etc/config.ini
+        -o "passwordSecret=$${ARKIME_PASSWORD_SECRET}" -o "serverSecret=$${ARKIME_SERVER_SECRET}"
+    environment: *arkime-env
+    volumes:
+      - ./engines/arkime/config.ini:/opt/arkime/etc/config.ini:ro
+      - arkime-pcap:/data/pcap:ro
+    <<: *nnp
+    ports:
+      - "127.0.0.1:${ARKIME_PORT:-8005}:8005"
+    depends_on:
+      arkime-init:
+        condition: service_completed_successfully
+    networks:
+      engines:
+        aliases: [arkime]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  arkime-capture:
+    image: ghcr.io/arkime/arkime/arkime:v5.8.2
+    profiles: [network, all]
+    entrypoint: ["/bin/sh", "-c"]
+    # Offline mode: index every PCAP dropped into the arkime-pcap-drop volume (DFIR evidence,
+    # sensor exports). Live capture belongs on dedicated sensor hosts.
+    command:
+      - >-
+        exec /opt/arkime/bin/capture -c /opt/arkime/etc/config.ini
+        -o "passwordSecret=$${ARKIME_PASSWORD_SECRET}" -o "serverSecret=$${ARKIME_SERVER_SECRET}"
+        -R /data/pcap-drop --monitor --recursive --skip
+    environment: *arkime-env
+    volumes:
+      - ./engines/arkime/config.ini:/opt/arkime/etc/config.ini:ro
+      - arkime-pcap:/data/pcap
+      - arkime-pcap-drop:/data/pcap-drop
+    <<: *nnp
+    depends_on:
+      arkime-init:
+        condition: service_completed_successfully
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # search — OpenSearch (Apache-2.0): Bloody's event search store (adapter EventStore)
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  opensearch:
+    image: opensearchproject/opensearch:3.9.0
+    profiles: [search, all]
+    environment:
+      discovery.type: single-node
+      cluster.name: bloody-events
+      node.name: bloody-events-0
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms1g -Xmx1g"
+      # Development only (internal network): production clusters run TLS + fine-grained access
+      # control with one role per tenant index pattern (docs/OPERATIONS.md §Search).
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    <<: *nnp
+    mem_limit: 2g
+    ports:
+      - "127.0.0.1:${OPENSEARCH_PORT:-9200}:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    networks:
+      engines:
+        aliases: [opensearch]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # streaming — Apache Kafka (Apache-2.0) in KRaft mode (no ZooKeeper). Chosen over Redpanda
+  # (BSL-1.1 restricts offering it as a service) — docs/adr/0004.
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  kafka:
+    image: apache/kafka:4.3.1
+    profiles: [streaming, all]
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-YMgJNK_-8HxubGdY2iEAgA}
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # Topics are created explicitly (kafka-init); a typo never creates a topic.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: "6"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_LOG_RETENTION_HOURS: "72"
+      KAFKA_MESSAGE_MAX_BYTES: "4194304"
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx1g"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    <<: *locked
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 15s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      engine-volume-init:
+        condition: service_completed_successfully
+    networks:
+      engines:
+        aliases: [kafka]
+    restart: unless-stopped
+    logging: *logging
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    profiles: [streaming, all]
+    entrypoint: ["/bin/sh", "/scripts/create-topics.sh"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      BLOODY_TOPIC_PARTITIONS: ${BLOODY_TOPIC_PARTITIONS:-6}
+      BLOODY_TOPIC_REPLICATION: "1"
+    volumes:
+      - ./engines/kafka/create-topics.sh:/scripts/create-topics.sh:ro
+    <<: *locked
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks: [engines]
+    restart: "no"
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # collection — Vector (MPL-2.0) and OpenTelemetry Collector (Apache-2.0)
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  vector:
+    image: timberio/vector:0.59.0-distroless-libc
+    profiles: [collection, all]
+    hostname: vector
+    # Transport: http (Bloody ingest API, default) | kafka (bloody.raw.<adapter> topics).
+    command: ["--config", "/etc/vector/vector.yaml", "--config", "/etc/vector/sinks/${BLOODY_INGEST_TRANSPORT:-http}.yaml"]
+    environment:
+      VECTOR_LOG: ${VECTOR_LOG:-info}
+      BLOODY_INGEST_URL: ${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}
+      # API key with the event:ingest permission (role api_service), created in Settings → API keys.
+      BLOODY_INGEST_API_KEY: ${BLOODY_INGEST_API_KEY:-}
+      BLOODY_INTEGRATION_ID: ${BLOODY_INTEGRATION_ID:-unassigned}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+    volumes:
+      - ./engines/vector:/etc/vector:ro
+      - vector-data:/var/lib/vector
+      - zeek-logs:/logs/zeek:ro
+      - suricata-logs:/logs/suricata:ro
+      - wazuh-logs:/logs/wazuh:ro
+      - osquery-logs:/logs/osquery:ro
+      - opencanary-logs:/logs/opencanary:ro
+      - nuclei-results:/logs/nuclei:ro
+    read_only: true
+    cap_drop: [ALL]
+    # Read engine logs owned by other UIDs (e.g. Wazuh's 0640 alerts) without running privileged.
+    cap_add: [DAC_READ_SEARCH]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "127.0.0.1:${SYSLOG_PORT:-5514}:5514/udp"
+      - "127.0.0.1:${SYSLOG_PORT:-5514}:5514/tcp"
+      - "127.0.0.1:${VECTOR_METRICS_PORT:-9598}:9598"
+    networks:
+      engines:
+        aliases: [vector]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    profiles: [collection, all]
+    hostname: otel-collector
+    # Engine-log pipelines are off by default (Vector is the engine-log collector); set
+    # BLOODY_OTEL_ENGINE_LOGS=kafka|http to let the collector ship Zeek/Suricata/Wazuh instead.
+    command: ["--config=/etc/otelcol/config.yaml", "--config=/etc/otelcol/engines-${BLOODY_OTEL_ENGINE_LOGS:-off}.yaml"]
+    environment:
+      BLOODY_INGEST_URL: ${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}
+      BLOODY_INGEST_API_KEY: ${BLOODY_INGEST_API_KEY:-}
+      BLOODY_INTEGRATION_ID: ${BLOODY_INTEGRATION_ID:-unassigned}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+    volumes:
+      - ./engines/otel-collector:/etc/otelcol:ro
+      - otelcol-data:/var/lib/otelcol
+      - zeek-logs:/logs/zeek:ro
+      - suricata-logs:/logs/suricata:ro
+      - wazuh-logs:/logs/wazuh:ro
+    read_only: true
+    <<: *locked
+    ports:
+      # OTLP for a host-run API (`pnpm dev:api` with OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318).
+      - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
+      - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318"
+      - "127.0.0.1:${OTEL_PROMETHEUS_PORT:-8889}:8889"
+    depends_on:
+      engine-volume-init:
+        condition: service_completed_successfully
+    networks:
+      engines:
+        aliases: [otel-collector]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # intel — MISP (AGPL-3.0), OpenCTI Community Edition (Apache-2.0; EE features never enabled)
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  misp:
+    image: ghcr.io/misp/misp-docker/misp-core:v2.5.48
+    profiles: [intel, all]
+    environment:
+      BASE_URL: ${MISP_BASE_URL:-https://localhost:8443}
+      ADMIN_EMAIL: ${MISP_ADMIN_EMAIL:-admin@bloody.local}
+      ADMIN_PASSWORD: ${MISP_ADMIN_PASSWORD:-misp-admin-dev-only}
+      # 40 characters; Bloody's MISP adapter authenticates with this key (store it in the secret store).
+      ADMIN_KEY: ${MISP_ADMIN_KEY:-bloodydevonlymispadminkey000000000000000}
+      ADMIN_ORG: ${MISP_ADMIN_ORG:-Bloody}
+      MYSQL_HOST: engine-mariadb
+      MYSQL_PORT: "3306"
+      MYSQL_USER: misp
+      MYSQL_PASSWORD: ${MISP_DB_PASSWORD:-misp-db-dev-only}
+      MYSQL_DATABASE: misp
+      REDIS_HOST: engine-valkey
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${ENGINE_VALKEY_PASSWORD:-engine-valkey-dev-only}
+      MISP_MODULES_FQDN: http://misp-modules
+      DISABLE_IPV6: "true"
+      ENABLE_DB_SETTINGS: "false"
+    volumes:
+      - misp-config:/var/www/MISP/app/Config
+      - misp-files:/var/www/MISP/app/files
+      - misp-logs:/var/www/MISP/app/tmp/logs
+      - misp-gnupg:/var/www/MISP/.gnupg
+      - misp-ssl:/etc/nginx/certs
+    <<: *nnp
+    ports:
+      - "127.0.0.1:${MISP_HTTPS_PORT:-8443}:443"
+    depends_on:
+      engine-mariadb:
+        condition: service_healthy
+      engine-valkey:
+        condition: service_healthy
+      misp-modules:
+        condition: service_started
+    networks:
+      engines:
+        aliases: [misp]
+      # Feed synchronisation (open feeds only — no keyed commercial services).
+      engines-egress: {}
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  misp-modules:
+    image: ghcr.io/misp/misp-docker/misp-modules:v3.0.10
+    profiles: [intel, all]
+    <<: *nnp
+    networks:
+      engines:
+        aliases: [misp-modules]
+    restart: unless-stopped
+    logging: *logging
+
+  opencti:
+    image: opencti/platform:7.261002.0
+    profiles: [intel, all]
+    environment: &opencti-env
+      NODE_OPTIONS: --max-old-space-size=4096
+      APP__PORT: "8080"
+      APP__BASE_URL: ${OPENCTI_BASE_URL:-http://localhost:8088}
+      APP__ADMIN__EMAIL: ${OPENCTI_ADMIN_EMAIL:-admin@bloody.local}
+      APP__ADMIN__PASSWORD: ${OPENCTI_ADMIN_PASSWORD:-opencti-admin-dev-only}
+      # UUIDv4; Bloody's OpenCTI adapter reads with a dedicated, lower-privileged token in practice.
+      APP__ADMIN__TOKEN: ${OPENCTI_ADMIN_TOKEN:-5e1d4a52-6f3b-4c1e-9a0d-0b7c2f9e8d11}
+      APP__HEALTH_ACCESS_KEY: ${OPENCTI_HEALTH_ACCESS_KEY:-opencti-health-dev-only}
+      APP__APP_LOGS__LOGS_LEVEL: error
+      REDIS__HOSTNAME: engine-valkey
+      REDIS__PORT: "6379"
+      REDIS__PASSWORD: ${ENGINE_VALKEY_PASSWORD:-engine-valkey-dev-only}
+      ELASTICSEARCH__URL: http://engine-opensearch:9200
+      ELASTICSEARCH__ENGINE_SELECTOR: opensearch
+      ELASTICSEARCH__INDEX_PREFIX: opencti
+      MINIO__ENDPOINT: engine-s3
+      MINIO__PORT: "9000"
+      MINIO__USE_SSL: "false"
+      MINIO__ACCESS_KEY: ${ENGINE_S3_ACCESS_KEY:-bloody-engines}
+      MINIO__SECRET_KEY: ${ENGINE_S3_SECRET_KEY:-engine-s3-dev-only-secret}
+      MINIO__BUCKET_NAME: opencti
+      RABBITMQ__HOSTNAME: engine-rabbitmq
+      RABBITMQ__PORT: "5672"
+      RABBITMQ__PORT_MANAGEMENT: "15672"
+      RABBITMQ__MANAGEMENT_SSL: "false"
+      RABBITMQ__USERNAME: ${ENGINE_RABBITMQ_USER:-bloody-engines}
+      RABBITMQ__PASSWORD: ${ENGINE_RABBITMQ_PASSWORD:-engine-rabbitmq-dev-only}
+      PROVIDERS__LOCAL__STRATEGY: LocalStrategy
+    <<: *nnp
+    mem_limit: 6g
+    ports:
+      - "127.0.0.1:${OPENCTI_PORT:-8088}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- \"http://localhost:8080/health?health_access_key=$${APP__HEALTH_ACCESS_KEY}\" >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 120s
+    depends_on:
+      engine-opensearch:
+        condition: service_healthy
+      engine-valkey:
+        condition: service_healthy
+      engine-rabbitmq:
+        condition: service_healthy
+      engine-s3:
+        condition: service_started
+    networks:
+      engines:
+        aliases: [opencti]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  opencti-worker:
+    image: opencti/worker:7.261002.0
+    profiles: [intel, all]
+    environment:
+      OPENCTI_URL: http://opencti:8080
+      OPENCTI_TOKEN: ${OPENCTI_ADMIN_TOKEN:-5e1d4a52-6f3b-4c1e-9a0d-0b7c2f9e8d11}
+      WORKER_LOG_LEVEL: info
+    <<: *nnp
+    depends_on:
+      opencti:
+        condition: service_healthy
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # case — DFIR-IRIS (LGPL-3.0). Preferred over TheHive 5 (commercial licence). Optional:
+  # Bloody's own incident/investigation engine is the system of record (docs/adr/0004).
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  iris-db:
+    image: ghcr.io/dfir-iris/iriswebapp_db:v2.4.29
+    profiles: [case, all]
+    environment: &iris-db-env
+      POSTGRES_USER: ${IRIS_DB_USER:-iris}
+      POSTGRES_PASSWORD: ${IRIS_DB_PASSWORD:-iris-db-dev-only}
+      POSTGRES_ADMIN_USER: ${IRIS_DB_ADMIN_USER:-iris_admin}
+      POSTGRES_ADMIN_PASSWORD: ${IRIS_DB_ADMIN_PASSWORD:-iris-db-admin-dev-only}
+      POSTGRES_DB: iris_db
+    volumes:
+      - iris-db-data:/var/lib/postgresql/data
+    <<: *nnp
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  iris-app:
+    image: ghcr.io/dfir-iris/iriswebapp_app:v2.4.29
+    profiles: [case, all]
+    command: ["nohup", "./iris-entrypoint.sh", "iriswebapp"]
+    environment: &iris-app-env
+      <<: *iris-db-env
+      POSTGRES_SERVER: iris-db
+      POSTGRES_PORT: "5432"
+      DB_RETRY_COUNT: "10"
+      DB_RETRY_DELAY: "5"
+      IRIS_SECRET_KEY: ${IRIS_SECRET_KEY:-iris-secret-key-dev-only-change-me}
+      IRIS_SECURITY_PASSWORD_SALT: ${IRIS_SECURITY_PASSWORD_SALT:-iris-password-salt-dev-only}
+      IRIS_ADM_USERNAME: ${IRIS_ADMIN_USER:-administrator}
+      IRIS_ADM_EMAIL: ${IRIS_ADMIN_EMAIL:-admin@bloody.local}
+      IRIS_ADM_PASSWORD: ${IRIS_ADMIN_PASSWORD:-iris-admin-dev-only}
+      # Bloody's IRIS integration authenticates with this API key (store it in the secret store).
+      IRIS_ADM_API_KEY: ${IRIS_ADMIN_API_KEY:-iris-api-key-dev-only-0123456789abcdef}
+      CELERY_BROKER: amqp://${ENGINE_RABBITMQ_USER:-bloody-engines}:${ENGINE_RABBITMQ_PASSWORD:-engine-rabbitmq-dev-only}@engine-rabbitmq:5672//
+      LOG_LEVEL: info
+    volumes:
+      - iris-downloads:/home/iris/downloads
+      - iris-user-templates:/home/iris/user_templates
+      - iris-server-data:/home/iris/server_data
+    <<: *nnp
+    depends_on:
+      iris-db:
+        condition: service_started
+      engine-rabbitmq:
+        condition: service_healthy
+    networks:
+      engines:
+        aliases: [iris-app]
+    restart: unless-stopped
+    logging: *logging
+
+  iris-worker:
+    image: ghcr.io/dfir-iris/iriswebapp_app:v2.4.29
+    profiles: [case, all]
+    command: ["./wait-for-iriswebapp.sh", "iris-app:8000", "./iris-entrypoint.sh", "iris-worker"]
+    environment: *iris-app-env
+    volumes:
+      - iris-downloads:/home/iris/downloads
+      - iris-user-templates:/home/iris/user_templates
+      - iris-server-data:/home/iris/server_data
+    <<: *nnp
+    depends_on:
+      iris-app:
+        condition: service_started
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  iris-nginx:
+    image: ghcr.io/dfir-iris/iriswebapp_nginx:v2.4.29
+    profiles: [case, all]
+    environment:
+      IRIS_UPSTREAM_SERVER: iris-app
+      IRIS_UPSTREAM_PORT: "8000"
+      INTERFACE_HTTPS_PORT: "443"
+      SERVER_NAME: iris
+      # Leaf certificate issued by the shared development CA (dev-certs service).
+      CERT_FILENAME: iris.crt
+      KEY_FILENAME: iris.key
+    volumes:
+      - dev-certs:/www/certs:ro
+    <<: *nnp
+    ports:
+      - "127.0.0.1:${IRIS_HTTPS_PORT:-8444}:443"
+    depends_on:
+      dev-certs:
+        condition: service_completed_successfully
+      iris-app:
+        condition: service_started
+    networks:
+      engines:
+        aliases: [iris]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # soar — Shuffle (AGPL-3.0). Optional executor behind Bloody's proprietary SOAR engine; every
+  # high-risk action is still approved in Bloody before Shuffle is called (docs/adr/0008).
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  shuffle-backend:
+    image: ghcr.io/shuffle/shuffle-backend:2.2.1
+    profiles: [soar, all]
+    environment:
+      BACKEND_HOSTNAME: shuffle-backend
+      BACKEND_PORT: "5001"
+      ORG_ID: Shuffle
+      SHUFFLE_APP_HOTLOAD_FOLDER: /shuffle-apps
+      SHUFFLE_FILE_LOCATION: /shuffle-files
+      SHUFFLE_OPENSEARCH_URL: http://engine-opensearch:9200
+      SHUFFLE_OPENSEARCH_SKIPSSL_VERIFY: "false"
+      SHUFFLE_DEFAULT_USERNAME: ${SHUFFLE_ADMIN_USER:-admin}
+      SHUFFLE_DEFAULT_PASSWORD: ${SHUFFLE_ADMIN_PASSWORD:-shuffle-admin-dev-only}
+      # Bloody's Shuffle executor authenticates with this key (store it in the secret store).
+      SHUFFLE_DEFAULT_APIKEY: ${SHUFFLE_API_KEY:-shuffle-api-key-dev-only-0123456789}
+      SHUFFLE_ENCRYPTION_MODIFIER: ${SHUFFLE_ENCRYPTION_MODIFIER:-shuffle-encryption-modifier-dev-only}
+    volumes:
+      - shuffle-apps:/shuffle-apps
+      - shuffle-files:/shuffle-files
+    <<: *nnp
+    depends_on:
+      engine-opensearch:
+        condition: service_healthy
+    networks:
+      engines:
+        aliases: [shuffle-backend]
+      # App catalogue synchronisation.
+      engines-egress: {}
+    restart: unless-stopped
+    logging: *logging
+
+  shuffle-frontend:
+    image: ghcr.io/shuffle/shuffle-frontend:2.2.1
+    profiles: [soar, all]
+    environment:
+      BACKEND_HOSTNAME: shuffle-backend
+    <<: *nnp
+    ports:
+      - "127.0.0.1:${SHUFFLE_HTTPS_PORT:-3443}:443"
+    depends_on:
+      shuffle-backend:
+        condition: service_started
+    networks:
+      engines:
+        aliases: [shuffle]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  # ⚠ Orborus starts Shuffle workers/apps through the Docker API, i.e. it is root-equivalent on
+  # this host. Only enable the `soar` profile on a dedicated lab host. Production: run Shuffle in
+  # its own cluster / namespace with the Kubernetes executor, never next to Bloody.
+  shuffle-orborus:
+    image: ghcr.io/shuffle/shuffle-orborus:2.2.1
+    profiles: [soar, all]
+    environment:
+      ORG_ID: Shuffle
+      ENVIRONMENT_NAME: Shuffle
+      BASE_URL: http://shuffle-backend:5001
+      SHUFFLE_APP_SDK_TIMEOUT: "300"
+      SHUFFLE_ORBORUS_EXECUTION_CONCURRENCY: "5"
+      SHUFFLE_PASS_WORKER_PROXY: "false"
+      SHUFFLE_PASS_APP_PROXY: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    <<: *nnp
+    depends_on:
+      shuffle-backend:
+        condition: service_started
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # vuln — Greenbone Community Edition (AGPL-3.0 / GPL-2.0; Community Feed has its own terms —
+  # review before commercial use, docs/LICENSES.md). Upstream publishes rolling `stable` tags on
+  # its own registry; production pins GREENBONE_VERSION to a digest (Renovate) — see OPERATIONS.md.
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  gvm-vulnerability-tests:
+    <<: *greenbone-data
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/vulnerability-tests:${GREENBONE_VERSION:-stable}
+    environment:
+      STORAGE_PATH: /var/lib/openvas/22.04/vt-data/nasl
+    volumes:
+      - gvm-vt-data:/mnt
+
+  gvm-notus-data:
+    <<: *greenbone-data
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/notus-data:${GREENBONE_VERSION:-stable}
+    volumes:
+      - gvm-notus-data:/mnt
+
+  gvm-scap-data:
+    <<: *greenbone-data
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/scap-data:${GREENBONE_VERSION:-stable}
+    volumes:
+      - gvm-scap-data:/mnt
+
+  gvm-cert-bund-data:
+    <<: *greenbone-data
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/cert-bund-data:${GREENBONE_VERSION:-stable}
+    volumes:
+      - gvm-cert-data:/mnt
+
+  gvm-dfn-cert-data:
+    <<: *greenbone-data
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/dfn-cert-data:${GREENBONE_VERSION:-stable}
+    volumes:
+      - gvm-cert-data:/mnt
+    depends_on:
+      gvm-cert-bund-data:
+        condition: service_completed_successfully
+
+  gvm-data-objects:
+    <<: *greenbone-data
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/data-objects:${GREENBONE_VERSION:-stable}
+    volumes:
+      - gvm-data-objects:/mnt
+
+  gvm-report-formats:
+    <<: *greenbone-data
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/report-formats:${GREENBONE_VERSION:-stable}
+    volumes:
+      - gvm-data-objects:/mnt
+    depends_on:
+      gvm-data-objects:
+        condition: service_completed_successfully
+
+  gvm-gpg-data:
+    <<: *greenbone-data
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/gpg-data:${GREENBONE_VERSION:-stable}
+    volumes:
+      - gvm-gpg-data:/mnt
+
+  gvm-redis:
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/redis-server:${GREENBONE_VERSION:-stable}
+    profiles: [vuln, all]
+    volumes:
+      - gvm-redis-socket:/run/redis/
+    <<: *nnp
+    network_mode: none
+    restart: unless-stopped
+    logging: *logging
+
+  gvm-pg:
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/pg-gvm:${GREENBONE_VERSION:-stable}
+    profiles: [vuln, all]
+    volumes:
+      - gvm-psql-data:/var/lib/postgresql
+      - gvm-psql-socket:/var/run/postgresql
+    <<: *nnp
+    network_mode: none
+    restart: unless-stopped
+    logging: *logging
+
+  gvmd:
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/gvmd:${GREENBONE_VERSION:-stable}
+    profiles: [vuln, all]
+    environment:
+      USER: ${GVMD_ADMIN_USER:-admin}
+      PASSWORD: ${GVMD_ADMIN_PASSWORD:-gvmd-admin-dev-only}
+    volumes:
+      - gvmd-data:/var/lib/gvm
+      - gvm-scap-data:/var/lib/gvm/scap-data/
+      - gvm-cert-data:/var/lib/gvm/cert-data
+      - gvm-data-objects:/var/lib/gvm/data-objects/gvmd
+      - gvm-vt-data:/var/lib/openvas/plugins
+      - gvm-psql-data:/var/lib/postgresql
+      - gvmd-socket:/run/gvmd
+      - gvm-ospd-socket:/run/ospd
+      - gvm-psql-socket:/var/run/postgresql
+    <<: *nnp
+    network_mode: none
+    depends_on:
+      gvm-pg:
+        condition: service_started
+      gvm-scap-data:
+        condition: service_completed_successfully
+      gvm-cert-bund-data:
+        condition: service_completed_successfully
+      gvm-dfn-cert-data:
+        condition: service_completed_successfully
+      gvm-data-objects:
+        condition: service_completed_successfully
+      gvm-report-formats:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    logging: *logging
+
+  # GMP over TLS for Bloody's Greenbone adapter: terminates TLS with the shared dev CA (the API
+  # verifies it) and relays to gvmd's UNIX socket. GMP itself still requires authentication.
+  # Production: gvmd's native TLS listener with certificates from the organisation's PKI.
+  gvm-gmp-tls:
+    image: alpine/socat:1.8.1.3
+    profiles: [vuln, all]
+    command:
+      - OPENSSL-LISTEN:9390,fork,reuseaddr,cert=/certs/gvmd.crt,key=/certs/gvmd.key,verify=0,openssl-min-proto-version=TLS1.2
+      - UNIX-CONNECT:/run/gvmd/gvmd.sock
+    volumes:
+      - dev-certs:/certs:ro
+      - gvmd-socket:/run/gvmd
+    <<: *locked
+    read_only: true
+    depends_on:
+      dev-certs:
+        condition: service_completed_successfully
+      gvmd:
+        condition: service_started
+    networks:
+      engines:
+        aliases: [gvmd]
+    restart: unless-stopped
+    logging: *logging
+
+  gsa:
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/gsa:${GREENBONE_VERSION:-stable}
+    profiles: [vuln, all]
+    volumes:
+      - gvmd-socket:/run/gvmd
+    <<: *nnp
+    ports:
+      - "127.0.0.1:${GSA_PORT:-9392}:80"
+    depends_on:
+      gvmd:
+        condition: service_started
+    networks: [engines-ui]
+    restart: unless-stopped
+    logging: *logging
+
+  gvm-configure-openvas:
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/openvas-scanner:${GREENBONE_VERSION:-stable}
+    profiles: [vuln, all]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        printf 'table_driven_lsc = yes\nopenvasd_server = http://openvasd:80\n' > /mnt/openvas.conf
+        chmod 0644 /mnt/openvas.conf
+        touch /var/log/openvas/openvas.log && chmod 0666 /var/log/openvas/openvas.log
+    volumes:
+      - gvm-openvas-data:/mnt
+      - gvm-openvas-logs:/var/log/openvas
+    <<: *nnp
+    network_mode: none
+    restart: "no"
+    logging: *logging
+
+  openvasd:
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/openvas-scanner:${GREENBONE_VERSION:-stable}
+    profiles: [vuln, all]
+    command: ["openvasd", "--mode", "service_notus", "--products", "/var/lib/notus/products", "--advisories", "/var/lib/notus/advisories", "-L", "0.0.0.0:80"]
+    environment:
+      OPENVASD_LOG: INFO
+    volumes:
+      - gvm-openvas-data:/etc/openvas
+      - gvm-openvas-logs:/var/log/openvas
+      - gvm-gpg-data:/etc/openvas/gnupg
+      - gvm-notus-data:/var/lib/notus
+    <<: *nnp
+    depends_on:
+      gvm-vulnerability-tests:
+        condition: service_completed_successfully
+      gvm-configure-openvas:
+        condition: service_completed_successfully
+      gvm-gpg-data:
+        condition: service_completed_successfully
+    networks:
+      engines:
+        aliases: [openvasd]
+    restart: unless-stopped
+    logging: *logging
+
+  ospd-openvas:
+    image: ${GREENBONE_REGISTRY:-registry.community.greenbone.net/community}/ospd-openvas:${GREENBONE_VERSION:-stable}
+    profiles: [vuln, all]
+    hostname: ospd-openvas.local
+    # The scanner crafts raw packets; upstream requires these relaxations. Keep it on a dedicated
+    # scanner host in production.
+    cap_add: [NET_ADMIN, NET_RAW]
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    command: ["ospd-openvas", "-f", "--config", "/etc/gvm/ospd-openvas.conf", "--notus-feed-dir", "/var/lib/notus/advisories", "-m", "666"]
+    volumes:
+      - gvm-gpg-data:/etc/openvas/gnupg
+      - gvm-vt-data:/var/lib/openvas/plugins
+      - gvm-notus-data:/var/lib/notus
+      - gvm-ospd-socket:/run/ospd
+      - gvm-redis-socket:/run/redis/
+      - gvm-openvas-data:/etc/openvas/
+      - gvm-openvas-logs:/var/log/openvas
+    depends_on:
+      gvm-redis:
+        condition: service_started
+      gvm-gpg-data:
+        condition: service_completed_successfully
+      gvm-vulnerability-tests:
+        condition: service_completed_successfully
+      gvm-configure-openvas:
+        condition: service_completed_successfully
+    # Scans reach the authorised target networks (egress), plus openvasd on the engines network.
+    networks: [engines, engines-egress]
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # asm — Nuclei (MIT) scan runner; cloud — Trivy server (Apache-2.0)
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  nuclei:
+    image: projectdiscovery/nuclei:v3.11.1
+    profiles: [asm, all]
+    entrypoint: ["/bin/sh", "/opt/bloody/run.sh"]
+    environment:
+      NUCLEI_TARGETS: /config/targets.txt
+      NUCLEI_INTERVAL_SECONDS: ${NUCLEI_INTERVAL_SECONDS:-86400}
+      NUCLEI_RATE_LIMIT: ${NUCLEI_RATE_LIMIT:-50}
+    volumes:
+      - ./engines/nuclei/run.sh:/opt/bloody/run.sh:ro
+      - ${NUCLEI_TARGETS_FILE:-./engines/nuclei/targets.txt}:/config/targets.txt:ro
+      - nuclei-results:/logs/nuclei
+      - nuclei-templates:/root/nuclei-templates
+      - nuclei-config:/root/.config/nuclei
+    <<: *nnp
+    # Scans the internet-facing scope only: no access to the internal engines network.
+    networks: [engines-egress]
+    restart: unless-stopped
+    logging: *logging
+
+  trivy-server:
+    image: aquasec/trivy:0.75.0
+    profiles: [cloud, all]
+    command: ["server"]
+    environment:
+      TRIVY_LISTEN: 0.0.0.0:4954
+      TRIVY_CACHE_DIR: /var/cache/trivy
+      TRIVY_TOKEN: ${TRIVY_SERVER_TOKEN:-trivy-server-token-dev-only}
+      TRIVY_TOKEN_HEADER: Trivy-Token
+    volumes:
+      - trivy-cache:/var/cache/trivy
+    <<: *locked
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4954/healthz >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks:
+      engines:
+        aliases: [trivy]
+      # Vulnerability DB downloads.
+      engines-egress: {}
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # deception — OpenCanary (BSD-3). Canary ports are published on localhost only in dev; in
+  # customer networks they are placed where an intruder would look.
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  opencanary:
+    image: thinkst/opencanary:0.9.10
+    profiles: [deception, all]
+    entrypoint: ["opencanaryd"]
+    command: ["--dev"]
+    volumes:
+      - ./engines/opencanary/opencanary.conf:/root/.opencanary.conf:ro
+      - opencanary-logs:/logs/opencanary
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    ports:
+      - "127.0.0.1:2121:21"
+      - "127.0.0.1:2222:22"
+      - "127.0.0.1:2323:23"
+      - "127.0.0.1:8081:80"
+      - "127.0.0.1:13306:3306"
+      - "127.0.0.1:16379:6379"
+    networks: [engines-ui]
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # forensics — Plaso (Apache-2.0) one-shot timeline job, Timesketch (Apache-2.0)
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  plaso:
+    image: log2timeline/plaso:20260928
+    profiles: [forensics, all]
+    entrypoint: ["/bin/sh", "-c"]
+    # Processes everything under the dfir-evidence volume's in/ directory into out/ (Plaso storage
+    # + JSON lines for Bloody's investigation timeline). Re-run with `docker compose run --rm plaso`.
+    command:
+      - |
+        set -eu
+        mkdir -p /evidence/in /evidence/out
+        if [ -z "$$(ls -A /evidence/in)" ]; then echo "plaso: /evidence/in is empty — nothing to do"; exit 0; fi
+        L2T="$$(command -v log2timeline.py || command -v log2timeline)"
+        PSORT="$$(command -v psort.py || command -v psort)"
+        ts="$$(date -u +%Y%m%dT%H%M%SZ)"
+        "$$L2T" --status_view none --storage_file "/evidence/out/timeline-$$ts.plaso" /evidence/in
+        "$$PSORT" --status_view none -o json_line -w "/evidence/out/timeline-$$ts.jsonl" "/evidence/out/timeline-$$ts.plaso"
+        echo "plaso: wrote /evidence/out/timeline-$$ts.{plaso,jsonl}"
+    volumes:
+      - dfir-evidence:/evidence
+    <<: *nnp
+    network_mode: none
+    restart: "no"
+    logging: *logging
+
+  timesketch-web:
+    image: us-docker.pkg.dev/osdfir-registry/timesketch/timesketch:${TIMESKETCH_VERSION:-20240508}
+    profiles: [forensics, all]
+    command: ["timesketch-web"]
+    environment: &timesketch-env
+      TIMESKETCH_SECRET_KEY: ${TIMESKETCH_SECRET_KEY:-timesketch-secret-key-dev-only}
+      TIMESKETCH_DB_PASSWORD: ${TIMESKETCH_DB_PASSWORD:-timesketch-db-dev-only}
+      TIMESKETCH_DB_HOST: engine-postgres
+      TIMESKETCH_OPENSEARCH_HOST: engine-opensearch
+      TIMESKETCH_REDIS_HOST: engine-valkey
+      TIMESKETCH_REDIS_PASSWORD: ${ENGINE_VALKEY_PASSWORD:-engine-valkey-dev-only}
+      TIMESKETCH_USER: ${TIMESKETCH_ADMIN_USER:-admin}
+      TIMESKETCH_PASSWORD: ${TIMESKETCH_ADMIN_PASSWORD:-timesketch-admin-dev-only}
+    volumes: &timesketch-volumes
+      - ./engines/timesketch/timesketch.conf:/etc/timesketch/timesketch.conf:ro
+      - timesketch-data:/usr/share/timesketch/data
+      - dfir-evidence:/evidence:ro
+    <<: *nnp
+    ports:
+      - "127.0.0.1:${TIMESKETCH_PORT:-5000}:5000"
+    depends_on:
+      engine-postgres:
+        condition: service_healthy
+      engine-opensearch:
+        condition: service_healthy
+      engine-valkey:
+        condition: service_healthy
+    networks:
+      engines:
+        aliases: [timesketch]
+      engines-ui: {}
+    restart: unless-stopped
+    logging: *logging
+
+  timesketch-worker:
+    image: us-docker.pkg.dev/osdfir-registry/timesketch/timesketch:${TIMESKETCH_VERSION:-20240508}
+    profiles: [forensics, all]
+    command: ["timesketch-worker"]
+    environment: *timesketch-env
+    volumes: *timesketch-volumes
+    <<: *nnp
+    depends_on:
+      timesketch-web:
+        condition: service_started
+    networks: [engines]
+    restart: unless-stopped
+    logging: *logging
+
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  # copilot — SOCFortress CoPilot (AGPL-3.0, run unmodified). Bloody syncs customers, agents,
+  # alerts and cases through CoPilot's REST API (packages/adapters/src/copilot). Upstream only
+  # publishes `latest`, so the image is pinned by digest. Its default stack's Graylog (SSPL-1.0)
+  # and Grafana (AGPL) are deliberately NOT included — Bloody's OpenSearch pipeline replaces them.
+  # ════════════════════════════════════════════════════════════════════════════════════════
+  copilot-backend:
+    image: ghcr.io/socfortress/copilot-backend:latest@sha256:7418e3027660ee800a8877dc701f7ad6c0e732e66aea7f5986a3c1d1ad05802c
+    profiles: [copilot, all]
+    environment:
+      SERVER_IP: ${COPILOT_SERVER_IP:-localhost}
+      ENVIRONMENT: PROD
+      MYSQL_URL: engine-mariadb
+      MYSQL_USER: copilot
+      MYSQL_PASSWORD: ${COPILOT_DB_PASSWORD:-copilot-db-dev-only}
+      MINIO_URL: engine-s3
+      MINIO_ROOT_USER: ${ENGINE_S3_ACCESS_KEY:-bloody-engines}
+      MINIO_ROOT_PASSWORD: ${ENGINE_S3_SECRET_KEY:-engine-s3-dev-only-secret}
+      MINIO_SECURE: "False"
+    volumes:
+      - copilot-logs:/opt/logs
+    <<: *nnp
+    depends_on:
+      engine-mariadb:
+        condition: service_healthy
+      engine-s3:
+        condition: service_started
+    networks:
+      engines:
+        aliases: [copilot-backend, copilot]
+    restart: unless-stopped
+    logging: *logging
+
+  copilot-frontend:
+    image: ghcr.io/socfortress/copilot-frontend:latest@sha256:928c3eae1d98ec619ec908205c3880cc1816e4a7e20f253dda95ca10f663e5cd
+    profiles: [copilot, all]
+    environment:
+      SERVER_HOST: ${COPILOT_SERVER_HOST:-localhost}
+    <<: *nnp
+    ports:
+      - "127.0.0.1:${COPILOT_HTTPS_PORT:-8445}:443"
+    depends_on:
+      copilot-backend:
+        condition: service_started
+    networks: [engines, engines-ui]
+    restart: unless-stopped
+    logging: *logging
+
+networks:
+  engines:
+    internal: true
+  engines-egress: {}
+  engines-ui: {}
+
+volumes:
+  dev-certs: {}
+  # shared engine infrastructure
+  engine-opensearch-data: {}
+  engine-valkey-data: {}
+  engine-rabbitmq-data: {}
+  engine-s3-data: {}
+  engine-mariadb-data: {}
+  engine-postgres-data: {}
+  # endpoint
+  wazuh-certs: {}
+  wazuh-indexer-data: {}
+  wazuh-api-config: {}
+  wazuh-etc: {}
+  wazuh-logs: {}
+  wazuh-queue: {}
+  wazuh-multigroups: {}
+  wazuh-integrations: {}
+  wazuh-active-response: {}
+  wazuh-filebeat-etc: {}
+  wazuh-filebeat-var: {}
+  velociraptor-data: {}
+  osquery-db: {}
+  osquery-logs: {}
+  # network
+  suricata-logs: {}
+  suricata-rules: {}
+  zeek-logs: {}
+  arkime-pcap: {}
+  arkime-pcap-drop: {}
+  # search / streaming / collection
+  opensearch-data: {}
+  kafka-data: {}
+  vector-data: {}
+  otelcol-data: {}
+  # intel / case / soar
+  misp-config: {}
+  misp-files: {}
+  misp-logs: {}
+  misp-gnupg: {}
+  misp-ssl: {}
+  iris-db-data: {}
+  iris-downloads: {}
+  iris-user-templates: {}
+  iris-server-data: {}
+  shuffle-apps: {}
+  shuffle-files: {}
+  # vuln (Greenbone)
+  gvm-vt-data: {}
+  gvm-notus-data: {}
+  gvm-scap-data: {}
+  gvm-cert-data: {}
+  gvm-data-objects: {}
+  gvm-gpg-data: {}
+  gvm-redis-socket: {}
+  gvm-psql-data: {}
+  gvm-psql-socket: {}
+  gvmd-data: {}
+  gvmd-socket: {}
+  gvm-ospd-socket: {}
+  gvm-openvas-data: {}
+  gvm-openvas-logs: {}
+  # asm / cloud / deception / forensics / copilot
+  nuclei-results: {}
+  nuclei-templates: {}
+  nuclei-config: {}
+  trivy-cache: {}
+  opencanary-logs: {}
+  dfir-evidence: {}
+  timesketch-data: {}
+  copilot-logs: {}

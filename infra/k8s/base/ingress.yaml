@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Single origin for UI and API (first-party session + CSRF cookies). TLS terminates here with a
+# certificate from cert-manager (secret `bloody-tls`, host placeholder patched per overlay).
+# /api goes straight to the API Service; everything else to the SPA.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bloody
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 25m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+    # ingress-nginx generates/forwards X-Request-ID by default; the API records it in logs,
+    # traces and audit rows. (Snippet annotations stay disabled controller-wide.)
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - bloody.example.com
+      secretName: bloody-tls
+  rules:
+    - host: bloody.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: bloody-api
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bloody-web
+                port:
+                  name: http

@@ -9,7 +9,7 @@
 transforms:
   kafka_envelope:
     type: remap
-    inputs: [zeek, suricata, wazuh, opencanary, nuclei, syslog]
+    inputs: [zeek, suricata, wazuh, osquery, opencanary, nuclei, syslog]
     source: |
       ._bloody.headers = {
         "bloody-source": ._bloody.source,

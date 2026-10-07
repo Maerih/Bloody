@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Production: ≥3 replicas across zones, strict spreading, larger requests, digest-pinned images.
+# CI writes the release digests here (kustomize edit set image …@sha256:…) when promoting a
+# release that passed staging (docs/OPERATIONS.md §Upgrades).
+#   kustomize build infra/k8s/overlays/prod | kubectl apply --server-side -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bloody
+
+resources:
+  - ../../base
+
+labels:
+  - pairs:
+      bloody.io/environment: prod
+    includeSelectors: false
+    includeTemplates: true
+
+images:
+  - name: bloody/api
+    newName: registry.example.com/bloody/api
+    newTag: 0.1.0
+  - name: bloody/web
+    newName: registry.example.com/bloody/web
+    newTag: 0.1.0
+
+patches:
+  - target: { kind: Deployment, name: bloody-api }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints/0/whenUnsatisfiable
+        value: DoNotSchedule
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: "1", memory: 1Gi }
+          limits: { memory: 2Gi }
+  # Strategic merge: env entries are matched by name, never by position.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: bloody-api
+      spec:
+        template:
+          spec:
+            containers:
+              - name: api
+                env:
+                  - name: NODE_OPTIONS
+                    value: "--enable-source-maps --max-old-space-size=1536"
+  - target: { kind: Deployment, name: bloody-web }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+  - target: { kind: HorizontalPodAutoscaler, name: bloody-api }
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 20
+  - target: { kind: HorizontalPodAutoscaler, name: bloody-web }
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+  - target: { kind: PodDisruptionBudget, name: bloody-api }
+    patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 2
+  - target: { kind: PodDisruptionBudget, name: bloody-web }
+    patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 2
+  - target: { kind: ExternalSecret, name: bloody-secrets }
+    patch: |-
+      - op: replace
+        path: /spec/refreshInterval
+        value: 15m

@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Bloody control plane — Kustomize base. Environment specifics live in overlays/{dev,prod}.
+#   kustomize build infra/k8s/overlays/prod | kubectl apply --server-side -f -
+#
+# Prerequisites in the cluster (not managed here):
+#   * ingress-nginx (namespace ingress-nginx) and cert-manager (ClusterIssuer referenced by the Ingress)
+#   * External Secrets Operator with a ClusterSecretStore named `bloody-secret-store`
+#   * metrics-server (HPA), a CNI that enforces NetworkPolicy (Calico / Cilium)
+#   * PostgreSQL 16 (managed / CloudNativePG), Valkey, Kafka, OpenSearch reachable from the namespace
+#     (docs/OPERATIONS.md §Deployment topology)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: bloody
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: bloody
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+    includeTemplates: true
+
+resources:
+  - namespace.yaml
+  - serviceaccounts.yaml
+  - configmap.yaml
+  - externalsecret.yaml
+  - api.yaml
+  - scheduler.yaml
+  - migrate-job.yaml
+  - web.yaml
+  - ingress.yaml
+  - networkpolicies.yaml
+
+images:
+  - name: bloody/api
+    newName: registry.example.com/bloody/api
+    newTag: 0.1.0
+  - name: bloody/web
+    newName: registry.example.com/bloody/web
+    newTag: 0.1.0

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bloody
+  labels:
+    # Pod Security Admission: every Bloody pod satisfies the `restricted` profile.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

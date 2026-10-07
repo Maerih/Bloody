@@ -1,76 +1,281 @@
 # SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
 # Copyright (c) 2026 Bloody. All rights reserved.
 #
-# Transport: Bloody ingest API.
+# Transport: Bloody ingest API (default).
 #   POST ${BLOODY_INGEST_URL}?source=<adapter>   Authorization: Bearer <API key with event:ingest>
 #   Content-Type: application/x-ndjson — one raw vendor record per line.
 # The API key binds the collector to its tenant + organization (never sent in the body).
 # Retries with backoff on 429/5xx/timeouts; disk buffers absorb API maintenance windows.
 # Ingest is idempotent: adapters derive deterministic event ids from the vendor record, so a
 # retried batch does not duplicate events.
-
-x-bloody-http: &bloody_http
-  type: http
-  method: post
-  compression: gzip
-  auth:
-    strategy: bearer
-    token: "${BLOODY_INGEST_API_KEY:-}"
-  encoding:
-    codec: json
-    except_fields: ["_bloody"]
-  framing:
-    method: newline_delimited
-  request:
-    headers:
-      Content-Type: application/x-ndjson
-      User-Agent: bloody-collector/vector
-    timeout_secs: 30
-    retry_attempts: 1000
-    retry_initial_backoff_secs: 1
-    retry_max_duration_secs: 300
-    concurrency: adaptive
-  batch:
-    max_events: 1000
-    max_bytes: 4000000
-    timeout_secs: 2
-  buffer:
-    type: disk
-    max_size: 1073741824
-    when_full: block
-  tls:
-    verify_certificate: true
-    verify_hostname: true
-  healthcheck:
-    enabled: false
+#
+# One sink per adapter (the ?source= routing key differs). The blocks are intentionally
+# identical apart from `inputs` and `uri`: Vector's config loader does not support YAML merge
+# keys or unknown top-level `x-` keys, so there is no anchor here. Keep them in sync.
 
 sinks:
   bloody_api_zeek:
-    <<: *bloody_http
+    type: http
     inputs: [zeek]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=zeek"
+    method: post
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "${BLOODY_INGEST_API_KEY:-}"
+    encoding:
+      codec: json
+      except_fields: ["_bloody"]
+    framing:
+      method: newline_delimited
+    request:
+      headers:
+        Content-Type: application/x-ndjson
+        User-Agent: bloody-collector/vector
+      timeout_secs: 30
+      retry_attempts: 1000
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 300
+      concurrency: adaptive
+    batch:
+      max_events: 1000
+      max_bytes: 4000000
+      timeout_secs: 2
+    buffer:
+      type: disk
+      # Vector minimum for disk buffers (256 MiB) — per sink; raise on busy sensors.
+      max_size: 268435488
+      when_full: block
+    tls:
+      verify_certificate: true
+      verify_hostname: true
+    healthcheck:
+      enabled: false
 
   bloody_api_suricata:
-    <<: *bloody_http
+    type: http
     inputs: [suricata]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=suricata"
+    method: post
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "${BLOODY_INGEST_API_KEY:-}"
+    encoding:
+      codec: json
+      except_fields: ["_bloody"]
+    framing:
+      method: newline_delimited
+    request:
+      headers:
+        Content-Type: application/x-ndjson
+        User-Agent: bloody-collector/vector
+      timeout_secs: 30
+      retry_attempts: 1000
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 300
+      concurrency: adaptive
+    batch:
+      max_events: 1000
+      max_bytes: 4000000
+      timeout_secs: 2
+    buffer:
+      type: disk
+      # Vector minimum for disk buffers (256 MiB) — per sink; raise on busy sensors.
+      max_size: 268435488
+      when_full: block
+    tls:
+      verify_certificate: true
+      verify_hostname: true
+    healthcheck:
+      enabled: false
 
   bloody_api_wazuh:
-    <<: *bloody_http
+    type: http
     inputs: [wazuh]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=wazuh"
+    method: post
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "${BLOODY_INGEST_API_KEY:-}"
+    encoding:
+      codec: json
+      except_fields: ["_bloody"]
+    framing:
+      method: newline_delimited
+    request:
+      headers:
+        Content-Type: application/x-ndjson
+        User-Agent: bloody-collector/vector
+      timeout_secs: 30
+      retry_attempts: 1000
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 300
+      concurrency: adaptive
+    batch:
+      max_events: 1000
+      max_bytes: 4000000
+      timeout_secs: 2
+    buffer:
+      type: disk
+      # Vector minimum for disk buffers (256 MiB) — per sink; raise on busy sensors.
+      max_size: 268435488
+      when_full: block
+    tls:
+      verify_certificate: true
+      verify_hostname: true
+    healthcheck:
+      enabled: false
+
+  bloody_api_osquery:
+    type: http
+    inputs: [osquery]
+    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=osquery"
+    method: post
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "${BLOODY_INGEST_API_KEY:-}"
+    encoding:
+      codec: json
+      except_fields: ["_bloody"]
+    framing:
+      method: newline_delimited
+    request:
+      headers:
+        Content-Type: application/x-ndjson
+        User-Agent: bloody-collector/vector
+      timeout_secs: 30
+      retry_attempts: 1000
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 300
+      concurrency: adaptive
+    batch:
+      max_events: 1000
+      max_bytes: 4000000
+      timeout_secs: 2
+    buffer:
+      type: disk
+      # Vector minimum for disk buffers (256 MiB) — per sink; raise on busy sensors.
+      max_size: 268435488
+      when_full: block
+    tls:
+      verify_certificate: true
+      verify_hostname: true
+    healthcheck:
+      enabled: false
 
   bloody_api_opencanary:
-    <<: *bloody_http
+    type: http
     inputs: [opencanary]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=opencanary"
+    method: post
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "${BLOODY_INGEST_API_KEY:-}"
+    encoding:
+      codec: json
+      except_fields: ["_bloody"]
+    framing:
+      method: newline_delimited
+    request:
+      headers:
+        Content-Type: application/x-ndjson
+        User-Agent: bloody-collector/vector
+      timeout_secs: 30
+      retry_attempts: 1000
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 300
+      concurrency: adaptive
+    batch:
+      max_events: 1000
+      max_bytes: 4000000
+      timeout_secs: 2
+    buffer:
+      type: disk
+      # Vector minimum for disk buffers (256 MiB) — per sink; raise on busy sensors.
+      max_size: 268435488
+      when_full: block
+    tls:
+      verify_certificate: true
+      verify_hostname: true
+    healthcheck:
+      enabled: false
 
   bloody_api_nuclei:
-    <<: *bloody_http
+    type: http
     inputs: [nuclei]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=nuclei"
+    method: post
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "${BLOODY_INGEST_API_KEY:-}"
+    encoding:
+      codec: json
+      except_fields: ["_bloody"]
+    framing:
+      method: newline_delimited
+    request:
+      headers:
+        Content-Type: application/x-ndjson
+        User-Agent: bloody-collector/vector
+      timeout_secs: 30
+      retry_attempts: 1000
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 300
+      concurrency: adaptive
+    batch:
+      max_events: 1000
+      max_bytes: 4000000
+      timeout_secs: 2
+    buffer:
+      type: disk
+      # Vector minimum for disk buffers (256 MiB) — per sink; raise on busy sensors.
+      max_size: 268435488
+      when_full: block
+    tls:
+      verify_certificate: true
+      verify_hostname: true
+    healthcheck:
+      enabled: false
 
   bloody_api_syslog:
-    <<: *bloody_http
+    type: http
     inputs: [syslog]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=syslog"
+    method: post
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "${BLOODY_INGEST_API_KEY:-}"
+    encoding:
+      codec: json
+      except_fields: ["_bloody"]
+    framing:
+      method: newline_delimited
+    request:
+      headers:
+        Content-Type: application/x-ndjson
+        User-Agent: bloody-collector/vector
+      timeout_secs: 30
+      retry_attempts: 1000
+      retry_initial_backoff_secs: 1
+      retry_max_duration_secs: 300
+      concurrency: adaptive
+    batch:
+      max_events: 1000
+      max_bytes: 4000000
+      timeout_secs: 2
+    buffer:
+      type: disk
+      # Vector minimum for disk buffers (256 MiB) — per sink; raise on busy sensors.
+      max_size: 268435488
+      when_full: block
+    tls:
+      verify_certificate: true
+      verify_hostname: true
+    healthcheck:
+      enabled: false

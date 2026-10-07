@@ -1,0 +1,311 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Bloody CI — every push to main, every pull request, weekly (fresh CVE / licence data).
+#
+#   verify     frozen install → licence gate → typecheck → tests (real Postgres) → build
+#   sbom       CycloneDX + SPDX SBOMs (Syft via anchore/sbom-action, plus the licence-gate graph SBOM)
+#   images     build api/web images → Trivy scan (fails on fixable HIGH/CRITICAL) → image SBOMs
+#   infra      compose config validation, Kustomize build + kubeconform, shellcheck
+#   codeql     CodeQL (javascript-typescript, security-extended)
+#   dependency-review  (PRs) new dependencies: vulnerabilities + denied licences
+#
+# Actions are pinned by major version as a policy; Renovate (.github/renovate.json5) proposes
+# digest pins and updates. Workflow token is read-only unless a job needs more.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: "22"
+  FORCE_COLOR: "1"
+
+jobs:
+  verify:
+    name: verify (licences, typecheck, tests, build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16.15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bloody
+          POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bloody"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # Default used by the API integration tests (see CLAUDE.md).
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/bloody_test
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        # Version comes from package.json "packageManager".
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Licence gate (fails on GPL/AGPL/LGPL/SSPL/BUSL/ELv2/unknown in the linked tree)
+        run: |
+          mkdir -p reports
+          node scripts/license-check.mjs --json reports/licenses.json --markdown reports/licenses.md
+
+      - name: Licence gate self-tests
+        run: node --test scripts/*.test.mjs
+
+      - name: Initialise database roles (same script as the dev compose stack)
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGPASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: bloody
+          BLOODY_DB_OWNER_PASSWORD: ci-owner-password
+          BLOODY_DB_APP_PASSWORD: ci-app-password
+          KEYCLOAK_DB_PASSWORD: ci-keycloak-password
+        run: sh infra/postgres/init/00-bloody-roles.sh
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Test
+        run: pnpm -r --workspace-concurrency=1 test
+
+      - name: Build
+        run: pnpm -r --workspace-concurrency=1 build
+
+      - name: Vulnerability audit (production dependencies)
+        run: pnpm audit --prod --audit-level high
+
+      - name: Upload licence report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: licence-report
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+  sbom:
+    name: sbom (source)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: verify
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Dependency-graph SBOM + licence verdicts (scripts/sbom.sh, offline)
+        run: bash scripts/sbom.sh --no-source --out sbom
+
+      - name: Source SBOM — CycloneDX (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom/bloody-source.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Source SBOM — SPDX (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom/bloody-source.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-source
+          path: sbom/
+          retention-days: 90
+
+  images:
+    name: image ${{ matrix.image }} (build, Trivy, SBOM)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: verify
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, web]
+    env:
+      TRIVY_IMAGE: aquasec/trivy:0.75.0
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build bloody/${{ matrix.image }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/${{ matrix.image }}.Dockerfile
+          tags: bloody/${{ matrix.image }}:ci
+          load: true
+          push: false
+          provenance: false
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Trivy — vulnerabilities, secrets, misconfiguration (SARIF)
+        run: |
+          mkdir -p reports
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/reports:/reports" \
+            "$TRIVY_IMAGE" image --quiet --scanners vuln,secret,misconfig \
+            --format sarif --output /reports/trivy-${{ matrix.image }}.sarif bloody/${{ matrix.image }}:ci
+
+      - name: Upload Trivy SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: reports/trivy-${{ matrix.image }}.sarif
+          category: trivy-${{ matrix.image }}
+
+      - name: Trivy gate — fixable HIGH/CRITICAL vulnerabilities and embedded secrets fail the build
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            "$TRIVY_IMAGE" image --quiet --scanners vuln,secret --ignore-unfixed \
+            --severity HIGH,CRITICAL --exit-code 1 bloody/${{ matrix.image }}:ci
+
+      - name: Image SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: bloody/${{ matrix.image }}:ci
+          format: cyclonedx-json
+          output-file: reports/bloody-${{ matrix.image }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-${{ matrix.image }}-reports
+          path: reports/
+          retention-days: 90
+
+  infra:
+    name: infra (compose, kustomize, shell)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      KUBECONFORM_IMAGE: ghcr.io/yannh/kubeconform:v0.7.0
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: docker compose config (core, engines, merged, every profile)
+        run: |
+          docker compose -f infra/docker-compose.yml config -q
+          docker compose -f infra/docker-compose.yml --profile sso config -q
+          docker compose -f infra/docker-compose.engines.yml --profile all config -q
+          for p in endpoint network search streaming collection intel case soar vuln asm cloud deception forensics copilot; do
+            docker compose -f infra/docker-compose.engines.yml --profile "$p" config -q
+          done
+          docker compose -f infra/docker-compose.yml -f infra/docker-compose.engines.yml --profile all config -q
+
+      - name: Kustomize build + kubeconform (base, dev, prod)
+        run: |
+          for o in base overlays/dev overlays/prod; do
+            echo "::group::$o"
+            kubectl kustomize "infra/k8s/$o" | docker run --rm -i "$KUBECONFORM_IMAGE" \
+              -strict -summary -kubernetes-version 1.31.0 \
+              -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' -
+            echo "::endgroup::"
+          done
+
+      - name: shellcheck
+        run: shellcheck -S warning scripts/*.sh infra/postgres/init/*.sh infra/engines/*/*.sh infra/engines/*/init/*.sh
+
+  codeql:
+    name: codeql
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - "**/node_modules"
+              - "**/dist"
+              - "**/*.test.ts"
+              - "**/test-support/**"
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+
+  dependency-review:
+    name: dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          # Mirrors scripts/license-check.mjs (which remains the authoritative gate).
+          deny-licenses: >-
+            GPL-1.0-only, GPL-1.0-or-later, GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later,
+            AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later,
+            LGPL-2.0-only, LGPL-2.0-or-later, LGPL-2.1-only, LGPL-2.1-or-later, LGPL-3.0-only, LGPL-3.0-or-later,
+            SSPL-1.0, BUSL-1.1, Elastic-2.0, CC-BY-NC-4.0, CC-BY-SA-4.0
+          comment-summary-in-pr: on-failure

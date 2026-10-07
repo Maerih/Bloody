@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+// Copyright (c) 2026 Bloody. All rights reserved.
+//
+// Renovate — upstream update strategy (docs/OPERATIONS.md §Upgrades and upstream updates).
+//  * Everything is pinned (npm lockfile, image tags + digests, GitHub Actions); Renovate proposes
+//    bumps as PRs that must pass the full CI (licence gate, tests, Trivy, compose/k8s validation).
+//  * Open-source ENGINE images are grouped per engine and never auto-merged: an engine upgrade
+//    needs the adapter compatibility tests (packages/adapters fixtures) and a staging soak.
+//  * Major versions of engines and runtime platforms wait for explicit approval on the dashboard.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommitsDisabled",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigestsToSemver",
+  ],
+  timezone: "Etc/UTC",
+  schedule: ["before 6am on monday"],
+  prConcurrentLimit: 10,
+  rangeStrategy: "pin",
+  lockFileMaintenance: { enabled: true, schedule: ["before 6am on the first day of the month"] },
+  vulnerabilityAlerts: { enabled: true, labels: ["security"], schedule: ["at any time"] },
+  osvVulnerabilityAlerts: true,
+  // Compose files, Dockerfiles, Kustomize and workflow files all carry pinned images.
+  "docker-compose": { fileMatch: ["(^|/)infra/docker-compose[^/]*\\.ya?ml$"] },
+  dockerfile: { fileMatch: ["(^|/)infra/.+\\.Dockerfile$", "(^|/)infra/engines/.+/Dockerfile$"] },
+  kustomize: { fileMatch: ["(^|/)infra/k8s/.+/kustomization\\.ya?ml$"] },
+  customManagers: [
+    {
+      // ARG NODE_VERSION / NGINX_IMAGE / RUNTIME_IMAGE … in the application Dockerfiles.
+      customType: "regex",
+      fileMatch: ["(^|/)infra/docker/.+\\.Dockerfile$"],
+      matchStrings: ["ARG NODE_VERSION=(?<currentValue>\\S+)"],
+      depNameTemplate: "node",
+      datasourceTemplate: "docker",
+      versioningTemplate: "node",
+    },
+    {
+      customType: "regex",
+      fileMatch: ["(^|/)infra/engines/velociraptor/Dockerfile$", "(^|/)infra/docker-compose\\.engines\\.yml$"],
+      matchStrings: ["VELOCIRAPTOR_VERSION(?:=|:-)(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      depNameTemplate: "Velocidex/velociraptor",
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^v(?<version>.*)$",
+    },
+    {
+      customType: "regex",
+      fileMatch: ["(^|/)scripts/sbom\\.sh$"],
+      matchStrings: ["SYFT_IMAGE:-(?<depName>anchore/syft):(?<currentValue>v[\\d.]+)"],
+      datasourceTemplate: "docker",
+    },
+  ],
+  packageRules: [
+    {
+      description: "npm: patch/minor of permissive dev tooling may auto-merge after green CI",
+      matchManagers: ["npm"],
+      matchDepTypes: ["devDependencies"],
+      matchUpdateTypes: ["patch", "minor"],
+      automerge: true,
+    },
+    {
+      description: "npm: runtime dependencies are reviewed (licence gate + changelog review)",
+      matchManagers: ["npm"],
+      matchDepTypes: ["dependencies"],
+      automerge: false,
+      labels: ["dependencies"],
+    },
+    {
+      description: "GitHub Actions: grouped, digest-pinned",
+      matchManagers: ["github-actions"],
+      groupName: "github-actions",
+    },
+    {
+      description: "Platform runtimes (Node, Postgres, Valkey, nginx, distroless) — staged rollout",
+      matchDatasources: ["docker"],
+      matchPackageNames: [
+        "node",
+        "postgres",
+        "valkey/valkey",
+        "nginxinc/nginx-unprivileged",
+        "gcr.io/distroless/nodejs22-debian13",
+      ],
+      labels: ["platform"],
+      automerge: false,
+    },
+    {
+      description: "Postgres majors need a dump/restore or pg_upgrade plan",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["postgres"],
+      matchUpdateTypes: ["major"],
+      dependencyDashboardApproval: true,
+    },
+    {
+      description: "Engine images: one group per engine, never auto-merged, majors need approval",
+      matchFileNames: ["infra/docker-compose.engines.yml", "infra/engines/**"],
+      labels: ["engine-upgrade"],
+      automerge: false,
+      groupName: "engine {{depName}}",
+    },
+    {
+      matchFileNames: ["infra/docker-compose.engines.yml", "infra/engines/**"],
+      matchUpdateTypes: ["major"],
+      dependencyDashboardApproval: true,
+    },
+    {
+      description: "Wazuh manager and indexer must move together",
+      matchPackageNames: ["/^wazuh\\//"],
+      groupName: "engine wazuh",
+    },
+    {
+      description: "OpenCTI platform and worker must move together",
+      matchPackageNames: ["/^opencti\\//"],
+      groupName: "engine opencti",
+    },
+    {
+      description: "DFIR-IRIS images must move together",
+      matchPackageNames: ["/^ghcr\\.io\\/dfir-iris\\//"],
+      groupName: "engine dfir-iris",
+    },
+    {
+      description: "Shuffle images must move together",
+      matchPackageNames: ["/^ghcr\\.io\\/shuffle\\//"],
+      groupName: "engine shuffle",
+    },
+    {
+      description: "MISP images must move together",
+      matchPackageNames: ["/^ghcr\\.io\\/misp\\//"],
+      groupName: "engine misp",
+    },
+    {
+      description: "Greenbone Community containers (rolling `stable` tag): track digests weekly",
+      matchPackageNames: ["/^registry\\.community\\.greenbone\\.net\\//"],
+      groupName: "engine greenbone",
+    },
+    {
+      description: "CoPilot publishes `latest` only — digest updates, reviewed by hand",
+      matchPackageNames: ["/^ghcr\\.io\\/socfortress\\//"],
+      groupName: "engine copilot",
+    },
+    {
+      description: "Licence-sensitive engines: a relicensing (e.g. to SSPL/BUSL) must be caught in review",
+      matchPackageNames: ["/^opensearchproject\\//", "/^valkey\\//", "/^apache\\/kafka$/", "/^timberio\\/vector$/"],
+      prBodyNotes: [
+        "⚠ Licence-sensitive component: confirm the upstream licence is unchanged (docs/LICENSES.md) before merging.",
+      ],
+    },
+  ],
+}

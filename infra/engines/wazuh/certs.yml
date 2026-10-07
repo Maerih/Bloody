@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Node list for wazuh/wazuh-certs-generator (development PKI for the Wazuh manager ↔ indexer TLS).
+# Names must match the network aliases in infra/docker-compose.engines.yml, because the
+# manager's Filebeat verifies the indexer certificate (FILEBEAT_SSL_VERIFICATION_MODE=full).
+# Production: issue these from the organisation's PKI / cert-manager instead.
+nodes:
+  indexer:
+    - name: wazuh.indexer
+      ip: wazuh.indexer
+  server:
+    - name: wazuh.manager
+      ip: wazuh.manager

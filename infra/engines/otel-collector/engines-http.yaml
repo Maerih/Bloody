@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# Engine-log transport: Bloody ingest API. Merged on top of config.yaml.
+#   POST ${BLOODY_INGEST_URL}?source=<engine>
+#   Authorization: Bearer <API key with event:ingest>   (binds tenant + organization)
+#   Content-Type: application/json — OTLP/HTTP JSON ExportLogsServiceRequest whose log bodies
+#   are raw vendor records (the API's ingest endpoint accepts this alongside NDJSON from Vector).
+# Retries on 429/5xx honour Retry-After; the persistent queue absorbs API maintenance windows.
+
+exporters:
+  otlphttp/bloody_zeek:
+    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=zeek"
+    encoding: json
+    compression: gzip
+    timeout: 30s
+    headers:
+      Authorization: "Bearer ${env:BLOODY_INGEST_API_KEY:-}"
+      User-Agent: bloody-collector/otelcol
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 60s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      queue_size: 5000
+  otlphttp/bloody_suricata:
+    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=suricata"
+    encoding: json
+    compression: gzip
+    timeout: 30s
+    headers:
+      Authorization: "Bearer ${env:BLOODY_INGEST_API_KEY:-}"
+      User-Agent: bloody-collector/otelcol
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 60s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      queue_size: 5000
+  otlphttp/bloody_wazuh:
+    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=wazuh"
+    encoding: json
+    compression: gzip
+    timeout: 30s
+    headers:
+      Authorization: "Bearer ${env:BLOODY_INGEST_API_KEY:-}"
+      User-Agent: bloody-collector/otelcol
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 60s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      queue_size: 5000
+
+service:
+  pipelines:
+    logs/zeek:
+      receivers: [filelog/zeek]
+      processors: [memory_limiter, resource/zeek, batch]
+      exporters: [otlphttp/bloody_zeek]
+    logs/suricata:
+      receivers: [filelog/suricata]
+      processors: [memory_limiter, filter/suricata_stats, resource/suricata, batch]
+      exporters: [otlphttp/bloody_suricata]
+    logs/wazuh:
+      receivers: [filelog/wazuh]
+      processors: [memory_limiter, resource/wazuh, batch]
+      exporters: [otlphttp/bloody_wazuh]
