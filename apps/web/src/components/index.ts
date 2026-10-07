@@ -34,3 +34,4 @@ export { SeverityBar, type SeverityBarLevel, type SeverityBarProps } from "./Sev
 export { CardSkeleton, Skeleton, SkeletonText, TableSkeleton } from "./Skeleton";
 export { StatTile, type StatTileProps, type StatTone } from "./StatTile";
 export { TabPanel, Tabs, type TabDef, type TabsProps } from "./Tabs";
+export { ErrorBoundary } from "./ErrorBoundary";

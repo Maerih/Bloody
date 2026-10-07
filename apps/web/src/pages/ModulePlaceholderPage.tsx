@@ -1,5 +1,5 @@
 import { Lock, Plug, Sparkles } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { findNavMatch } from "../app/navigation";
 import { useSession } from "../app/session";
 import { StatusBadge } from "../components/Badge";
@@ -8,7 +8,6 @@ import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { Tabs } from "../components/Tabs";
 import { railItemsFor } from "../layout/LeftRail";
-import { useNavigate } from "react-router-dom";
 
 /**
  * Generic module workspace shell used for every navigable path that does not yet have a

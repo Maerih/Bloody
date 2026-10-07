@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { CardSkeleton, Skeleton } from "../components/Skeleton";
 import { CommandPalette } from "./CommandPalette";
 import { GlobalShortcuts } from "./GlobalShortcuts";
@@ -24,6 +25,7 @@ export function PageSkeleton() {
 
 /** Authenticated application frame: top bar, left rail, content outlet and global overlays. */
 export function AppShell() {
+  const location = useLocation();
   return (
     <div className="min-h-screen bg-canvas">
       <a href="#main" className="sr-only z-[100] rounded bg-primary px-3 py-2 text-white focus:not-sr-only focus:fixed focus:left-2 focus:top-2">
@@ -33,9 +35,11 @@ export function AppShell() {
       <LeftRail />
       <main id="main" tabIndex={-1} className="min-h-screen pl-[60px] pt-11 focus:outline-none">
         <div className="mx-auto max-w-[1920px] px-4 pb-16 pt-4 lg:px-6">
-          <Suspense fallback={<PageSkeleton />}>
-            <Outlet />
-          </Suspense>
+          <ErrorBoundary resetKey={location.pathname}>
+            <Suspense fallback={<PageSkeleton />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </div>
       </main>
       <HelpPill />

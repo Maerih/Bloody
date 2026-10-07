@@ -29,6 +29,20 @@ export const RuleTestCase = z.object({
   expect: z.enum(["match", "no_match"]),
   /** Exact number of matches expected (optional, for threshold/sequence tests). */
   expectedMatches: z.number().int().min(0).optional(),
+  /** Indicators loaded for this test (IOC rules). */
+  indicators: z
+    .array(
+      z.object({
+        type: IndicatorType,
+        value: z.string().min(1),
+        confidence: z.number().min(0).max(100).default(80),
+        severity: Severity.default("high"),
+        source: z.string().default("rule-test"),
+        threatActor: z.string().nullable().optional(),
+      }),
+    )
+    .max(1000)
+    .default([]),
 });
 export type RuleTestCase = z.infer<typeof RuleTestCase>;
 

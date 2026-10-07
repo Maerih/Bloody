@@ -72,7 +72,10 @@ export class IndicatorSet implements IndicatorProvider {
     } else {
       const byKey = this.exact.get(record.tenantId) ?? new Map<string, IndicatorRecord[]>();
       const key = `${record.type}:${value}`;
-      const list = (byKey.get(key) ?? []).filter((r) => !(r.organizationId === record.organizationId && r.source === record.source));
+      const prior = byKey.get(key) ?? [];
+      // the same (organization, source) re-publishing an indicator replaces the old record
+      const list = prior.filter((r) => !(r.organizationId === record.organizationId && r.source === record.source));
+      this.count -= prior.length - list.length;
       list.push(record);
       byKey.set(key, list);
       this.exact.set(record.tenantId, byKey);
