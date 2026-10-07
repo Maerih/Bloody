@@ -12,9 +12,7 @@ const ok = (content: string) => ({ json: { choices: [{ finish_reason: "stop", me
 describe("FallbackProvider", () => {
   it("falls back after the primary exhausts retries and records attempts", async () => {
     const primaryFetch = fakeFetch([{ status: 503, text: "down" }]);
-    const secondaryFetch = fakeFetch([ok("from fallback")]);
     const primary = createProvider(providerConfig({ kind: "openai", name: "primary" }), "k", primaryFetch.fetch, runtime);
-    const secondary = createProvider(providerConfig({ kind: "ollama", endpoint: "http://10.0.0.9:11434", credentialRef: null, name: "local" }), null, secondaryFetch.fetch, { ...runtime, allowPrivateEndpoints: true });
     const ollamaFetch = fakeFetch([{ json: { model: "llama3", message: { role: "assistant", content: "from fallback" }, done: true, prompt_eval_count: 1, eval_count: 1 } }]);
     const local = createProvider(providerConfig({ kind: "ollama", endpoint: "http://10.0.0.9:11434", credentialRef: null }), null, ollamaFetch.fetch, { ...runtime, allowPrivateEndpoints: true });
     const onFallback = vi.fn();
@@ -26,7 +24,6 @@ describe("FallbackProvider", () => {
     expect(res.attempts).toMatchObject([{ kind: "openai", ok: false, error: { code: "upstream_error" } }, { kind: "ollama", ok: true }]);
     expect(primaryFetch.requests).toHaveLength(2); // initial + 1 retry
     expect(onFallback).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: "upstream_error" }) }));
-    expect(secondary).toBeDefined();
   });
 
   it("falls back when the primary refuses tenant data by policy", async () => {
