@@ -3,7 +3,7 @@
  *   import { Card, DataTable, Drawer, ... } from "../components";
  */
 export { Badge, SeverityBadge, StatusBadge, type BadgeProps, type BadgeTone } from "./Badge";
-export { Button, IconButton, type ButtonProps, type ButtonSize, type ButtonVariant, type IconButtonProps } from "./Button";
+export { Button, ButtonLink, IconButton, type ButtonLinkProps, type ButtonProps, type ButtonSize, type ButtonVariant, type IconButtonProps } from "./Button";
 export { Card, InfoTip, type CardProps } from "./Card";
 export {
   DataTable,

@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
 import { LoaderCircle, type LucideIcon } from "lucide-react";
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success" | "brand" | "link";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
@@ -88,3 +89,40 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
     </button>
   );
 });
+
+export interface ButtonLinkProps {
+  to: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  icon?: LucideIcon;
+  children?: ReactNode;
+  className?: string;
+  /** Open an external URL in a new tab. */
+  external?: boolean;
+  onClick?: () => void;
+}
+
+/** A link styled as a button (navigation actions must be links, not buttons inside links). */
+export function ButtonLink({ to, variant = "secondary", size = "md", icon: Icon, children, className, external, onClick }: ButtonLinkProps) {
+  const classes = clsx(
+    "inline-flex select-none items-center justify-center whitespace-nowrap rounded font-medium transition-colors",
+    VARIANTS[variant],
+    SIZES[size],
+    className,
+  );
+  const content = (
+    <>
+      {Icon ? <Icon size={ICON_SIZES[size]} aria-hidden /> : null}
+      {children}
+    </>
+  );
+  return external ? (
+    <a href={to} target="_blank" rel="noopener noreferrer" className={classes} onClick={onClick}>
+      {content}
+    </a>
+  ) : (
+    <Link to={to} className={classes} onClick={onClick}>
+      {content}
+    </Link>
+  );
+}
