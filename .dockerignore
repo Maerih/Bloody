@@ -1,0 +1,50 @@
+# Build context for infra/docker/*.Dockerfile (context = repository root).
+# Keep secrets, VCS metadata, local installs and build outputs out of every image layer.
+
+# VCS / CI / editor
+.git
+.github
+.gitignore
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Dependencies & build outputs (re-created inside the build from the lockfile)
+**/node_modules
+**/dist
+**/coverage
+**/.turbo
+**/.vite
+**/*.tsbuildinfo
+sbom
+backups
+
+# Secrets & local environment — never copied into images
+.env
+.env.*
+!.env.example
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+infra/.dev-certs
+infra/.env
+infra/**/secrets*
+**/secrets.*.env
+
+# Infrastructure / docs not needed to build application images
+infra/k8s
+infra/engines
+infra/observability
+infra/docker-compose*.yml
+docs
+*.md
+!apps/**/README.md
+!packages/**/README.md
+LICENSE
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
