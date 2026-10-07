@@ -163,6 +163,12 @@ export interface AdapterDefinition {
   actions?: Partial<Record<ResponseActionKey, ResponseActionHandler>>;
 }
 
+/** Per-deployment extras wired into an adapter instance (engine API health probe, response handlers). */
+export interface AdapterExtras {
+  healthCheck?: (client: EngineClient) => Promise<HealthCheckResult>;
+  actions?: Partial<Record<ResponseActionKey, ResponseActionHandler>>;
+}
+
 const DEFAULT_MAX_RAW_BYTES = 16 * 1024;
 const DEFAULT_MAX_RECORDS = 50_000;
 const LABEL_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
