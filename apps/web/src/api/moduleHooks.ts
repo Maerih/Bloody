@@ -22,6 +22,7 @@ import {
   toConversationDetail,
   toConversationList,
   toEventSearchResult,
+  toExposureSummary,
   toGraphNodes,
   toProviderTestResult,
   toSubgraph,
@@ -50,7 +51,9 @@ import type {
   CustodyAction,
   DetectionRule,
   DetectionTestInput,
+  DetectionTestMatch,
   DetectionTestResult,
+  DetectionVersion,
   EventSearchParams,
   EventSearchResult,
   EvidenceView,
@@ -104,8 +107,8 @@ export const moduleKeys = {
   attackPaths: ["attack-paths"] as const,
   vulnerabilities: ["vulnerabilities"] as const,
   exposure: ["exposure"] as const,
-  indicators: ["intel", "indicators"] as const,
-  intelMatches: ["intel", "matches"] as const,
+  indicators: ["intel-indicators"] as const,
+  intelMatches: ["intel-matches"] as const,
   playbooks: ["playbooks"] as const,
   aiProviders: ["ai", "providers"] as const,
   aiConversations: ["ai", "conversations"] as const,
@@ -372,18 +375,64 @@ export function useSaveDetection() {
   });
 }
 
+function toDetectionTestResult(raw: unknown): DetectionTestResult {
+  const rec = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+  const replay = (typeof rec.replay === "object" && rec.replay !== null ? rec.replay : {}) as Record<string, unknown>;
+  const strings = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+  const matches = Array.isArray(replay.matches)
+    ? replay.matches
+        .filter((m): m is Record<string, unknown> => typeof m === "object" && m !== null)
+        .map((m, i) => ({
+          id: typeof m.id === "string" ? m.id : `match-${i}`,
+          title: typeof m.title === "string" ? m.title : "Match",
+          severity: typeof m.severity === "string" ? (m.severity as DetectionTestMatch["severity"]) : null,
+          explanation: typeof m.explanation === "string" ? m.explanation : null,
+          eventIds: strings(m.eventIds),
+        }))
+    : [];
+  const matched = typeof rec.matched === "number" ? rec.matched : typeof replay.matched === "number" ? replay.matched : matches.length;
+  const scanned = typeof rec.scanned === "number" ? rec.scanned : typeof replay.scanned === "number" ? replay.scanned : null;
+  return {
+    valid: rec.valid !== false,
+    errors: strings(rec.errors),
+    warnings: strings(rec.warnings),
+    matched,
+    scanned,
+    truncated: replay.truncated === true,
+    events: toEventSearchResult(rec.events ?? []).items,
+    matches,
+  };
+}
+
+/** Test a saved rule (optionally with the editor's unsaved source) or a draft (no id). */
 export function useTestDetection() {
-  return useMutation<DetectionTestResult, ApiError, { id: string; input: DetectionTestInput }>({
-    mutationFn: async ({ id, input }) => {
-      const raw = await api.post<Partial<DetectionTestResult> & { matches?: unknown[] }>(`/detections/${enc(id)}/test`, input);
-      return {
-        valid: raw?.valid !== false,
-        errors: Array.isArray(raw?.errors) ? raw.errors.map(String) : [],
-        matched: typeof raw?.matched === "number" ? raw.matched : Array.isArray(raw?.events) ? raw.events.length : 0,
-        scanned: typeof raw?.scanned === "number" ? raw.scanned : null,
-        events: toEventSearchResult(raw?.events ?? raw?.matches ?? []).items,
-      };
-    },
+  return useMutation<DetectionTestResult, ApiError, { id?: string; input: DetectionTestInput }>({
+    mutationFn: async ({ id, input }) => toDetectionTestResult(await api.post<unknown>(id ? `/detections/${enc(id)}/test` : "/detections/test", input)),
+  });
+}
+
+export function useDetectionVersions(id: string | null | undefined) {
+  return useQuery<DetectionVersion[], ApiError>({
+    queryKey: ["detections", "versions", id ?? ""],
+    queryFn: async ({ signal }) => toArray(await api.get<Page<DetectionVersion> | DetectionVersion[]>(`/detections/${enc(id!)}/versions`, { signal })),
+    enabled: Boolean(id),
+  });
+}
+
+export function useRollbackDetection() {
+  const qc = useQueryClient();
+  return useMutation<DetectionRule, ApiError, { id: string; version: number }>({
+    mutationFn: ({ id, version }) => api.post<DetectionRule>(`/detections/${enc(id)}/rollback`, { version }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: moduleKeys.detections }),
+  });
+}
+
+/** Delete a custom rule, or remove an override to revert to the built-in version. */
+export function useDeleteDetection() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: (id) => api.delete<void>(`/detections/${enc(id)}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: moduleKeys.detections }),
   });
 }
 
@@ -457,6 +506,9 @@ const vulnQuery = (f: Omit<VulnerabilityFilters, "organizationId">): QueryParams
   status: csv(f.status),
   knownExploited: bool(f.knownExploited),
   assetId: f.assetId,
+  overdue: bool(f.overdue),
+  internetFacing: bool(f.internetFacing),
+  priority: csv(f.priority),
   sort: f.sort ?? "risk",
   limit: f.limit ?? 500,
 });
@@ -480,7 +532,7 @@ export function useExposureSummary(options: { organizationId?: string | null; en
   const orgId = useScope(options.organizationId);
   return useQuery<ExposureSummary, ApiError>({
     queryKey: ["exposure", orgKey(orgId)],
-    queryFn: ({ signal }) => api.get<ExposureSummary>("/exposure/summary", { signal, query: { organizationId: orgId } }),
+    queryFn: async ({ signal }) => toExposureSummary(await api.get<unknown>("/exposure/summary", { signal, query: { organizationId: orgId } })),
     placeholderData: keepPreviousWithinOrg<ExposureSummary>(orgId),
     enabled: options.enabled ?? true,
     staleTime: 60_000,

@@ -1,4 +1,4 @@
-import type { Principal } from "@bloody/contracts";
+import type { ModuleKey, Principal } from "@bloody/contracts";
 
 export type AuthMethod = "session" | "bearer" | "api_key";
 
@@ -36,6 +36,8 @@ declare module "fastify" {
     public?: boolean;
     /** Audit action name for the generic mutation audit hook; false disables it. */
     audit?: string | false;
+    /** Product module the route belongs to: 402 ENTITLEMENT_REQUIRED unless the tenant is entitled. */
+    module?: ModuleKey;
   }
 }
 

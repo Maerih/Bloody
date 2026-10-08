@@ -12,6 +12,14 @@ import type { SecretBox } from "./security/crypto.js";
 import type { AttackPathService } from "./services/attack-paths.js";
 import type { InventoryService } from "./services/inventory.js";
 import type { SecretStore } from "./services/secret-store.js";
+import type { EntitlementService, QuotaService } from "./services/commercial.js";
+import type { DetectionService } from "./services/detections.js";
+import type { DomainEventBus } from "./services/domain-events.js";
+import type { EnrichmentService } from "./services/enrichment.js";
+import type { EventSearchService } from "./services/event-search.js";
+import type { GraphQueries } from "./services/graph-queries.js";
+import type { IntelService } from "./services/intel.js";
+import type { NotificationService } from "./services/notifications.js";
 
 /** Composition root output shared by every route module. */
 export interface AppServices {
@@ -32,4 +40,16 @@ export interface AppServices {
   adapters: AdapterRegistry;
   oidc: ExternalAuthProvider | null;
   now: () => number;
+
+  // ─── Part B: SOC operations ────────────────────────────────────────────────
+  /** In-process domain events (automation rules, playbook triggers, in-app notifications). */
+  domainEvents: DomainEventBus;
+  entitlements: EntitlementService;
+  quota: QuotaService;
+  graph: GraphQueries;
+  detections: DetectionService;
+  eventSearch: EventSearchService;
+  intel: IntelService;
+  enrichment: EnrichmentService;
+  notifications: NotificationService;
 }

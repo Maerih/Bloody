@@ -66,7 +66,7 @@ export function edgeLabel(kind: string): string {
 export const FACTOR_ORDER: { key: string; label: string }[] = [
   { key: "exploitability", label: "Exploitability" },
   { key: "exposure", label: "Exposure" },
-  { key: "privilege", label: "Privilege" },
+  { key: "privilege", label: "Privilege escalation" },
   { key: "asset_criticality", label: "Asset criticality" },
   { key: "identity_privilege", label: "Identity privilege" },
   { key: "known_exploitation", label: "Known exploitation" },
@@ -75,6 +75,65 @@ export const FACTOR_ORDER: { key: string; label: string }[] = [
   { key: "blast_radius", label: "Blast radius" },
   { key: "compensating_controls", label: "Compensating controls" },
 ];
+
+export interface FactorRow {
+  key: string;
+  label: string;
+  /** Signal strength 0..1 (max of the matching factors). */
+  value: number;
+  /** Points contributed to the 0..100 score (negative for compensating controls). */
+  contribution: number;
+  explanation: string;
+  /** False when the model did not observe this factor on the path. */
+  present: boolean;
+}
+
+function matchesKey(factorKey: string, canonical: string): boolean {
+  return factorKey === canonical || factorKey.startsWith(`${canonical}_`) || factorKey.endsWith(`_${canonical}`);
+}
+
+/**
+ * The full, fixed attack-path factor breakdown (exploitability … compensating controls), with
+ * absent factors shown as "not observed" rather than hidden, so paths are comparable at a
+ * glance. Compensating controls aggregate every control / structural reduction (negative).
+ */
+export function attackPathFactorRows(risk: Pick<RiskAssessment, "factors">): FactorRow[] {
+  const used = new Set<RiskFactor>();
+  const isControl = (f: RiskFactor) => f.contribution < 0 || f.weight < 0 || f.key.startsWith("control_") || f.key === "path_complexity" || (f as RiskFactor & { group?: string }).group === "control";
+  const rows: FactorRow[] = [];
+  for (const { key, label } of FACTOR_ORDER) {
+    if (key === "compensating_controls") {
+      const controls = risk.factors.filter(isControl);
+      controls.forEach((f) => used.add(f));
+      rows.push({
+        key,
+        label,
+        value: controls.length > 0 ? Math.max(...controls.map((f) => f.value)) : 0,
+        contribution: Math.round(controls.reduce((s, f) => s + f.contribution, 0) * 100) / 100,
+        explanation: controls.length > 0 ? controls.map((f) => f.explanation).join(" ") : "No compensating controls reduce this path.",
+        present: controls.length > 0,
+      });
+      continue;
+    }
+    // "privilege" must not swallow "identity_privilege".
+    const matches = risk.factors.filter((f) => !used.has(f) && !isControl(f) && (key === "privilege" ? f.key === "privilege" || f.key === "privilege_escalation" : matchesKey(f.key, key)));
+    matches.forEach((f) => used.add(f));
+    rows.push({
+      key,
+      label,
+      value: matches.length > 0 ? Math.max(...matches.map((f) => f.value)) : 0,
+      contribution: Math.round(matches.reduce((s, f) => s + f.contribution, 0) * 100) / 100,
+      explanation: matches.length > 0 ? matches.map((f) => f.explanation).join(" ") : "Not observed on this path.",
+      present: matches.length > 0,
+    });
+  }
+  // Model factors outside the canonical list are still shown (explainability is never lossy).
+  for (const f of risk.factors) {
+    if (used.has(f)) continue;
+    rows.push({ key: f.key, label: f.label, value: f.value, contribution: f.contribution, explanation: f.explanation, present: true });
+  }
+  return rows;
+}
 
 export type FactorGroup = "likelihood" | "impact" | "control";
 

@@ -248,3 +248,15 @@ export function validateAiProviderDraft(draft: AiProviderDraft, ctx: ValidationC
   }
   return { errors, warnings, input: body as UpsertAiProviderInput };
 }
+
+/** The provider that answers for a scope: an enabled organization default, else the tenant default. */
+export function effectiveProvider(providers: AiProviderConfig[], organizationId: string | null): AiProviderConfig | null {
+  const enabled = providers.filter((p) => p.enabled);
+  if (organizationId) {
+    const org = enabled.filter((p) => p.organizationId === organizationId);
+    const orgDefault = org.find((p) => p.isDefault) ?? org[0];
+    if (orgDefault) return orgDefault;
+  }
+  const tenant = enabled.filter((p) => p.organizationId === null);
+  return tenant.find((p) => p.isDefault) ?? tenant[0] ?? null;
+}

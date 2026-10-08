@@ -1,4 +1,4 @@
-import type { AiActionRecord, AiMessage, AttackPath, CanonicalEvent, GraphEdge, GraphNode, Subgraph } from "@bloody/contracts";
+import type { AiActionRecord, AiMessage, AttackPath, CanonicalEvent, GraphEdge, GraphNode, ModuleKey, RiskFactor, Subgraph } from "@bloody/contracts";
 import type {
   AiChatResult,
   AiConversationDetail,
@@ -8,6 +8,9 @@ import type {
   AttackPathResult,
   AttackPathSummaryView,
   EventSearchResult,
+  ExposureComponent,
+  ExposureSummary,
+  Narrative,
   RemediationPriorityView,
 } from "./types";
 
@@ -97,7 +100,20 @@ export function toAttackPathResult(raw: unknown): AttackPathResult {
   const remediations = isRecord(raw) ? pickArray(raw, ["remediations"]).map(toRemediation).filter((r): r is RemediationPriorityView => r !== null) : [];
   let summary: AttackPathSummaryView | null = null;
   if (isRecord(raw) && isRecord(raw.summary) && num(raw.summary.totalPaths) !== null) summary = raw.summary as unknown as AttackPathSummaryView;
-  return { paths, remediations, summary };
+  const out: AttackPathResult = { paths, remediations, summary };
+  if (isRecord(raw)) {
+    const narrative = toNarrative(raw.narrative);
+    if (narrative) out.narrative = narrative;
+    if (Array.isArray(raw.byOrganization)) out.byOrganization = raw.byOrganization.filter((o) => isRecord(o) && typeof o.organizationId === "string") as AttackPathResult["byOrganization"];
+  }
+  return out;
+}
+
+/** `{headline, paragraphs, actions}` engine narrative, or null. */
+export function toNarrative(raw: unknown): Narrative | null {
+  if (!isRecord(raw) || typeof raw.headline !== "string") return null;
+  const strs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  return { headline: raw.headline, paragraphs: strs(raw.paragraphs), actions: strs(raw.actions) };
 }
 
 export function toEventSearchResult(raw: unknown): EventSearchResult {
@@ -193,6 +209,56 @@ export function toChatResult(raw: unknown): AiChatResult {
     maxToolTier: tier === "read" || tier === "investigate" || tier === "recommend" || tier === "require_approval" || tier === "execute" ? tier : null,
     fallbackUsed: rec.fallbackUsed === true,
   };
+}
+
+/** Exposure domains → product labels and the module that owns the drill-down. */
+export const EXPOSURE_DOMAINS: Record<string, { label: string; module: ModuleKey | null }> = {
+  external: { label: "External attack surface", module: "asm" },
+  vulnerability: { label: "Exploitable vulnerabilities", module: "vuln" },
+  identity: { label: "Identity exposure", module: "ispm" },
+  cloud: { label: "Cloud exposure", module: "cspm" },
+  saas: { label: "SaaS exposure", module: "sspm" },
+  misconfiguration: { label: "Misconfiguration", module: "cspm" },
+  attack_path: { label: "Attack paths", module: "espm" },
+  threat_intel: { label: "Active threat", module: "cti" },
+};
+
+/**
+ * GET /exposure/summary — either the documented `{score, components}` shape or the engine's
+ * `ExposureAssessment` (`{score, factors, domains: {external: {score, drivers}}}`).
+ */
+export function toExposureSummary(raw: unknown): ExposureSummary {
+  const rec = isRecord(raw) ? raw : {};
+  const out: ExposureSummary = { score: num(rec.score) ?? num(rec.exposureScore) ?? 0 };
+  if (typeof rec.severity === "string") out.severity = rec.severity as ExposureSummary["severity"];
+  if (str(rec.summary)) out.summary = rec.summary as string;
+  if (num(rec.likelihood) !== null) out.likelihood = rec.likelihood as number;
+  if (num(rec.impact) !== null) out.impact = rec.impact as number;
+  if (num(rec.inherentScore) !== null) out.inherentScore = rec.inherentScore as number;
+  if (Array.isArray(rec.factors)) out.factors = rec.factors.filter((f): f is RiskFactor => isRecord(f) && typeof f.key === "string" && typeof f.contribution === "number") as RiskFactor[];
+  if (str(rec.modelVersion)) out.modelVersion = rec.modelVersion as string;
+  if (str(rec.generatedAt)) out.generatedAt = rec.generatedAt as string;
+  const components: ExposureComponent[] = [];
+  if (Array.isArray(rec.components)) {
+    for (const c of rec.components) if (isRecord(c) && typeof c.key === "string" && num(c.score) !== null) components.push(c as unknown as ExposureComponent);
+  } else if (isRecord(rec.domains)) {
+    for (const [key, value] of Object.entries(rec.domains)) {
+      if (!isRecord(value) || num(value.score) === null) continue;
+      const meta = EXPOSURE_DOMAINS[key];
+      components.push({
+        key,
+        label: meta?.label ?? key.replace(/_/g, " "),
+        score: value.score as number,
+        module: meta?.module ?? null,
+        drivers: Array.isArray(value.drivers) ? value.drivers.filter((d): d is string => typeof d === "string") : [],
+      });
+    }
+  }
+  if (components.length > 0) out.components = components.sort((a, b) => b.score - a.score);
+  if (Array.isArray(rec.organizations)) out.organizations = rec.organizations.filter((o) => isRecord(o) && typeof o.organizationId === "string" && num(o.score) !== null) as ExposureSummary["organizations"];
+  const narrative = toNarrative(rec.narrative);
+  if (narrative) out.narrative = narrative;
+  return out;
 }
 
 /** Provider health (`{ok}` / `{healthy}` / `{status: "ok"}`) → uniform result. */
