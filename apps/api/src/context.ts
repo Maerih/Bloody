@@ -11,6 +11,7 @@ import type { IngestService } from "./pipeline/ingest.js";
 import type { SecretBox } from "./security/crypto.js";
 import type { AttackPathService } from "./services/attack-paths.js";
 import type { InventoryService } from "./services/inventory.js";
+import type { SecretStore } from "./services/secret-store.js";
 
 /** Composition root output shared by every route module. */
 export interface AppServices {
@@ -20,6 +21,8 @@ export interface AppServices {
   metrics: Metrics;
   auth: AuthService;
   secrets: SecretBox;
+  /** Tenant credential store (credentialRef → plaintext), for AI providers, integrations, channels. */
+  secretStore: SecretStore;
   risk: RiskEngine;
   attackPathEngine: AttackPathEngine;
   attackPaths: AttackPathService;

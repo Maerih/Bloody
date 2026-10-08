@@ -83,6 +83,19 @@ export function createPool(opts: PoolOptions): pg.Pool {
   return pool;
 }
 
+/** Callbacks to run once the managed transaction owning a client commits (cleared on rollback). */
+const commitHooks = new WeakMap<object, Array<() => void>>();
+
+/**
+ * Run `fn` after the managed transaction `tx` commits; it never runs if the transaction rolls
+ * back. Outside a managed transaction (plain pool query) it runs immediately.
+ */
+export function afterCommit(tx: Queryable, fn: () => void): void {
+  const hooks = commitHooks.get(tx);
+  if (hooks) hooks.push(fn);
+  else fn();
+}
+
 export class Database {
   constructor(
     readonly app: pg.Pool,
@@ -131,12 +144,17 @@ export class Database {
   private async transaction<T>(pool: pg.Pool, fn: (tx: Tx) => Promise<T>): Promise<T> {
     const client = await pool.connect();
     let released = false;
+    const hooks: Array<() => void> = [];
+    commitHooks.set(client, hooks);
     try {
       await client.query("BEGIN");
       const result = await fn(client);
       await client.query("COMMIT");
+      commitHooks.delete(client);
+      for (const hook of hooks) hook();
       return result;
     } catch (err) {
+      commitHooks.delete(client);
       try {
         await client.query("ROLLBACK");
       } catch {

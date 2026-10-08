@@ -1,5 +1,5 @@
 import type { FastifyRequest } from "fastify";
-import type { Queryable } from "../db/pool.js";
+import { afterCommit, type Queryable } from "../db/pool.js";
 
 /**
  * Append-only audit trail. Rows are hash-chained per tenant by a database trigger and can
@@ -88,10 +88,21 @@ export function actorFromRequest(request: FastifyRequest, tenantId?: string): Au
   };
 }
 
-/** Record an audit row inside the handler's transaction and mark the request as audited. */
+/**
+ * Record an audit row inside the handler's transaction. The request counts as audited only once
+ * that transaction commits — if it rolls back, the generic mutation hook (app.ts) still writes
+ * a denied/failure record for the attempt.
+ */
 export async function recordAudit(tx: Queryable, request: FastifyRequest, entry: AuditEntry): Promise<void> {
   await writeAudit(tx, actorFromRequest(request), entry);
-  request.auditState.recorded = true;
+  markAudited(tx, request);
+}
+
+/** Mark the request audited when `tx` commits (for handlers that wrote audit rows themselves). */
+export function markAudited(tx: Queryable, request: FastifyRequest): void {
+  afterCommit(tx, () => {
+    request.auditState.recorded = true;
+  });
 }
 
 export const SYSTEM_ACTOR = (tenantId: string, component: string): AuditActor => ({

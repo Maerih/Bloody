@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { AgentStatus, AssetKind, Criticality, IdentityKind, UpsertAssetInput, Uuid, principalCan } from "@bloody/contracts";
-import { recordAudit } from "../audit/audit.js";
+import { markAudited, recordAudit } from "../audit/audit.js";
 import { assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import type { Queryable } from "../db/pool.js";
@@ -119,8 +119,13 @@ const PatchIdentityBody = z
   .partial()
   .strict();
 
-function agentView(r: Row) {
-  return { ...toAgent(r), reportedStatus: String(r.status) };
+/**
+ * `status` is the effective health (silent agents become "unresponsive"); `reportedStatus` is
+ * what the agent itself last reported.
+ */
+function agentView(r: Row, effectiveStatus?: unknown) {
+  const effective = effectiveStatus ?? r.effective_status ?? r.status;
+  return { ...toAgent({ ...r, status: effective }), reportedStatus: String(r.status) };
 }
 
 async function graphAccessForIdentity(tx: Queryable, identityId: string) {
@@ -213,7 +218,7 @@ export async function inventoryRoutes(app: FastifyInstance, s: AppServices): Pro
       const incidents = principalCan(p, "incident:read", org)
         ? (await tx.query<Row>("SELECT * FROM incidents WHERE $1 = ANY(asset_ids) ORDER BY detected_at DESC LIMIT 20", [id])).rows.map(toIncident)
         : null;
-      return { ...asset, agents: agents.rows.map((r) => agentView({ ...r, status: r.effective_status })), vulnerabilities: vulns, alerts, incidents };
+      return { ...asset, agents: agents.rows.map((r) => agentView(r)), vulnerabilities: vulns, alerts, incidents };
     });
   });
 
@@ -277,7 +282,7 @@ export async function inventoryRoutes(app: FastifyInstance, s: AppServices): Pro
         params,
       ),
     );
-    return pageRows(rows, q.limit, (r) => agentView({ ...r, status: r.effective_status }));
+    return pageRows(rows, q.limit, (r) => agentView(r));
   });
 
   // POST /agents — register / heartbeat an agent (upsert by org + hostname + engine).
@@ -324,10 +329,10 @@ export async function inventoryRoutes(app: FastifyInstance, s: AppServices): Pro
       if (row.inserted) {
         await recordAudit(tx, request, { action: "agent.registered", organizationId: body.organizationId, targetKind: "agent", targetId: String(row.id), details: { hostname: body.hostname, engine: body.engine, version: body.version } });
       } else {
-        request.auditState.recorded = true; // heartbeats are not audited individually
+        markAudited(tx, request); // heartbeats are not audited individually
       }
       const eff = await tx.query<{ s: string }>(`SELECT ${AGENT_STATUS_SQL()} AS s FROM agents ag WHERE ag.id = $1`, [row.id]);
-      return { agent: agentView({ ...row, status: eff.rows[0]?.s ?? row.status }), created: Boolean(row.inserted) };
+      return { agent: agentView(row, eff.rows[0]?.s), created: Boolean(row.inserted) };
     });
     return reply.status(created ? 201 : 200).send(agent);
   });

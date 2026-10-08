@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { CreateIncidentInput, IncidentStatus, RoleKey, Severity, UpdateIncidentInput, Uuid, principalCan, type Principal } from "@bloody/contracts";
-import { actorFromRequest, recordAudit } from "../audit/audit.js";
+import { actorFromRequest, markAudited, recordAudit } from "../audit/audit.js";
 import { assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import { inOrder, type Queryable } from "../db/pool.js";
@@ -199,7 +199,7 @@ export async function incidentRoutes(app: FastifyInstance, s: AppServices): Prom
         },
         (err) => request.log.warn({ err: err instanceof Error ? err.message : String(err) }, "linking manual incident into the graph failed"),
       );
-      request.auditState.recorded = true;
+      markAudited(tx, request);
       const row = await loadOne(tx, "incidents", view.id, "Incident");
       return incidentDetail(tx, auth.principal, row);
     });
@@ -284,8 +284,8 @@ export async function incidentRoutes(app: FastifyInstance, s: AppServices): Prom
         // Mirror the lifecycle into every investigation of the incident.
         await tx.query(
           `INSERT INTO timeline_entries (tenant_id, organization_id, investigation_id, kind, actor_id, title, body, ref_id)
-           SELECT tenant_id, organization_id, id, 'status_change', $2, $3, $4, $1 FROM investigations WHERE incident_id = $1::uuid`,
-          [id, `${auth.principal.kind}:${auth.principal.id}`, `Incident #${before.number} ${before.status} → ${patch.status}`, `Changed by ${actorLabel}`],
+           SELECT tenant_id, organization_id, id, 'status_change', $2, $3, $4, $5::text FROM investigations WHERE incident_id = $1::uuid`,
+          [id, `${auth.principal.kind}:${auth.principal.id}`, `Incident #${before.number} ${before.status} → ${patch.status}`, `Changed by ${actorLabel}`, id],
         );
         if (patch.status === "closed" || patch.status === "false_positive") {
           await tx.query(
