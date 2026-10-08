@@ -71,7 +71,6 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
       const incoming = req.headers["x-request-id"];
       return typeof incoming === "string" && REQUEST_ID_RE.test(incoming) ? incoming : randomUUID();
     },
-    disableRequestLogging: config.env === "test",
     routerOptions: { ignoreTrailingSlash: true },
   });
 
@@ -149,10 +148,18 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     }
     if (request.auth.csrfProtected && UNSAFE_METHODS.has(request.method)) {
       const origin = request.headers.origin;
-      if (typeof origin === "string" && !allowed.has(origin)) throw forbidden("Cross-origin request rejected", "csrf_origin");
+      const originOk = typeof origin !== "string" || allowed.has(origin);
       const header = request.headers[CSRF_HEADER];
-      if (!auth.verifyCsrf(request.auth.sessionId!, request.cookies[CSRF_COOKIE], typeof header === "string" ? header : undefined)) {
-        request.auditState.details = { reason: "csrf" };
+      const tokenOk = originOk && auth.verifyCsrf(request.auth.sessionId!, request.cookies[CSRF_COOKIE], typeof header === "string" ? header : undefined);
+      if (!tokenOk) {
+        // Public endpoints (login, refresh, logout) simply ignore a cookie session that is not
+        // backed by a valid CSRF token; everything else rejects the forged request.
+        if (isPublic) {
+          request.auth = null;
+          return;
+        }
+        request.auditState.details = { reason: originOk ? "csrf" : "csrf_origin" };
+        if (!originOk) throw forbidden("Cross-origin request rejected", "csrf_origin");
         throw forbidden("Missing or invalid CSRF token", "csrf");
       }
     }

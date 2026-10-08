@@ -82,9 +82,10 @@ LABEL org.opencontainers.image.title="bloody-api" \
 
 WORKDIR /app/apps/api
 ENV NODE_ENV=production \
+    BLOODY_VERSION=${VERSION} \
     HOST=0.0.0.0 \
     PORT=4000 \
-    BLOODY_MIGRATIONS_DIR=/app/apps/api/migrations \
+    MIGRATIONS_DIR=/app/apps/api/migrations \
     NODE_OPTIONS="--enable-source-maps"
 
 # Root-owned, world-readable: the non-root runtime user cannot modify the application.

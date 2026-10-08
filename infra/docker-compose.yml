@@ -13,12 +13,24 @@
 #   http://localhost:4000        API (/api/v1/healthz, /api/v1/readyz, /api/v1/metrics)
 #   http://localhost:8025        Mailpit — every notification / scheduled-report e-mail lands here
 #   localhost:5432               Postgres (superuser postgres/postgres for `pnpm test`, dev only)
-#   http://localhost:8180        Keycloak (profile sso)
+#   http://keycloak.localhost:8180  Keycloak (profile sso)
 #
 # All credentials below are DEVELOPMENT DEFAULTS, overridable from infra/.env (see /.env.example).
 # They are not secrets and must never be reused: production secrets come from the secret store
-# (Kubernetes ExternalSecret, infra/k8s). The API refuses dev secrets when NODE_ENV=production
-# and BLOODY_ENV=production (docs/OPERATIONS.md §Security hardening).
+# (Kubernetes ExternalSecret, infra/k8s). With NODE_ENV=production the API refuses to start
+# without JWT_SECRET / ENCRYPTION_KEY and an https OIDC issuer (docs/OPERATIONS.md §Security).
+#
+# Database roles (infra/postgres/init, docs/adr/0002):
+#   postgres      superuser — local tooling and `pnpm test` (bloody_test database) only
+#   bloody_owner  schema owner — the `migrate` service only (DATABASE_URL of the migration runner)
+#   bloody_app    runtime role of the API — DML only, NOBYPASSRLS, so RLS is always enforced.
+#                 Its password is BLOODY_APP_DB_PASSWORD (default `bloody_app`, the API's own
+#                 development default, so a host-run `pnpm dev:api` works against this Postgres).
+#
+# SSO (profile sso): Keycloak answers on http://keycloak.localhost:8180 both from the browser
+# (*.localhost resolves to loopback) and from the API container (network alias), so the issuer
+# the API validates is identical on both sides. Enable it in the API with
+#   OIDC_ISSUER_URL=http://keycloak.localhost:8180/realms/bloody
 #
 # Networks
 #   edge     published UI entry points
@@ -69,8 +81,8 @@ services:
       # Matches the vitest default DATABASE_URL (postgres://postgres:postgres@localhost:5432/bloody_test).
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --data-checksums"
-      BLOODY_DB_OWNER_PASSWORD: ${BLOODY_DB_OWNER_PASSWORD:-bloody-owner-dev-only}
-      BLOODY_DB_APP_PASSWORD: ${BLOODY_DB_APP_PASSWORD:-bloody-app-dev-only}
+      BLOODY_OWNER_DB_PASSWORD: ${BLOODY_OWNER_DB_PASSWORD:-bloody-owner-dev-only}
+      BLOODY_APP_DB_PASSWORD: ${BLOODY_APP_DB_PASSWORD:-bloody_app}
       KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-dev-only}
     command:
       - postgres
@@ -158,13 +170,19 @@ services:
     logging: *logging
 
   # ── Schema migrations (runs as the schema owner, then exits) ──
+  # The runner (apps/api/src/db/migrate.ts) applies migrations/*.sql in order under an advisory
+  # lock, re-applies least-privilege grants for bloody_app and verifies FORCE RLS on every tenant
+  # table. It loads the full API config, hence the JWT / encryption settings below.
   migrate:
     <<: [*api-build, *hardened]
     command: ["dist/db/migrate.js"]
     environment:
-      NODE_ENV: production
-      BLOODY_ENV: development
-      DATABASE_URL: postgres://bloody_owner:${BLOODY_DB_OWNER_PASSWORD:-bloody-owner-dev-only}@postgres:5432/bloody
+      NODE_ENV: development
+      DATABASE_URL: postgres://bloody_owner:${BLOODY_OWNER_DB_PASSWORD:-bloody-owner-dev-only}@postgres:5432/bloody
+      BLOODY_APP_DB_PASSWORD: ${BLOODY_APP_DB_PASSWORD:-bloody_app}
+      MIGRATIONS_DIR: /app/apps/api/migrations
+      BLOODY_JWT_SECRET: ${BLOODY_JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789abcdef}
+      BLOODY_ENCRYPTION_KEY: ${BLOODY_ENCRYPTION_KEY:-ZGV2LW9ubHktZW5jcnlwdGlvbi1rZXktMzJieXRlcyE=}
     depends_on:
       postgres:
         condition: service_healthy
@@ -175,8 +193,9 @@ services:
   api:
     <<: [*api-build, *hardened]
     environment:
-      NODE_ENV: production
-      BLOODY_ENV: development
+      # development: dev-default secrets and an http OIDC issuer (local Keycloak) are accepted.
+      # The image itself is the production build; infra/k8s runs it with NODE_ENV=production.
+      NODE_ENV: development
       HOST: 0.0.0.0
       PORT: "4000"
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -184,13 +203,20 @@ services:
       BLOODY_CORS_ORIGINS: ${BLOODY_CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
       BLOODY_COOKIE_SECURE: "false"
       BLOODY_TRUST_PROXY: "true"
-      # Runtime role: DML only, RLS enforced (see infra/postgres/init).
-      DATABASE_URL: postgres://bloody_app:${BLOODY_DB_APP_PASSWORD:-bloody-app-dev-only}@postgres:5432/bloody
+      # Runtime role: DML only, RLS enforced (see infra/postgres/init). The API never receives the
+      # schema-owner credentials: DATABASE_URL (its "privileged" pool) is the same least-privilege
+      # role, so any privileged code path fails closed under RLS.
+      DATABASE_APP_URL: postgres://bloody_app:${BLOODY_APP_DB_PASSWORD:-bloody_app}@postgres:5432/bloody
+      DATABASE_URL: postgres://bloody_app:${BLOODY_APP_DB_PASSWORD:-bloody_app}@postgres:5432/bloody
       DATABASE_POOL_MAX: "20"
+      # Reserved runtime contract (docs/OPERATIONS.md §Runtime contract): shared rate-limit / cache store.
       VALKEY_URL: redis://:${VALKEY_PASSWORD:-valkey-dev-only}@valkey:6379/0
       BLOODY_JWT_SECRET: ${BLOODY_JWT_SECRET:-dev-only-jwt-secret-change-me-0123456789abcdef}
       BLOODY_ENCRYPTION_KEY: ${BLOODY_ENCRYPTION_KEY:-ZGV2LW9ubHktZW5jcnlwdGlvbi1rZXktMzJieXRlcyE=}
-      # memory = in-process EventBus (single node); kafka = data fabric from docker-compose.engines.yml
+      # Analytics pipeline (graph → detection → correlation → risk) consumes the in-process bus.
+      PIPELINE_ENABLED: "true"
+      # Reserved runtime contract: memory = in-process EventBus (today's only transport);
+      # kafka = data fabric from docker-compose.engines.yml once the Kafka transport lands.
       BLOODY_EVENT_BUS: ${BLOODY_EVENT_BUS:-memory}
       KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
       # Empty = event search served from Postgres; http://opensearch:9200 with the `search` profile.
@@ -206,9 +232,12 @@ services:
       NODE_EXTRA_CA_CERTS: /certs/ca.crt
       BLOODY_SCHEDULER_ENABLED: "true"
       BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS: ${BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS:-false}
+      # Empty = local accounts only; profile sso: http://keycloak.localhost:8180/realms/bloody
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-bloody}
-      OIDC_CLIENT_SECRET: ${BLOODY_OIDC_CLIENT_SECRET:-}
+      OIDC_CLIENT_SECRET: ${BLOODY_OIDC_CLIENT_SECRET:-bloody-oidc-dev-only-secret}
+      # Optional bearer token protecting GET /api/v1/metrics (min. 16 chars; empty = open on the core network).
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: bloody-api
     tmpfs:
@@ -267,7 +296,9 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-dev-only}
-      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8180}
+      # One issuer URL for browser and API (see the header): Keycloak listens on 8180 in-container too.
+      KC_HOSTNAME: http://keycloak.localhost:${KEYCLOAK_PORT:-8180}
+      KC_HTTP_PORT: "${KEYCLOAK_PORT:-8180}"
       KC_HTTP_ENABLED: "true"
       # Consumed by the realm import placeholders in keycloak/realm-bloody.json.
       BLOODY_PUBLIC_URL: ${BLOODY_PUBLIC_URL:-http://localhost:8080}
@@ -275,7 +306,7 @@ services:
     volumes:
       - ./keycloak/realm-bloody.json:/opt/keycloak/data/import/realm-bloody.json:ro
     ports:
-      - "127.0.0.1:${KEYCLOAK_PORT:-8180}:8080"
+      - "127.0.0.1:${KEYCLOAK_PORT:-8180}:${KEYCLOAK_PORT:-8180}"
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     healthcheck:
@@ -287,7 +318,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [edge, core]
+    networks:
+      edge: {}
+      core:
+        aliases: [keycloak.localhost]
     restart: unless-stopped
     logging: *logging
 

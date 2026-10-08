@@ -44,10 +44,18 @@ spec:
           env:
             - name: NODE_ENV
               value: production
-            - name: BLOODY_MIGRATIONS_DIR
+            - name: MIGRATIONS_DIR
               value: /app/apps/api/migrations
+            # The runner's privileged connection is the schema owner, never a superuser.
             - name: DATABASE_URL
               valueFrom: { secretKeyRef: { name: bloody-secrets, key: DATABASE_MIGRATION_URL } }
+            - name: BLOODY_APP_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: BLOODY_APP_DB_PASSWORD } }
+            # migrate.js loads the full API config, which in production requires these two.
+            - name: BLOODY_JWT_SECRET
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: BLOODY_JWT_SECRET } }
+            - name: BLOODY_ENCRYPTION_KEY
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: BLOODY_ENCRYPTION_KEY } }
           resources:
             requests:
               cpu: 100m

@@ -7,10 +7,13 @@
 #   1. Bloody's OWN observability — the API exports OTLP traces/metrics/logs here
 #      (OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318). Pipelines `*/platform`.
 #   2. Alternative engine-log collector (Vector is the default): tails Zeek / Suricata / Wazuh
-#      output and forwards it to the Bloody data fabric. The transport is a second config file:
-#        engines-kafka.yaml  → Kafka topics bloody.raw.<engine>            (default)
-#        engines-http.yaml   → POST /api/v1/ingest/events?source=<engine>   (API key)
-#      otelcol-contrib --config /etc/otelcol/config.yaml --config /etc/otelcol/engines-${BLOODY_INGEST_TRANSPORT}.yaml
+#      output and forwards it to the Bloody data fabric. The transport is a second config file,
+#      selected with BLOODY_OTEL_ENGINE_LOGS (compose default: off):
+#        engines-off.yaml    → platform telemetry only; Vector ships engine logs   (default)
+#        engines-kafka.yaml  → Kafka topics bloody.raw.<engine>
+#        engines-http.yaml   → POST /api/v1/ingest/<engine> (API key; needs OTLP-envelope support
+#                              in the API — see that file)
+#      otelcol-contrib --config /etc/otelcol/config.yaml --config /etc/otelcol/engines-${BLOODY_OTEL_ENGINE_LOGS}.yaml
 #
 # Engine records leave the collector as OTLP log records whose body is the RAW vendor line
 # (no parsing here), with resource attributes:

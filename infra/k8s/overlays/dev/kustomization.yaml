@@ -33,8 +33,8 @@ patches:
   - target: { kind: ConfigMap, name: bloody-config }
     patch: |-
       - op: replace
-        path: /data/BLOODY_ENV
-        value: development
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: deployment.environment=dev
       - op: replace
         path: /data/LOG_LEVEL
         value: debug

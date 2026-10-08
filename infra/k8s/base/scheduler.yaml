@@ -3,8 +3,11 @@
 #
 # Scheduler: the same API image with BLOODY_SCHEDULER_ENABLED=true (scheduled reports, automation
 # rules, SLA/escalation timers, intel feed syncs). Exactly one replica (Recreate strategy) so
-# schedules fire once; the scheduler additionally holds a Postgres advisory lock per job run, so a
-# brief overlap during a node failure cannot double-fire. Not behind a Service.
+# schedules fire once; job runs must additionally hold a Postgres advisory lock so a brief overlap
+# during a node failure cannot double-fire. Not behind a Service.
+# Runtime contract (docs/OPERATIONS.md §Runtime contract): the API must honour
+# BLOODY_SCHEDULER_ENABLED (true here, false on bloody-api). Until it does, this pod is an extra
+# API process that receives no traffic.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -59,8 +62,14 @@ spec:
               value: "true"
             - name: OTEL_SERVICE_NAME
               value: bloody-scheduler
+            # Runtime role only: the API never holds schema-owner credentials. DATABASE_URL (its
+            # "privileged" pool) is the same least-privilege role, so such paths fail closed.
+            - name: DATABASE_APP_URL
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: DATABASE_APP_URL } }
             - name: DATABASE_URL
-              valueFrom: { secretKeyRef: { name: bloody-secrets, key: DATABASE_URL } }
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: DATABASE_APP_URL } }
+            - name: METRICS_TOKEN
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: METRICS_TOKEN, optional: true } }
             - name: VALKEY_URL
               valueFrom: { secretKeyRef: { name: bloody-secrets, key: VALKEY_URL } }
             - name: BLOODY_JWT_SECRET

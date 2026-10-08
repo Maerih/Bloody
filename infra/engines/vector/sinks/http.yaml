@@ -2,24 +2,33 @@
 # Copyright (c) 2026 Bloody. All rights reserved.
 #
 # Transport: Bloody ingest API (default).
-#   POST ${BLOODY_INGEST_URL}?source=<adapter>   Authorization: Bearer <API key with event:ingest>
-#   Content-Type: application/x-ndjson — one raw vendor record per line.
-# The API key binds the collector to its tenant + organization (never sent in the body).
-# Retries with backoff on 429/5xx/timeouts; disk buffers absorb API maintenance windows.
-# Ingest is idempotent: adapters derive deterministic event ids from the vendor record, so a
-# retried batch does not duplicate events.
+#   POST ${BLOODY_INGEST_URL}/<adapter>?sensorId=<sensor>[&integrationId=<uuid>]
+#        e.g. http://api:4000/api/v1/ingest/zeek — the API's raw-payload route (apps/api ingest
+#        routes): the registered adapter normalizes the records into Bloody Canonical Events.
+#   Authorization: Bearer <API key with event:ingest>. An organization-bound key fixes tenant and
+#   organization server-side; nothing about tenancy is sent in the body.
+#   Content-Type: application/x-ndjson — one raw vendor JSON record per line (syslog: text/plain,
+#   one raw syslog line per line).
+#   BLOODY_INGEST_QUERY (optional) appends query parameters, e.g. "&integrationId=<uuid>" so the
+#   integration's last-event timestamp is tracked.
+# Compression is OFF: the API does not decode Content-Encoding on requests (a gzip body is
+# rejected with 400). TLS to the ingress protects the payload; enable compression only once the
+# API accepts compressed requests.
+# Retries with backoff on 429/5xx/timeouts; disk buffers absorb API maintenance windows. Ingest is
+# idempotent (adapters derive deterministic event ids per tenant), so retried batches do not
+# duplicate events.
 #
-# One sink per adapter (the ?source= routing key differs). The blocks are intentionally
-# identical apart from `inputs` and `uri`: Vector's config loader does not support YAML merge
-# keys or unknown top-level `x-` keys, so there is no anchor here. Keep them in sync.
+# One sink per adapter (the URL path differs). The blocks are intentionally identical apart from
+# `inputs` and `uri`: Vector's config loader does not support YAML merge keys or unknown
+# top-level `x-` keys, so there is no anchor here. Keep them in sync.
 
 sinks:
   bloody_api_zeek:
     type: http
     inputs: [zeek]
-    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=zeek"
+    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/zeek?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: gzip
+    compression: none
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -55,9 +64,9 @@ sinks:
   bloody_api_suricata:
     type: http
     inputs: [suricata]
-    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=suricata"
+    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/suricata?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: gzip
+    compression: none
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -93,9 +102,9 @@ sinks:
   bloody_api_wazuh:
     type: http
     inputs: [wazuh]
-    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=wazuh"
+    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/wazuh?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: gzip
+    compression: none
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -131,9 +140,9 @@ sinks:
   bloody_api_osquery:
     type: http
     inputs: [osquery]
-    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=osquery"
+    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/osquery?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: gzip
+    compression: none
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -169,9 +178,9 @@ sinks:
   bloody_api_opencanary:
     type: http
     inputs: [opencanary]
-    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=opencanary"
+    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/opencanary?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: gzip
+    compression: none
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -207,9 +216,9 @@ sinks:
   bloody_api_nuclei:
     type: http
     inputs: [nuclei]
-    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=nuclei"
+    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/nuclei?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: gzip
+    compression: none
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -245,20 +254,21 @@ sinks:
   bloody_api_syslog:
     type: http
     inputs: [syslog]
-    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=syslog"
+    uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/syslog?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: gzip
+    compression: none
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
+    # Syslog / CEF lines go out verbatim (codec text = the `message` field), one per line: the
+    # syslog adapter parses RFC 5424 / 3164 text, not JSON envelopes.
     encoding:
-      codec: json
-      except_fields: ["_bloody"]
+      codec: text
     framing:
       method: newline_delimited
     request:
       headers:
-        Content-Type: application/x-ndjson
+        Content-Type: text/plain; charset=utf-8
         User-Agent: bloody-collector/vector
       timeout_secs: 30
       retry_attempts: 1000

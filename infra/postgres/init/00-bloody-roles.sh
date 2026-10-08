@@ -4,19 +4,20 @@
 #
 # First-boot initialisation for the development Postgres (docker-entrypoint-initdb.d).
 # Mirrors the production role model (docs/adr/0002):
-#   bloody_owner  owns the schema; used ONLY by migrations (DATABASE_MIGRATION_URL)
-#   bloody_app    runtime role of the API: DML only, NOBYPASSRLS and not a table owner, so
-#                 row-level security (app.tenant_id) is always enforced for it
+#   bloody_owner  owns the schema; used ONLY by the migration runner (its DATABASE_URL)
+#   bloody_app    runtime role of the API (DATABASE_APP_URL): DML only, NOBYPASSRLS and not a
+#                 table owner, so row-level security (app.tenant_id) is always enforced for it.
+#                 Password = BLOODY_APP_DB_PASSWORD, the variable the API itself reads.
 #   keycloak      optional SSO profile database
 # Databases: bloody (application), bloody_test (vitest integration tests), keycloak.
 set -eu
 
-: "${BLOODY_DB_OWNER_PASSWORD:?}"
-: "${BLOODY_DB_APP_PASSWORD:?}"
+: "${BLOODY_OWNER_DB_PASSWORD:?}"
+: "${BLOODY_APP_DB_PASSWORD:?}"
 : "${KEYCLOAK_DB_PASSWORD:?}"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-  -v owner_pw="$BLOODY_DB_OWNER_PASSWORD" -v app_pw="$BLOODY_DB_APP_PASSWORD" -v kc_pw="$KEYCLOAK_DB_PASSWORD" <<'SQL'
+  -v owner_pw="$BLOODY_OWNER_DB_PASSWORD" -v app_pw="$BLOODY_APP_DB_PASSWORD" -v kc_pw="$KEYCLOAK_DB_PASSWORD" <<'SQL'
 CREATE ROLE bloody_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'owner_pw';
 CREATE ROLE bloody_app   LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT
   CONNECTION LIMIT 300 PASSWORD :'app_pw';
@@ -44,13 +45,11 @@ ALTER SCHEMA public OWNER TO bloody_owner;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO bloody_app;
 
--- Everything bloody_owner creates later (via migrations) is usable — but not owned — by the app.
-ALTER DEFAULT PRIVILEGES FOR ROLE bloody_owner IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO bloody_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE bloody_owner IN SCHEMA public
-  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO bloody_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE bloody_owner IN SCHEMA public
-  GRANT EXECUTE ON FUNCTIONS TO bloody_app;
+-- Deliberately NO "ALTER DEFAULT PRIVILEGES … TO bloody_app": the migration runner
+-- (apps/api/src/db/migrate.ts applyGrants) is the single authority on the runtime role's grants
+-- (append-only audit_log, read-only auth_lookup, no direct access to partitions, EXECUTE only on
+-- the functions it names). Default privileges would silently widen that, e.g. make every future
+-- SECURITY DEFINER function callable by bloody_app even after a migration revokes it from PUBLIC.
 SQL
 done
 

@@ -143,3 +143,57 @@ Docker/Kubernetes are packaging only. `infra/docker-compose.yml` runs Postgres +
 6. AI SOC — model abstraction, local/cloud models, tool calling, AI investigation/hunting/reporting.
 7. Commercialization — subscriptions, metering, billing, SSO/SCIM, MSSP mode, customer portal, SLA.
 8. Proprietary replacement — own agent, detection, graph store, workflow layer where justified.
+
+## 11. Addendum — deployment, operations and licensing (2026-10)
+
+Appended section; §1–§10 above are unchanged. Details live in the linked documents.
+
+**Decisions.** Ten ADRs record the hard-to-reverse choices: monorepo and modular monolith,
+Postgres RLS tenancy, canonical event schema, engines via adapters and licence policy, graph in
+Postgres, explainable risk, AI provider abstraction and tool tiers, SOAR approval gates, MSSP
+tenancy and customer portal, reporting and notifications. See [docs/adr](adr/README.md).
+
+**Storage clarification (§6).** The implemented `events` table is partitioned **by month**
+(`ensure_events_partition`, migration `0004_events.sql`). Retention drops whole partitions
+beyond the plan maximum; per-organization retention applies inside them.
+
+**Database roles (§2, §7).**
+
+- `bloody_owner` owns the schema and is used only by the migration runner (`dist/db/migrate.js`,
+  run as a Kubernetes PreSync Job or the compose `migrate` service).
+- `bloody_app` is the API's runtime role (`DATABASE_APP_URL`): NOBYPASSRLS, owns nothing, so RLS
+  is always enforced. Deployments give the API no schema-owner credentials.
+
+**Data fabric (§3).** Collectors (Vector by default, or the OTel Collector) forward raw vendor
+records either to the raw-payload route `POST /api/v1/ingest/<adapter>` (API key; NDJSON, or
+text lines for syslog), or to Kafka topics `bloody.raw.<adapter>`. Canonical events from custom
+producers go to `POST /api/v1/ingest/events`. Canonical batches flow on
+`bloody.events.ingested.v1` (the API `EventBus` topic), and failures land on `bloody.dlq`.
+Normalization happens server-side in `@bloody/adapters`; collectors never interpret vendor
+semantics.
+
+**Deployment (§9).**
+
+- `infra/docker-compose.yml`: Postgres 16, Valkey, migrate, API, web (nginx, `/api` proxied),
+  Mailpit, and Keycloak behind `--profile sso`. It uses three networks:
+  - `edge`: published UI;
+  - `core`: control plane;
+  - `engines`: internal, no egress.
+- `infra/docker-compose.engines.yml`: the open-source engine layer by profile (`endpoint`,
+  `network`, `search`, `streaming`, `collection`, `intel`, `case`, `soar`, `vuln`, `asm`,
+  `cloud`, `deception`, `forensics`, `copilot`, `all`), each engine unmodified at a pinned
+  version.
+- `infra/k8s`: a Kustomize base and dev/prod overlays. API and web Deployments are non-root,
+  read-only rootfs, no capabilities, with HPA and PDB. Alongside them: a singleton scheduler, a
+  PreSync migrate Job, an Ingress with TLS, default-deny NetworkPolicies, a ConfigMap and an
+  ExternalSecret.
+- The runtime contract (env vars and probe endpoints), SLOs, backups/PITR/DR, the hardening
+  checklist and the upgrade strategy are in [OPERATIONS](OPERATIONS.md).
+
+**Licensing.** Linked npm code must be permissive (CI gate `scripts/license-check.mjs`).
+Copyleft engines run as separate, unmodified services. SSPL, BSL and ELv2 components are not
+used. The inventory and rejected alternatives are in [LICENSES](LICENSES.md); the rationale is
+in [ADR-0004](adr/0004-open-source-engines-and-licence-policy.md).
+
+**Audiences.** MSSP, SOC and customer workflows, including onboarding, the escalation and
+approval contract, the customer portal, metering and offboarding, are in [MSSP](MSSP.md).

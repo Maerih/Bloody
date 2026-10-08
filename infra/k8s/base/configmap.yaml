@@ -2,15 +2,19 @@
 # Copyright (c) 2026 Bloody. All rights reserved.
 #
 # Non-secret runtime configuration of the control plane. Secrets (database URLs, JWT secret,
-# encryption key, SMTP / OIDC credentials) come from the `bloody-secrets` Secret materialised by
-# the ExternalSecret. Overlays patch hosts and sizes.
+# encryption key, SMTP / OIDC credentials, metrics token) come from the `bloody-secrets` Secret
+# materialised by the ExternalSecret. Overlays patch hosts and sizes.
+#
+# Variable names are the API's (apps/api/src/config.ts; BLOODY_-prefixed aliases are accepted
+# for JWT_SECRET, ENCRYPTION_KEY, PUBLIC_URL, CORS_ORIGINS, COOKIE_SECURE, TRUST_PROXY,
+# METRICS_TOKEN). Entries marked "reserved" are the deployment's side of a runtime contract the
+# API does not consume yet (docs/OPERATIONS.md §Runtime contract); they are inert until it does.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: bloody-config
 data:
   NODE_ENV: production
-  BLOODY_ENV: production
   HOST: 0.0.0.0
   PORT: "4000"
   LOG_LEVEL: info
@@ -20,7 +24,12 @@ data:
   # TLS terminates at the ingress controller; trust its X-Forwarded-* headers only.
   BLOODY_TRUST_PROXY: "true"
   DATABASE_POOL_MAX: "20"
-  BLOODY_EVENT_BUS: kafka
+  DATABASE_STATEMENT_TIMEOUT_MS: "30000"
+  # In-process analytics pipeline (graph → detection → correlation → risk) on every API replica.
+  PIPELINE_ENABLED: "true"
+  INGEST_MAX_BATCH: "5000"
+  # reserved: event fabric transport (memory today) and its endpoints.
+  BLOODY_EVENT_BUS: memory
   KAFKA_BROKERS: kafka-bootstrap.bloody-data.svc:9093
   OPENSEARCH_URL: https://opensearch.bloody-data.svc:9200
   SMTP_HOST: smtp.example.com
@@ -28,10 +37,10 @@ data:
   SMTP_SECURE: "false"
   SMTP_FROM: notifications@bloody.example.com
   SMTP_FROM_NAME: Bloody Security Operations
-  # Local/private AI endpoints (Ollama, vLLM) must be allow-listed explicitly per deployment.
+  # reserved: local/private AI endpoints (Ollama, vLLM) must be allow-listed explicitly per deployment.
   BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS: "false"
   OIDC_ISSUER_URL: ""
   OIDC_CLIENT_ID: bloody
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.observability.svc:4318
   OTEL_SERVICE_NAME: bloody-api
-  BLOODY_MIGRATIONS_DIR: /app/apps/api/migrations
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=production

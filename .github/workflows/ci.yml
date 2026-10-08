@@ -54,8 +54,11 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
-      # Default used by the API integration tests (see CLAUDE.md).
+      # Default used by the API integration tests (see CLAUDE.md): superuser on bloody_test.
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/bloody_test
+      # The API derives its runtime (RLS-enforced) connection as bloody_app with this password;
+      # it must match the role created by the init step below.
+      BLOODY_APP_DB_PASSWORD: ci-app-password
     steps:
       - uses: actions/checkout@v5
         with:
@@ -87,8 +90,8 @@ jobs:
           PGPASSWORD: postgres
           POSTGRES_USER: postgres
           POSTGRES_DB: bloody
-          BLOODY_DB_OWNER_PASSWORD: ci-owner-password
-          BLOODY_DB_APP_PASSWORD: ci-app-password
+          BLOODY_OWNER_DB_PASSWORD: ci-owner-password
+          BLOODY_APP_DB_PASSWORD: ci-app-password
           KEYCLOAK_DB_PASSWORD: ci-keycloak-password
         run: sh infra/postgres/init/00-bloody-roles.sh
 
@@ -100,6 +103,18 @@ jobs:
 
       - name: Build
         run: pnpm -r --workspace-concurrency=1 build
+
+      # Production role model: the bundled runner applies every migration as the NON-superuser
+      # schema owner (what the compose `migrate` service and the Kubernetes PreSync Job do), then
+      # re-applies bloody_app's grants and verifies FORCE RLS on every tenant table.
+      - name: Migrations as schema owner (bundled dist/db/migrate.js)
+        env:
+          DATABASE_URL: postgres://bloody_owner:ci-owner-password@localhost:5432/bloody
+          MIGRATIONS_DIR: apps/api/migrations
+          NODE_ENV: development
+        run: |
+          node apps/api/dist/db/migrate.js
+          node apps/api/dist/db/migrate.js --status
 
       - name: Vulnerability audit (production dependencies)
         run: pnpm audit --prod --audit-level high

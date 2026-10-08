@@ -47,7 +47,7 @@ flowchart LR
   end
 
   subgraph Core["Bloody proprietary core"]
-    ING[Ingest API /api/v1/ingest/events]
+    ING["Ingest API /api/v1/ingest/:adapter · /ingest/events"]
     AD["@bloody/adapters → Canonical Event (BCE)"]
     DET["Detection · Correlation (@bloody/engines)"]
     SG["Security Graph"]
@@ -104,7 +104,11 @@ docker compose -f infra/docker-compose.yml up -d --build
 | http://localhost:8080 | Command Center (nginx; `/api` proxied to the API) |
 | http://localhost:4000/api/v1/healthz | API health (`/readyz`, `/metrics`) |
 | http://localhost:8025 | Mailpit — every notification / scheduled report e-mail lands here |
-| http://localhost:8180 | Keycloak (`--profile sso`) |
+| http://keycloak.localhost:8180 | Keycloak (`--profile sso`; enable SSO in the API with `OIDC_ISSUER_URL=http://keycloak.localhost:8180/realms/bloody`) |
+
+The `migrate` service applies the SQL migrations as the schema owner before the API starts. To
+load development demo data into the Docker Postgres, run from the host:
+`DATABASE_URL=postgres://postgres:postgres@localhost:5432/bloody pnpm db:seed`.
 
 Add the open-source engine layer by profile (see `infra/docker-compose.engines.yml`):
 
@@ -118,17 +122,22 @@ docker compose -f infra/docker-compose.yml -f infra/docker-compose.engines.yml \
 
 ```bash
 pnpm install
-# one-time: roles bloody_owner / bloody_app, databases bloody + bloody_test (same script as Docker)
-PGHOST=localhost PGUSER=postgres POSTGRES_USER=postgres POSTGRES_DB=postgres \
-  BLOODY_DB_OWNER_PASSWORD=… BLOODY_DB_APP_PASSWORD=… KEYCLOAK_DB_PASSWORD=… \
-  sh infra/postgres/init/00-bloody-roles.sh
-# or just: docker compose -f infra/docker-compose.yml up -d postgres valkey mailpit
+# Postgres with the Bloody roles: either the Docker one …
+docker compose -f infra/docker-compose.yml up -d postgres valkey mailpit
+# … or your own PostgreSQL 16, initialised once with the same script (creates bloody_owner,
+# bloody_app, keycloak and the databases bloody + bloody_test; the database "bloody" must exist):
+PGHOST=localhost PGUSER=postgres POSTGRES_USER=postgres POSTGRES_DB=bloody \
+  BLOODY_OWNER_DB_PASSWORD=bloody-owner-dev-only BLOODY_APP_DB_PASSWORD=bloody_app \
+  KEYCLOAK_DB_PASSWORD=keycloak-dev-only sh infra/postgres/init/00-bloody-roles.sh
 
-export DATABASE_URL=postgres://bloody_owner:…@localhost:5432/bloody && pnpm db:migrate
+# The API reads two connections (apps/api/src/config.ts):
+#   DATABASE_URL      privileged: migrations, dev seed, tests. Default postgres://postgres:postgres@localhost:5432/bloody
+#   DATABASE_APP_URL  runtime role bloody_app (NOBYPASSRLS, RLS enforced). Default: derived from
+#                     DATABASE_URL with user bloody_app and password $BLOODY_APP_DB_PASSWORD (default bloody_app)
+pnpm db:migrate       # with the defaults above: as the local superuser
 pnpm db:seed          # development demo data (apps/api/src/db/seed-dev.ts) — never in production
-export DATABASE_URL=postgres://bloody_app:…@localhost:5432/bloody   # runtime role, RLS enforced
-pnpm dev:api          # http://localhost:4000
-pnpm dev:web          # http://localhost:5173 (proxies /api)
+pnpm dev:api          # http://localhost:4000 — request handlers use bloody_app only
+pnpm dev:web          # http://localhost:5173 (proxies /api to BLOODY_API_URL, default http://localhost:4000)
 ```
 
 The proprietary code is fully testable without Docker; only the API integration tests need a
