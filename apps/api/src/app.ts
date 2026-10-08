@@ -23,6 +23,7 @@ import { registerRoutes } from "./routes/index.js";
 import { SecretBox } from "./security/crypto.js";
 import { AttackPathService } from "./services/attack-paths.js";
 import { InventoryService } from "./services/inventory.js";
+import { SecretStore } from "./services/secret-store.js";
 
 export interface AppDeps {
   config: AppConfig;
@@ -83,6 +84,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     metrics,
     auth,
     secrets,
+    secretStore: new SecretStore(secrets, db),
     risk,
     attackPathEngine,
     attackPaths: new AttackPathService(db, attackPathEngine, 60_000, now),
@@ -166,14 +168,17 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     void reply;
   });
 
-  // Generic audit for every mutation not already audited inside its transaction.
+  // Generic audit for every mutation not already audited by a committed handler transaction.
+  // Routes marked `audit: false` write their own (richer) record on success; any attempt that
+  // fails before or inside the handler — RBAC/CSRF denials, validation, rolled-back work — is
+  // still recorded here with its outcome.
   app.addHook("onSend", async (request, reply, payload) => {
     if (!UNSAFE_METHODS.has(request.method) || request.auditState?.recorded) return payload;
     const routeConfig = request.routeOptions.config as { audit?: string | false } | undefined;
-    if (routeConfig?.audit === false) return payload;
+    const status = reply.statusCode;
+    if (routeConfig?.audit === false && status < 400) return payload;
     const tenantId = request.auth?.tenantId ?? request.auditState?.tenantId;
     if (!tenantId) return payload;
-    const status = reply.statusCode;
     const outcome: AuditOutcome = status < 400 ? "success" : status === 401 || status === 403 ? "denied" : "failure";
     const action = typeof routeConfig?.audit === "string" ? routeConfig.audit : `${request.method.toLowerCase()} ${request.routeOptions.url ?? request.url.split("?")[0]}`;
     try {

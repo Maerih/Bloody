@@ -225,7 +225,7 @@ export class AuthService {
   async authenticateBearer(token: string): Promise<AuthContext> {
     let claims;
     try {
-      claims = await verifyAccessToken(token, this.tokenSettings);
+      claims = await verifyAccessToken(token, this.tokenSettings, this.now());
     } catch (err) {
       throw unauthorized(err instanceof TokenError && err.code === "expired" ? "Access token expired" : "Invalid access token", err instanceof TokenError && err.code === "expired" ? "token_expired" : "invalid_token");
     }
@@ -244,17 +244,18 @@ export class AuthService {
   async refresh(cookieValue: string, client: ClientInfo): Promise<{ session: IssuedSession; accessToken: string; accessTokenExpiresAt: string; principal: Principal; tenantId: string }> {
     const parsed = this.parseSessionCookie(cookieValue);
     if (!parsed) throw unauthorized("No valid session", "invalid_session");
-    return this.db.withTenant(parsed.tenantId, async (tx) => {
+    const outcome = await this.db.withTenant(parsed.tenantId, async (tx) => {
       const session = await this.activeSession(tx, parsed.sessionId, true);
-      if (!session) throw unauthorized("No valid session", "invalid_session");
+      if (!session) return null;
       if (!safeEqual(session.secret_hash, sha256Hex(parsed.secret))) {
-        // A stale secret for a live session means the cookie was copied: revoke the session.
+        // A stale secret for a live session means the cookie was copied: revoke the whole session.
+        // The revocation must COMMIT, so the 401 is raised only after this transaction ends.
         await tx.query("UPDATE sessions SET revoked_at = now(), revoked_reason = 'refresh_secret_reuse' WHERE id = $1", [session.id]);
         await writeAudit(tx, { ...SYSTEM_ACTOR(parsed.tenantId, "auth"), ip: client.ip, userAgent: client.userAgent, requestId: client.requestId }, { action: "auth.session_revoked", targetKind: "session", targetId: session.id, outcome: "denied", details: { reason: "refresh_secret_reuse" } });
-        throw unauthorized("No valid session", "invalid_session");
+        return null;
       }
       const user = await this.activeUser(tx, session.user_id);
-      if (!user) throw unauthorized("No valid session", "invalid_session");
+      if (!user) return null;
       const secret = randomToken(32);
       const now = this.now();
       const idleAt = new Date(Math.min(now + this.config.auth.sessionIdleMinutes * 60_000, Date.parse(session.expires_at))).toISOString();
@@ -269,6 +270,8 @@ export class AuthService {
         tenantId: parsed.tenantId,
       };
     });
+    if (!outcome) throw unauthorized("No valid session", "invalid_session");
+    return outcome;
   }
 
   async revokeSession(tx: Queryable, sessionId: string, reason: string): Promise<void> {

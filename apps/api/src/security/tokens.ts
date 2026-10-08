@@ -46,9 +46,9 @@ export async function signAccessToken(claims: AccessTokenClaims, settings: Token
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export async function verifyAccessToken(token: string, settings: TokenSettings): Promise<AccessTokenClaims> {
+export async function verifyAccessToken(token: string, settings: TokenSettings, now = Date.now()): Promise<AccessTokenClaims> {
   try {
-    const { payload } = await jwtVerify(token, settings.secret, { issuer: settings.issuer, audience: settings.audience, algorithms: ["HS256"], clockTolerance: 5 });
+    const { payload } = await jwtVerify(token, settings.secret, { issuer: settings.issuer, audience: settings.audience, algorithms: ["HS256"], clockTolerance: 5, currentDate: new Date(now) });
     const { sub, tid, sid, kind } = payload as Record<string, unknown>;
     if (typeof sub !== "string" || !UUID.test(sub) || typeof tid !== "string" || !UUID.test(tid) || typeof sid !== "string" || !UUID.test(sid) || kind !== "user") {
       throw new TokenError("invalid", "Token claims are malformed");

@@ -23,7 +23,6 @@ import {
   type ResponseActionRecord,
   type ResponseActionRequest,
   type RiskAssessment,
-  type Asset,
   type Severity,
   type UpdateIncidentInput,
 } from "@bloody/contracts";
@@ -31,6 +30,7 @@ import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
 import type {
   AlertFilters,
+  AssetDetail,
   BillingUsage,
   CreateAutomationRuleInput,
   CreateNotificationChannelInput,
@@ -50,7 +50,7 @@ import type {
   SearchHit,
   UserSummary,
 } from "./types";
-import { useCurrentOrganizationId } from "../app/orgScope";
+import { keepPreviousWithinOrg, orgKey, toArray, toPage, useScope, withoutOrg } from "./queryUtils";
 import { hrefForEntity } from "../lib/entityLinks";
 
 /**
@@ -61,9 +61,6 @@ import { hrefForEntity } from "../lib/entityLinks";
  * Hooks that accept `organizationId` default to the currently selected organization
  * (`undefined` → current scope, `null` → all organizations).
  */
-
-const ALL = "all";
-const orgKey = (orgId: string | null) => orgId ?? ALL;
 
 export const queryKeys = {
   me: ["auth", "me"] as const,
@@ -92,36 +89,8 @@ export const queryKeys = {
   billingUsage: ["billing", "usage"] as const,
 };
 
-/**
- * Like keepPreviousData, but only while the organization scope (second key segment) is
- * unchanged — after an org switch the UI shows loading states, never the previous
- * organization's numbers under the new organization's name.
- */
-function keepPreviousWithinOrg<T>(orgId: string | null) {
-  return (previous: T | undefined, previousQuery: { queryKey: readonly unknown[] } | undefined): T | undefined =>
-    previousQuery && previousQuery.queryKey[1] === orgKey(orgId) ? previous : undefined;
-}
-
-function useScope(explicit: string | null | undefined): string | null {
-  const current = useCurrentOrganizationId();
-  return explicit === undefined ? current : explicit;
-}
-
-function withoutOrg<T extends { organizationId?: string | null }>(filters: T): Omit<T, "organizationId"> {
-  const { organizationId: _ignored, ...rest } = filters;
-  return rest;
-}
-
-/** Lists may come back as Page<T> or (from simpler endpoints) a bare array. */
-export function toPage<T>(raw: Page<T> | T[] | null | undefined): Page<T> {
-  if (!raw) return { items: [], nextCursor: null };
-  if (Array.isArray(raw)) return { items: raw, nextCursor: null, total: raw.length };
-  return { items: raw.items ?? [], nextCursor: raw.nextCursor ?? null, ...(raw.total !== undefined ? { total: raw.total } : {}) };
-}
-
-function toArray<T>(raw: Page<T> | T[] | null | undefined): T[] {
-  return toPage(raw).items;
-}
+/** Re-exported for existing callers; implemented in queryUtils. */
+export { toPage };
 
 // ─── Auth & session ─────────────────────────────────────────────────────────
 
@@ -333,7 +302,22 @@ export function useAlerts(filters: AlertFilters = {}, options: { enabled?: boole
       toPage(
         await api.get<Page<Alert> | Alert[]>("/alerts", {
           signal,
-          query: { organizationId: orgId, incidentId: rest.incidentId, severity: rest.severity, limit: rest.limit ?? 100, cursor: rest.cursor },
+          query: {
+            organizationId: orgId,
+            incidentId: rest.incidentId,
+            assetId: rest.assetId,
+            identityId: rest.identityId,
+            severity: rest.severity,
+            status: rest.status,
+            ruleId: rest.ruleId,
+            unlinked: rest.unlinked === undefined ? undefined : String(rest.unlinked),
+            q: rest.q?.trim() || undefined,
+            from: rest.from,
+            to: rest.to,
+            sort: rest.sort,
+            limit: rest.limit ?? 100,
+            cursor: rest.cursor,
+          },
         }),
       ),
     enabled: options.enabled ?? true,
@@ -483,9 +467,9 @@ export function useUsers(options: { enabled?: boolean } = {}) {
 // ─── Assets & risk ──────────────────────────────────────────────────────────
 
 export function useAsset(id: string | null | undefined) {
-  return useQuery<Asset, ApiError>({
+  return useQuery<AssetDetail, ApiError>({
     queryKey: queryKeys.asset(id ?? ""),
-    queryFn: ({ signal }) => api.get<Asset>(`/assets/${encodeURIComponent(id!)}`, { signal }),
+    queryFn: ({ signal }) => api.get<AssetDetail>(`/assets/${encodeURIComponent(id!)}`, { signal }),
     enabled: Boolean(id),
     staleTime: 60_000,
   });
@@ -686,3 +670,8 @@ export function useNotificationFeed(access: { escalations: boolean; approvals: b
     },
   };
 }
+
+
+// Module workspaces (part B): investigations, graph, attack paths, SIEM, exposure, intel,
+// SOAR, AI SOC, integrations and settings.
+export * from "./moduleHooks";

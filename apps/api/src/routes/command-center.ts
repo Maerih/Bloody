@@ -7,7 +7,7 @@ import type { AppServices } from "../context.js";
 import { inOrder, type Queryable } from "../db/pool.js";
 import type { Row } from "../repo/mappers.js";
 import { attackPathCandidates, exposureInputsFor, loadPosture, sumPosture, type OrgPosture } from "../services/posture.js";
-import { parse } from "./util.js";
+import { loadOne, parse } from "./util.js";
 
 const Query = z.object({
   organizationId: Uuid.optional(),
@@ -174,6 +174,8 @@ export async function commandCenterRoutes(app: FastifyInstance, s: AppServices):
     const since = new Date(s.now() - q.windowDays * 86_400_000).toISOString();
 
     const data = await s.db.withTenant(auth.tenantId, async (tx) => {
+      // An organization of another tenant is invisible under RLS: report it as unknown.
+      if (q.organizationId) await loadOne(tx, "organizations", q.organizationId, "Organization");
       const posture = await loadPosture(tx, orgs);
       const orgNames = new Map(
         (await tx.query<{ id: string; name: string }>(`SELECT id, name FROM organizations WHERE id = ANY($1::uuid[])`, [[...posture.keys()]])).rows.map((r) => [r.id, r.name]),

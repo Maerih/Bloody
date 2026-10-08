@@ -35,3 +35,20 @@ export { CardSkeleton, Skeleton, SkeletonText, TableSkeleton } from "./Skeleton"
 export { StatTile, type StatTileProps, type StatTone } from "./StatTile";
 export { TabPanel, Tabs, type TabDef, type TabsProps } from "./Tabs";
 export { ErrorBoundary } from "./ErrorBoundary";
+
+// Part B shared components
+export { AttackPathChain } from "./AttackPathChain";
+export { ConnectEngineEmptyState } from "./ConnectEngine";
+export { CopyButton } from "./CopyButton";
+export { GraphCanvas, type GraphCanvasProps } from "./graph/GraphCanvas";
+export { GraphNodeMenu, type NodeAction } from "./graph/GraphNodeMenu";
+export { NODE_KIND_META, nodeKindMeta, type NodeKindMeta } from "./graph/nodeKinds";
+export { JsonView } from "./JsonView";
+export { Meter } from "./Meter";
+export { OrganizationSelect, useDefaultOrganization } from "./OrganizationSelect";
+export { ProcessTreeView } from "./ProcessTreeView";
+export { QueryBuilder, type QueryBuilderProps } from "./QueryBuilder";
+export { RiskFactorBars } from "./RiskFactorBars";
+export { TierBadge } from "./TierBadge";
+export { TimeRangePicker } from "./TimeRangePicker";
+export { TopList, countBy, type TopListItem } from "./TopList";
