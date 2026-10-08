@@ -14,6 +14,7 @@ import { Checkbox, Field, Input, Select, Textarea } from "../../components/Form"
 import { Dialog } from "../../components/Overlay";
 import { PageHeader } from "../../components/PageHeader";
 import { CHANNEL_ICONS } from "../../components/ScheduleReportDialog";
+import { coerceConditionValue } from "../../lib/conditions";
 
 const EVENT_LABELS: Record<AutomationEvent, string> = {
   "incident.created": "Incident created",
@@ -42,19 +43,7 @@ interface ConditionDraft {
   value: string;
 }
 
-/** Turn the text value into the typed condition value the engine compares against. */
-export function coerceConditionValue(op: ConditionDraft["op"], raw: string): unknown {
-  if (op === "exists") return undefined;
-  const text = raw.trim();
-  if (op === "in") return text.split(",").map((v) => coerceScalar(v.trim())).filter((v) => v !== "");
-  return coerceScalar(text);
-}
-function coerceScalar(text: string): unknown {
-  if (text === "true") return true;
-  if (text === "false") return false;
-  if (text !== "" && !Number.isNaN(Number(text))) return Number(text);
-  return text;
-}
+export { coerceConditionValue };
 
 interface RuleTemplate {
   name: string;

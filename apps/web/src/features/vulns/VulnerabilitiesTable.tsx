@@ -40,6 +40,8 @@ export function priorityReasons(v: VulnerabilityView): string[] {
   return out;
 }
 
+const PRIORITY_TONE: Record<string, "danger" | "warning" | "info" | "neutral"> = { P1: "danger", P2: "warning", P3: "info", P4: "neutral" };
+
 const SLA_LABEL: Record<SlaState, string> = { overdue: "Overdue", due_soon: "Due ≤ 7 days", on_track: "On track", none: "—" };
 
 function ExceptionDialog({ vuln, onClose }: { vuln: VulnerabilityView; onClose: () => void }) {
@@ -109,8 +111,9 @@ function VulnerabilityDrawer({ vuln, onClose }: { vuln: VulnerabilityView; onClo
           {vuln.patchAvailable ? <Badge tone="success">Patch available</Badge> : <Badge>No patch</Badge>}
         </div>
         <div className="flex items-start gap-3">
-          <RiskScore score={vuln.riskScore} size="lg" label="Risk-based priority" explanationHref={hrefForEntity("asset", vuln.assetId)} />
+          <RiskScore score={vuln.riskScore} factors={vuln.risk?.factors} summary={vuln.risk?.summary} modelVersion={vuln.risk?.modelVersion} size="lg" label="Risk-based priority" explanationHref={vuln.risk ? undefined : hrefForEntity("asset", vuln.assetId)} />
           <div className="text-sm">
+            {vuln.priority ? <Badge tone={PRIORITY_TONE[vuln.priority] ?? "neutral"} className="mb-1">Priority {vuln.priority}</Badge> : null}
             <p className="font-medium text-fg">Why it is prioritized</p>
             {reasons.length > 0 ? (
               <ul className="mt-1 list-disc pl-4 text-fg-muted">
@@ -126,7 +129,9 @@ function VulnerabilityDrawer({ vuln, onClose }: { vuln: VulnerabilityView; onClo
         <DescriptionList
           items={[
             { label: "CVSS", value: vuln.cvss !== null ? vuln.cvss.toFixed(1) : null },
-            { label: "EPSS", value: vuln.epss !== null ? `${(vuln.epss * 100).toFixed(2)}%` : null },
+            { label: "EPSS", value: vuln.epss !== null ? `${(vuln.epss * 100).toFixed(2)}%${vuln.epssPercentile !== null && vuln.epssPercentile !== undefined ? ` (percentile ${Math.round(vuln.epssPercentile * 100)})` : ""}` : null },
+            { label: "Asset criticality", value: vuln.assetCriticality ? humanize(vuln.assetCriticality) : null },
+            { label: "Exposure", value: vuln.internetFacing === null || vuln.internetFacing === undefined ? null : vuln.internetFacing ? "Internet-facing asset" : "Internal asset" },
             { label: "SLA due", value: vuln.slaDueAt ? `${formatDate(vuln.slaDueAt)} (${SLA_LABEL[slaState(vuln)]})` : null },
             { label: "Asset", value: <Link to={hrefForEntity("asset", vuln.assetId)} className="text-primary hover:underline">{vuln.assetName ?? "Open asset"}</Link> },
             { label: "Organization", value: session.organizationName(vuln.organizationId) },
@@ -215,7 +220,8 @@ export function VulnerabilitiesTable({
     },
     { id: "patch", header: "Patch", accessor: (v) => (v.patchAvailable ? "Available" : "None"), defaultHidden: true },
     { id: "org", header: "Organization", accessor: (v) => session.organizationName(v.organizationId), defaultHidden: session.organizationId !== null },
-    { id: "risk", header: "Priority", accessor: (v) => v.riskScore, cell: (v) => <RiskScore score={v.riskScore} size="sm" label="Risk-based priority" />, align: "right" },
+    { id: "priority", header: "Priority", accessor: (v) => v.priority ?? null, cell: (v) => (v.priority ? <Badge size="xs" tone={PRIORITY_TONE[v.priority] ?? "neutral"}>{v.priority}</Badge> : <span className="text-fg-subtle">—</span>), filter: { kind: "select", options: ["P1", "P2", "P3", "P4"].map((p) => ({ value: p, label: p })) } },
+    { id: "risk", header: "Risk", accessor: (v) => v.riskScore, cell: (v) => <RiskScore score={v.riskScore} factors={v.risk?.factors} summary={v.risk?.summary} size="sm" label="Risk-based priority" />, align: "right" },
   ];
 
   return (

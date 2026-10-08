@@ -457,7 +457,7 @@ export interface EventSearchResult {
   truncated?: boolean;
 }
 
-export type DetectionKind = "sigma" | "threshold" | "sequence" | "yara" | "suricata" | "custom";
+export type DetectionKind = "sigma" | "threshold" | "sequence" | "ioc" | "yara" | "suricata" | "custom";
 
 export interface DetectionRule {
   id: string;
@@ -476,6 +476,13 @@ export interface DetectionRule {
   updatedAt: string;
   lastMatchedAt?: string | null;
   matches24h?: number | null;
+  /** Shipped with the platform; saving creates an override that can be reverted. */
+  builtin?: boolean;
+  /** This row overrides a built-in rule (delete to revert to the shipped version). */
+  overridesBuiltin?: boolean;
+  matches7d?: number | null;
+  /** False-positive rate from analyst feedback (0..1), when tracked. */
+  falsePositiveRate?: number | null;
 }
 
 export interface UpsertDetectionInput {
@@ -492,15 +499,34 @@ export interface UpsertDetectionInput {
 export interface DetectionTestInput {
   /** Test the editor's current source instead of the saved version. */
   source?: string;
+  kind?: DetectionKind;
   lookbackHours: number;
+}
+
+export interface DetectionTestMatch {
+  id: string;
+  title: string;
+  severity: Severity | null;
+  explanation: string | null;
+  eventIds: string[];
 }
 
 export interface DetectionTestResult {
   valid: boolean;
   errors: string[];
+  warnings: string[];
   matched: number;
   scanned?: number | null;
+  truncated?: boolean;
   events: CanonicalEvent[];
+  matches: DetectionTestMatch[];
+}
+
+export interface DetectionVersion {
+  version: number;
+  comment: string | null;
+  createdBy: string | null;
+  createdAt: string;
 }
 
 // ─── Security Graph & attack paths ─────────────────────────────────────────
@@ -542,10 +568,19 @@ export interface AttackPathSummaryView {
   truncated?: boolean;
 }
 
+/** Audience-aware plain-language explanation produced by the engines. */
+export interface Narrative {
+  headline: string;
+  paragraphs: string[];
+  actions: string[];
+}
+
 export interface AttackPathResult {
   paths: AttackPath[];
   remediations: RemediationPriorityView[];
   summary: AttackPathSummaryView | null;
+  narrative?: Narrative | null;
+  byOrganization?: { organizationId: string; organizationName: string | null; totalPaths: number; toCrownJewels: number; maxRiskScore: number }[];
 }
 
 // ─── Exposure & vulnerabilities ─────────────────────────────────────────────
@@ -557,12 +592,29 @@ export interface VulnerabilityFilters {
   status?: Vulnerability["status"][];
   knownExploited?: boolean;
   assetId?: string;
+  /** SLA already missed (open / in remediation). */
+  overdue?: boolean;
+  internetFacing?: boolean;
+  priority?: VulnerabilityPriority[];
   sort?: "risk" | "cvss" | "epss" | "sla" | "recent";
   limit?: number;
   cursor?: string;
 }
 
+export type VulnerabilityPriority = "P1" | "P2" | "P3" | "P4";
+
 export interface VulnerabilityView extends Vulnerability {
+  /** Risk Engine priority bucket (P1 = fix first). */
+  priority?: VulnerabilityPriority | string | null;
+  /** Explained priority assessment, when the API embeds it. */
+  risk?: RiskAssessment | null;
+  assetCriticality?: string | null;
+  internetFacing?: boolean | null;
+  organizationName?: string | null;
+  overdue?: boolean;
+  epssPercentile?: number | null;
+  enrichedAt?: string | null;
+  source?: string;
   assetName?: string | null;
   /** Risk-acceptance exception (status "accepted"). */
   exceptionReason?: string | null;
@@ -583,6 +635,8 @@ export interface ExposureComponent {
   score: number;
   findings?: number | null;
   module?: ModuleKey | null;
+  /** Plain-language reasons behind the domain score. */
+  drivers?: string[];
 }
 
 /** GET /exposure/summary — unified, explained exposure score. */
@@ -594,8 +648,26 @@ export interface ExposureSummary {
   impact?: number | null;
   factors?: RiskFactor[];
   modelVersion?: string | null;
+  /** Score before compensating controls ("what if controls failed"). */
+  inherentScore?: number | null;
+  /** Per-domain exposure (external, vulnerability, identity, cloud, SaaS…), normalized. */
   components?: ExposureComponent[];
+  /** Per-organization scores when several organizations are in scope. */
+  organizations?: { organizationId: string; organizationName: string | null; score: number; severity: Severity }[];
+  narrative?: Narrative | null;
   generatedAt?: string;
+}
+
+
+// ─── SIEM saved searches ────────────────────────────────────────────────────
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  query: string;
+  /** Encoded time range ("24h" or "from..to"). */
+  range: string;
+  createdAt: string;
 }
 
 // ─── Threat intelligence ────────────────────────────────────────────────────

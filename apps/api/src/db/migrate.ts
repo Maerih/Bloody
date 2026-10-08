@@ -120,6 +120,7 @@ export async function applyGrants(client: pg.ClientBase): Promise<void> {
         await client.query(`REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE ${ident} FROM ${APP_ROLE}`);
         break;
       case "auth_lookup":
+      case "account_directory":
       case "schema_migrations":
         await client.query(`GRANT SELECT ON TABLE ${ident} TO ${APP_ROLE}`);
         await client.query(`REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE ${ident} FROM ${APP_ROLE}`);

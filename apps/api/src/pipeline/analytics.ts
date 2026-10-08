@@ -6,6 +6,7 @@ import {
   type CanonicalEvent,
   type Criticality,
   type IndicatorType,
+  type NodeKind,
   type Severity,
 } from "@bloody/contracts";
 import {
@@ -87,6 +88,8 @@ interface TenantState {
   correlator: Correlator;
   indicatorsVersion: string;
   rulesVersion: string;
+  suppressionsVersion: string;
+  suppressions: InMemorySuppressionList;
   assetCtx: Map<string, { criticality: Criticality; edr: boolean }>;
   identityCtx: Map<string, boolean>;
   draftIncident: Map<string, string>;
@@ -118,6 +121,8 @@ export class AnalyticsPipeline {
       risk: RiskEngine;
       log: PipelineLogger;
       automation?: AutomationSink | undefined;
+      /** Called after each committed batch (attack-path cache invalidation, alert.created triggers). */
+      onBatchProcessed?: ((result: BatchResult) => void) | undefined;
       now?: () => number;
     },
   ) {}
@@ -153,7 +158,8 @@ export class AnalyticsPipeline {
     const versions = await this.deps.db.withTenant(tenantId, async (tx) => {
       const ind = await tx.query<{ v: string }>("SELECT count(*)::text || '|' || coalesce(max(updated_at)::text, '') AS v FROM indicators");
       const rules = await tx.query<{ v: string }>("SELECT count(*)::text || '|' || coalesce(max(updated_at)::text, '') AS v FROM detection_rules");
-      return { indicators: ind.rows[0]!.v, rules: rules.rows[0]!.v };
+      const sup = await tx.query<{ v: string }>("SELECT count(*)::text || '|' || coalesce(max(updated_at)::text, '') AS v FROM detection_suppressions");
+      return { indicators: ind.rows[0]!.v, rules: rules.rows[0]!.v, suppressions: sup.rows[0]!.v };
     });
     let state = this.tenants.get(tenantId);
     if (!state) {
@@ -163,8 +169,9 @@ export class AnalyticsPipeline {
       }
       const assetCtx = new Map<string, { criticality: Criticality; edr: boolean }>();
       const identityCtx = new Map<string, boolean>();
+      const suppressions = new InMemorySuppressionList();
       state = {
-        engine: new DetectionEngine({ suppressions: new InMemorySuppressionList(), clock: { now: () => this.now() } }),
+        engine: new DetectionEngine({ suppressions, clock: { now: () => this.now() } }),
         correlator: new Correlator({
           riskEngine: this.deps.risk,
           clock: { now: () => this.now() },
@@ -176,6 +183,8 @@ export class AnalyticsPipeline {
         }),
         indicatorsVersion: "",
         rulesVersion: "",
+        suppressionsVersion: "",
+        suppressions,
         assetCtx,
         identityCtx,
         draftIncident: new Map(),
@@ -193,7 +202,36 @@ export class AnalyticsPipeline {
       await this.loadIndicators(tenantId, state);
       state.indicatorsVersion = versions.indicators;
     }
+    if (state.suppressionsVersion !== versions.suppressions) {
+      await this.loadSuppressions(tenantId, state);
+      state.suppressionsVersion = versions.suppressions;
+    }
     return state;
+  }
+
+  /** Active analyst / feedback suppressions (detection_suppressions) → the engine's hot-path list. */
+  private async loadSuppressions(tenantId: string, state: TenantState): Promise<void> {
+    const rows = await this.deps.db.withTenant(tenantId, async (tx) =>
+      (
+        await tx.query<Row>(
+          "SELECT id, organization_id, rule_id, entity_kind, entity_key, reason, created_by, created_at, expires_at FROM detection_suppressions WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())",
+        )
+      ).rows,
+    );
+    for (const s of state.suppressions.list(tenantId)) state.suppressions.remove(s.id);
+    for (const r of rows) {
+      state.suppressions.add({
+        id: String(r.id),
+        tenantId,
+        organizationId: (r.organization_id as string | null) ?? null,
+        ruleId: String(r.rule_id),
+        ...(r.entity_kind ? { entity: { kind: r.entity_kind as NodeKind, key: String(r.entity_key) } } : {}),
+        reason: String(r.reason),
+        createdBy: String(r.created_by),
+        createdAt: String(r.created_at),
+        expiresAt: (r.expires_at as string | null) ?? null,
+      });
+    }
   }
 
   private async loadRules(tenantId: string, state: TenantState): Promise<void> {
@@ -219,7 +257,7 @@ export class AnalyticsPipeline {
     const rows = await this.deps.db.withTenant(tenantId, async (tx) =>
       (
         await tx.query<Row>(
-          "SELECT id, tenant_id, organization_id, type, value, confidence, severity, source, threat_actor, malware, campaign, expires_at FROM indicators WHERE expires_at IS NULL OR expires_at > now()",
+          "SELECT id, tenant_id, organization_id, type, value, confidence, severity, source, threat_actor, malware, campaign, expires_at FROM indicators WHERE NOT revoked AND (expires_at IS NULL OR expires_at > now())",
         )
       ).rows,
     );
@@ -360,6 +398,12 @@ export class AnalyticsPipeline {
     this.deps.metrics.pipelineBatchDuration.observe((this.now() - started) / 1000);
     state.engine.gc();
     state.correlator.expire();
+
+    try {
+      this.deps.onBatchProcessed?.(result);
+    } catch (err) {
+      this.deps.log.warn({ tenantId, err: err instanceof Error ? err.message : String(err) }, "batch hook failed");
+    }
 
     if (this.deps.automation) {
       for (const n of notifications) {

@@ -88,7 +88,37 @@ const RawEnv = z.object({
   METRICS_TOKEN: z.string().min(16).optional(),
   /** Run the in-process analytics pipeline consumer (disable on API-only replicas fed by Kafka). */
   PIPELINE_ENABLED: bool.default(true),
+
+  /** Background scheduler (report schedules, scheduled playbooks, approval expiry, overdue sweeps). */
+  SCHEDULER_ENABLED: bool.optional(),
+  SCHEDULER_INTERVAL_SECONDS: z.coerce.number().int().min(5).max(3600).default(60),
+
+  /**
+   * KEV / EPSS vulnerability enrichment from public feeds (CISA, FIRST). Off by default: it makes
+   * outbound requests, restricted to ENRICHMENT_ALLOWED_HOSTS (SSRF guard, https only).
+   */
+  FEATURE_VULN_ENRICHMENT: bool.default(false),
+  ENRICHMENT_ALLOWED_HOSTS: csv.default("www.cisa.gov,api.first.org,epss.cyentia.com"),
+  KEV_FEED_URL: z.string().url().default("https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"),
+  EPSS_API_URL: z.string().url().default("https://api.first.org/data/v1/epss"),
+
+  /** Generated report files kept for later download up to this size (larger ones are not stored). */
+  REPORT_MAX_STORED_BYTES: z.coerce.number().int().min(0).max(64 * 1024 * 1024).default(10 * 1024 * 1024),
+  /** Platform default for AI endpoints on private networks (tenants can also opt in via settings). */
+  AI_ALLOW_PRIVATE_ENDPOINTS: bool.default(false),
+  /** Engine connectors (Wazuh, MISP, CoPilot…) on private networks: on-prem relays are the norm. */
+  INTEGRATIONS_ALLOW_PRIVATE_NETWORKS: bool.default(true),
 });
+
+export interface FeatureConfig {
+  vulnEnrichment: boolean;
+}
+
+export interface EnrichmentConfig {
+  allowedHosts: string[];
+  kevFeedUrl: string;
+  epssApiUrl: string;
+}
 
 export interface SmtpConfig {
   host: string;
@@ -142,6 +172,12 @@ export interface AppConfig {
     bodyLimitBytes: number;
   };
   ingest: { maxBatch: number; bodyLimitBytes: number; maxEventAgeDays: number; pipelineEnabled: boolean };
+  scheduler: { enabled: boolean; intervalSeconds: number };
+  features: FeatureConfig;
+  enrichment: EnrichmentConfig;
+  reports: { maxStoredBytes: number };
+  ai: { allowPrivateEndpoints: boolean };
+  integrations: { allowPrivateNetworks: boolean };
   metricsToken: string | null;
   smtp: SmtpConfig | null;
   oidc: OidcConfig | null;
@@ -235,6 +271,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const appUrl = e.DATABASE_APP_URL ?? deriveAppUrl(e.DATABASE_URL, e.BLOODY_APP_DB_PASSWORD);
   if (production && e.DATABASE_APP_URL === undefined) warnings.push("DATABASE_APP_URL not set — derived from DATABASE_URL with role bloody_app");
 
+  // Enrichment feeds are fetched server-side: https only, and only from the allow-listed hosts.
+  const enrichmentHosts = e.ENRICHMENT_ALLOWED_HOSTS.map((h) => h.toLowerCase());
+  for (const [label, raw] of [["KEV_FEED_URL", e.KEV_FEED_URL], ["EPSS_API_URL", e.EPSS_API_URL]] as const) {
+    const u = new URL(raw);
+    if (u.protocol !== "https:") throw new ConfigError(`${label} must use https`);
+    if (!enrichmentHosts.includes(u.hostname.toLowerCase())) throw new ConfigError(`${label} host ${u.hostname} is not in ENRICHMENT_ALLOWED_HOSTS`);
+  }
+
   const smtp: SmtpConfig | null = e.SMTP_HOST
     ? { host: e.SMTP_HOST, port: e.SMTP_PORT, secure: e.SMTP_SECURE, user: e.SMTP_USER, password: e.SMTP_PASSWORD, from: e.SMTP_FROM, fromName: e.SMTP_FROM_NAME }
     : null;
@@ -287,6 +331,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       bodyLimitBytes: e.BODY_LIMIT_BYTES,
     },
     ingest: { maxBatch: e.INGEST_MAX_BATCH, bodyLimitBytes: e.INGEST_BODY_LIMIT_BYTES, maxEventAgeDays: e.INGEST_MAX_EVENT_AGE_DAYS, pipelineEnabled: e.PIPELINE_ENABLED },
+    scheduler: { enabled: e.SCHEDULER_ENABLED ?? e.NODE_ENV !== "test", intervalSeconds: e.SCHEDULER_INTERVAL_SECONDS },
+    features: { vulnEnrichment: e.FEATURE_VULN_ENRICHMENT },
+    enrichment: { allowedHosts: e.ENRICHMENT_ALLOWED_HOSTS.map((h) => h.toLowerCase()), kevFeedUrl: e.KEV_FEED_URL, epssApiUrl: e.EPSS_API_URL },
+    reports: { maxStoredBytes: e.REPORT_MAX_STORED_BYTES },
+    ai: { allowPrivateEndpoints: e.AI_ALLOW_PRIVATE_ENDPOINTS },
+    integrations: { allowPrivateNetworks: e.INTEGRATIONS_ALLOW_PRIVATE_NETWORKS },
     metricsToken: e.METRICS_TOKEN ?? null,
     smtp,
     oidc,
