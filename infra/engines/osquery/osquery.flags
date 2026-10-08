@@ -5,7 +5,7 @@
 #  * configuration is distributed by the customer's config management (Ansible, MDM, GPO, image
 #    bake) — no Fleet/TLS config server is required;
 #  * results go to the local filesystem logger and are shipped by the co-located collector
-#    (Vector `osquery_results` source → bloody.raw.osquery / POST /api/v1/ingest/events?source=osquery);
+#    (Vector `osquery_results` source → bloody.raw.osquery / POST /api/v1/ingest/osquery);
 #  * the Bloody osquery adapter understands differential, batched and snapshot result formats.
 --config_plugin=filesystem
 --config_path=/etc/osquery/osquery.conf

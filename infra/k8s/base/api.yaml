@@ -32,6 +32,7 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "4000"
         prometheus.io/path: /api/v1/metrics
+        # With METRICS_TOKEN set, the scrape job must send `Authorization: Bearer <token>`.
     spec:
       serviceAccountName: bloody-api
       automountServiceAccountToken: false
@@ -72,11 +73,17 @@ spec:
             - configMapRef:
                 name: bloody-config
           env:
-            # Scheduled reports / automations run in the single-replica bloody-scheduler.
+            # reserved: scheduled reports / automations run in the single-replica bloody-scheduler.
             - name: BLOODY_SCHEDULER_ENABLED
               value: "false"
+            # Runtime role only: the API never holds schema-owner credentials. DATABASE_URL (its
+            # "privileged" pool) is the same least-privilege role, so such paths fail closed.
+            - name: DATABASE_APP_URL
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: DATABASE_APP_URL } }
             - name: DATABASE_URL
-              valueFrom: { secretKeyRef: { name: bloody-secrets, key: DATABASE_URL } }
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: DATABASE_APP_URL } }
+            - name: METRICS_TOKEN
+              valueFrom: { secretKeyRef: { name: bloody-secrets, key: METRICS_TOKEN, optional: true } }
             - name: VALKEY_URL
               valueFrom: { secretKeyRef: { name: bloody-secrets, key: VALKEY_URL } }
             - name: BLOODY_JWT_SECRET

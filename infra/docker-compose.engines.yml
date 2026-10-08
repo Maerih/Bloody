@@ -354,14 +354,12 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  # Velocidex publishes release binaries, not images: engines/velociraptor/Dockerfile wraps the
+  # unmodified v0.77.2 binary, verified against SHA-256 checksums pinned in that Dockerfile.
   velociraptor:
-    image: ${BLOODY_VELOCIRAPTOR_IMAGE:-bloody/engine-velociraptor:0.76.3}
+    image: ${BLOODY_VELOCIRAPTOR_IMAGE:-bloody/engine-velociraptor:0.77.2}
     build:
       context: ./engines/velociraptor
-      args:
-        VELOCIRAPTOR_VERSION: ${VELOCIRAPTOR_VERSION:-0.76.3}
-        # Mandatory: SHA-256 of the upstream release binary (the build fails closed without it).
-        VELOCIRAPTOR_SHA256: ${VELOCIRAPTOR_SHA256:-}
     profiles: [endpoint, all]
     environment:
       VELOCIRAPTOR_FRONTEND_HOSTNAME: ${VELOCIRAPTOR_FRONTEND_HOSTNAME:-localhost}
@@ -640,9 +638,13 @@ services:
     command: ["--config", "/etc/vector/vector.yaml", "--config", "/etc/vector/sinks/${BLOODY_INGEST_TRANSPORT:-http}.yaml"]
     environment:
       VECTOR_LOG: ${VECTOR_LOG:-info}
-      BLOODY_INGEST_URL: ${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}
+      # Base of the API's raw-payload routes; sinks append /<adapter> (POST /api/v1/ingest/zeek …).
+      BLOODY_INGEST_URL: ${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}
       # API key with the event:ingest permission (role api_service), created in Settings → API keys.
       BLOODY_INGEST_API_KEY: ${BLOODY_INGEST_API_KEY:-}
+      BLOODY_SENSOR_ID: ${BLOODY_SENSOR_ID:-vector}
+      # Optional extra query, e.g. "&integrationId=<uuid>" to track the integration's last event.
+      BLOODY_INGEST_QUERY: ${BLOODY_INGEST_QUERY:-}
       BLOODY_INTEGRATION_ID: ${BLOODY_INTEGRATION_ID:-unassigned}
       KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
     volumes:
@@ -678,7 +680,7 @@ services:
     # BLOODY_OTEL_ENGINE_LOGS=kafka|http to let the collector ship Zeek/Suricata/Wazuh instead.
     command: ["--config=/etc/otelcol/config.yaml", "--config=/etc/otelcol/engines-${BLOODY_OTEL_ENGINE_LOGS:-off}.yaml"]
     environment:
-      BLOODY_INGEST_URL: ${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}
+      BLOODY_INGEST_URL: ${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}
       BLOODY_INGEST_API_KEY: ${BLOODY_INGEST_API_KEY:-}
       BLOODY_INTEGRATION_ID: ${BLOODY_INTEGRATION_ID:-unassigned}
       KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
@@ -694,7 +696,8 @@ services:
       # OTLP for a host-run API (`pnpm dev:api` with OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318).
       - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317"
       - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318"
-      - "127.0.0.1:${OTEL_PROMETHEUS_PORT:-8889}:8889"
+      # Host port 9464 (not 8889): Velociraptor's GUI publishes 8889 in the endpoint profile.
+      - "127.0.0.1:${OTEL_PROMETHEUS_PORT:-9464}:8889"
     depends_on:
       engine-volume-init:
         condition: service_completed_successfully
@@ -1349,7 +1352,7 @@ services:
     logging: *logging
 
   timesketch-web:
-    image: us-docker.pkg.dev/osdfir-registry/timesketch/timesketch:${TIMESKETCH_VERSION:-20240508}
+    image: us-docker.pkg.dev/osdfir-registry/timesketch/timesketch:${TIMESKETCH_VERSION:-20260630}
     profiles: [forensics, all]
     command: ["timesketch-web"]
     environment: &timesketch-env
@@ -1383,7 +1386,7 @@ services:
     logging: *logging
 
   timesketch-worker:
-    image: us-docker.pkg.dev/osdfir-registry/timesketch/timesketch:${TIMESKETCH_VERSION:-20240508}
+    image: us-docker.pkg.dev/osdfir-registry/timesketch/timesketch:${TIMESKETCH_VERSION:-20260630}
     profiles: [forensics, all]
     command: ["timesketch-worker"]
     environment: *timesketch-env

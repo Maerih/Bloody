@@ -3,7 +3,7 @@
 #
 # Vector (MPL-2.0, run unmodified) — collection tier of the Bloody data fabric.
 # This file holds sources + per-engine shaping; the transport is chosen by adding ONE of:
-#   sinks/http.yaml   → POST /api/v1/ingest/events?source=<adapter> (API key, NDJSON)  [default]
+#   sinks/http.yaml   → POST /api/v1/ingest/<adapter> (API key; NDJSON, syslog as text)  [default]
 #   sinks/kafka.yaml  → Kafka topics bloody.raw.<adapter> (headers: source / integration / collector)
 #   vector --config vector.yaml --config sinks/${BLOODY_INGEST_TRANSPORT}.yaml
 #
@@ -186,7 +186,8 @@ transforms:
     source: |
       line = strip_whitespace(string(.message) ?? "")
       if line == "" { abort }
-      # The syslog adapter detects CEF itself; keep the line verbatim plus the peer address.
+      # The syslog adapter detects CEF itself; the line is forwarded verbatim (HTTP: text codec,
+      # Kafka: JSON with the sender address in `peer`).
       . = { "message": line, "peer": .host }
       ._bloody = { "source": "syslog", "key": "${BLOODY_INTEGRATION_ID:-unassigned}" }
 

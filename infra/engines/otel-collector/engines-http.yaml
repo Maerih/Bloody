@@ -1,18 +1,23 @@
 # SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
 # Copyright (c) 2026 Bloody. All rights reserved.
 #
-# Engine-log transport: Bloody ingest API. Merged on top of config.yaml.
-#   POST ${BLOODY_INGEST_URL}?source=<engine>
-#   Authorization: Bearer <API key with event:ingest>   (binds tenant + organization)
-#   Content-Type: application/json — OTLP/HTTP JSON ExportLogsServiceRequest whose log bodies
-#   are raw vendor records (the API's ingest endpoint accepts this alongside NDJSON from Vector).
+# Engine-log transport: Bloody ingest API. Merged on top of config.yaml
+# (BLOODY_OTEL_ENGINE_LOGS=http; the compose default is `off` — Vector ships engine logs).
+#   POST ${BLOODY_INGEST_URL}/<adapter>     e.g. http://api:4000/api/v1/ingest/zeek
+#   Authorization: Bearer <API key with event:ingest>   (an org-bound key fixes tenant + organization)
+#   Content-Type: application/json — an OTLP/HTTP JSON ExportLogsServiceRequest whose log-record
+#   bodies are the raw vendor lines.
+# REQUIREMENT: the API's adapter route must unwrap OTLP log envelopes (resourceLogs → scopeLogs →
+# logRecords[].body) before handing records to the adapter. Until it does, use Vector (sinks/http.yaml)
+# or the Kafka transport (engines-kafka.yaml) for engine logs — see docs/OPERATIONS.md §Data fabric.
+# Compression is off: the API does not decode Content-Encoding on requests.
 # Retries on 429/5xx honour Retry-After; the persistent queue absorbs API maintenance windows.
 
 exporters:
   otlphttp/bloody_zeek:
-    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=zeek"
+    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/zeek?sensorId=${env:HOSTNAME:-otel-collector}"
     encoding: json
-    compression: gzip
+    compression: none
     timeout: 30s
     headers:
       Authorization: "Bearer ${env:BLOODY_INGEST_API_KEY:-}"
@@ -27,9 +32,9 @@ exporters:
       storage: file_storage/queue
       queue_size: 5000
   otlphttp/bloody_suricata:
-    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=suricata"
+    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/suricata?sensorId=${env:HOSTNAME:-otel-collector}"
     encoding: json
-    compression: gzip
+    compression: none
     timeout: 30s
     headers:
       Authorization: "Bearer ${env:BLOODY_INGEST_API_KEY:-}"
@@ -44,9 +49,9 @@ exporters:
       storage: file_storage/queue
       queue_size: 5000
   otlphttp/bloody_wazuh:
-    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest/events}?source=wazuh"
+    logs_endpoint: "${env:BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/wazuh?sensorId=${env:HOSTNAME:-otel-collector}"
     encoding: json
-    compression: gzip
+    compression: none
     timeout: 30s
     headers:
       Authorization: "Bearer ${env:BLOODY_INGEST_API_KEY:-}"

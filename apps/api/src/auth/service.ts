@@ -194,6 +194,11 @@ export class AuthService {
     return { sessionId, cookieValue: `${input.tenantId}.${sessionId}.${secret}`, expiresAt };
   }
 
+  /** Session id carried by a well-formed session cookie (no validation of the secret). */
+  sessionIdFromCookie(value: string): string | null {
+    return this.parseSessionCookie(value)?.sessionId ?? null;
+  }
+
   private parseSessionCookie(value: string): { tenantId: string; sessionId: string; secret: string } | null {
     const parts = value.split(".");
     if (parts.length !== 3) return null;

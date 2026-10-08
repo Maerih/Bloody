@@ -1,7 +1,7 @@
 import type { AssetKind, Criticality, IndicatorType, Severity } from "@bloody/contracts";
 import { SecurityGraph, normalizeHostname, normalizeIndicatorValue, type EngineEventSink, type RiskEngine } from "@bloody/engines";
 import { badRequest } from "../http/errors.js";
-import type { Queryable } from "../db/pool.js";
+import { inOrder, type Queryable } from "../db/pool.js";
 import { PostgresGraphStore } from "../graph/postgres-store.js";
 import { toAsset, toIdentity, toVulnerability, type AssetView, type IdentityView, type Row, type VulnerabilityView } from "../repo/mappers.js";
 
@@ -230,20 +230,20 @@ export class InventoryService {
   async scoreAsset(tx: Queryable, tenantId: string, assetId: string): Promise<AssetView> {
     const { rows } = await tx.query<Row>("SELECT * FROM assets WHERE id = $1", [assetId]);
     const asset = toAsset(rows[0]!);
-    const [vulns, alerts, agent, intel, incidents, access] = await Promise.all([
-      tx.query<Row>("SELECT cve, title, cvss, epss, known_exploited, severity, status, patch_available FROM vulnerabilities WHERE asset_id = $1 AND status IN ('open', 'in_remediation', 'accepted')", [assetId]),
-      tx.query<Row>(
+    const [vulns, alerts, agent, intel, incidents, access] = await inOrder([
+      () => tx.query<Row>("SELECT cve, title, cvss, epss, known_exploited, severity, status, patch_available FROM vulnerabilities WHERE asset_id = $1 AND status IN ('open', 'in_remediation', 'accepted')", [assetId]),
+      () => tx.query<Row>(
         "SELECT rule_id, title, severity, confidence, source, attack FROM alerts WHERE asset_id = $1 AND status IN ('new', 'triaged', 'promoted') AND last_seen_at > now() - interval '30 days' ORDER BY last_seen_at DESC LIMIT 50",
         [assetId],
       ),
-      tx.query<Row>("SELECT status, firewall_enabled FROM agents WHERE asset_id = $1 ORDER BY updated_at DESC LIMIT 1", [assetId]),
-      tx.query<Row>(
+      () => tx.query<Row>("SELECT status, firewall_enabled FROM agents WHERE asset_id = $1 ORDER BY updated_at DESC LIMIT 1", [assetId]),
+      () => tx.query<Row>(
         `SELECT i.value, i.confidence, i.severity, i.threat_actor, i.campaign FROM indicator_matches m JOIN indicators i ON i.id = m.indicator_id
          WHERE m.asset_id = $1 AND m.matched_at > now() - interval '30 days' GROUP BY i.id LIMIT 20`,
         [assetId],
       ),
-      tx.query<{ n: number }>("SELECT count(*)::int AS n FROM incidents WHERE $1 = ANY(asset_ids) AND detected_at > now() - interval '90 days'", [assetId]),
-      tx.query<{ principal: string; privileged: boolean }>(
+      () => tx.query<{ n: number }>("SELECT count(*)::int AS n FROM incidents WHERE $1 = ANY(asset_ids) AND detected_at > now() - interval '90 days'", [assetId]),
+      () => tx.query<{ principal: string; privileged: boolean }>(
         `SELECT DISTINCT coalesce(f.props->>'principal', f.label) AS principal, coalesce((f.props->>'privileged')::boolean, false) AS privileged
          FROM graph_nodes a JOIN graph_edges e ON e.to_id = a.id AND e.kind IN ('logged_into', 'admin_of', 'has_access_to', 'owns')
          JOIN graph_nodes f ON f.id = e.from_id AND f.kind IN ('identity', 'user', 'service_account')
@@ -340,13 +340,13 @@ export class InventoryService {
   async scoreIdentity(tx: Queryable, tenantId: string, identityId: string): Promise<IdentityView> {
     const { rows } = await tx.query<Row>("SELECT * FROM identities WHERE id = $1", [identityId]);
     const identity = toIdentity(rows[0]!);
-    const [alerts, failures, adminOf] = await Promise.all([
-      tx.query<Row>("SELECT rule_id, title, severity, confidence, source, attack FROM alerts WHERE identity_id = $1 AND status IN ('new', 'triaged', 'promoted') AND last_seen_at > now() - interval '30 days' LIMIT 50", [identityId]),
-      tx.query<{ n: number }>(
+    const [alerts, failures, adminOf] = await inOrder([
+      () => tx.query<Row>("SELECT rule_id, title, severity, confidence, source, attack FROM alerts WHERE identity_id = $1 AND status IN ('new', 'triaged', 'promoted') AND last_seen_at > now() - interval '30 days' LIMIT 50", [identityId]),
+      () => tx.query<{ n: number }>(
         "SELECT count(*)::int AS n FROM events WHERE organization_id = $1 AND lower(identity_principal) = lower($2) AND outcome = 'failure' AND category = 'authentication' AND occurred_at > now() - interval '1 day'",
         [identity.organizationId, identity.principal],
       ),
-      tx.query<{ admin: number; crown: number }>(
+      () => tx.query<{ admin: number; crown: number }>(
         `SELECT count(*) FILTER (WHERE e.kind = 'admin_of')::int AS admin,
                 count(*) FILTER (WHERE a.props->>'criticality' = 'crown_jewel')::int AS crown
          FROM graph_nodes i JOIN graph_edges e ON e.from_id = i.id AND e.kind IN ('admin_of', 'has_access_to', 'owns', 'logged_into')

@@ -27,8 +27,10 @@ export class TenantContextError extends Error {
 }
 
 const builtins = pg.types;
-const parseTimestamptz = builtins.getTypeParser(1184, "text") as (v: string) => Date | string;
-const parseTimestamp = builtins.getTypeParser(1114, "text") as (v: string) => Date | string;
+/** pg-types' TypeId union omits array OIDs; the runtime accepts any OID. */
+const builtinParser = builtins.getTypeParser as unknown as (oid: number, format?: "text" | "binary") => (v: string) => unknown;
+const parseTimestamptz = builtinParser(1184, "text") as (v: string) => Date | string;
+const parseTimestamp = builtinParser(1114, "text") as (v: string) => Date | string;
 
 function toIso(v: Date | string): string {
   return v instanceof Date ? (Number.isNaN(v.getTime()) ? String(v) : v.toISOString()) : v;
@@ -48,14 +50,14 @@ export const typeParsers = {
         case 1114: // timestamp
           return (v: string) => toIso(parseTimestamp(v));
         case 1016: // int8[]
-          return (v: string) => (builtins.getTypeParser(1016, "text")(v) as Array<string | number | null>).map((x) => (x === null ? null : Number(x)));
+          return (v: string) => (builtinParser(1016, "text")(v) as Array<string | number | null>).map((x) => (x === null ? null : Number(x)));
         case 1185: // timestamptz[]
-          return (v: string) => (builtins.getTypeParser(1185, "text")(v) as Array<Date | string | null>).map((x) => (x === null ? null : toIso(x)));
+          return (v: string) => (builtinParser(1185, "text")(v) as Array<Date | string | null>).map((x) => (x === null ? null : toIso(x)));
         default:
           break;
       }
     }
-    return builtins.getTypeParser(oid, format ?? "text");
+    return builtinParser(oid, format ?? "text");
   },
 };
 
@@ -151,4 +153,14 @@ export class Database {
 
 export function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
+}
+
+/**
+ * Run query thunks one after another. A pg client executes one query at a time, so queries
+ * sharing a transaction must be sequenced explicitly (never `Promise.all` over one client).
+ */
+export async function inOrder<T extends readonly unknown[]>(thunks: { readonly [K in keyof T]: () => Promise<T[K]> }): Promise<T> {
+  const out: unknown[] = [];
+  for (const thunk of thunks as readonly (() => Promise<unknown>)[]) out.push(await thunk());
+  return out as unknown as T;
 }

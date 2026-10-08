@@ -5,7 +5,8 @@
 # Idempotently create the Bloody data-fabric topics (broker auto-create is disabled so a typo
 # in a collector config can never silently create a topic).
 #   bloody.raw.<adapter>     raw vendor records from collectors (Vector / OTel), one per adapter
-#   bloody.events.canonical  normalized Bloody Canonical Events (BCE), keyed by tenant
+#   bloody.events.ingested.v1  ingested Bloody Canonical Event batches, keyed by tenant — the topic
+#                              name of the API's EventBus (apps/api/src/pipeline/event-bus.ts TOPICS)
 #   bloody.dlq               records that failed normalisation (kept for replay; never dropped)
 set -eu
 
@@ -32,7 +33,7 @@ create() {
 }
 
 for a in $ADAPTERS; do create "bloody.raw.$a" "$RAW_RETENTION_MS"; done
-create bloody.events.canonical "$RAW_RETENTION_MS"
+create bloody.events.ingested.v1 "$RAW_RETENTION_MS"
 create bloody.dlq "$DLQ_RETENTION_MS"
 echo "kafka-init: topics ready"
 "$TOPICS" --bootstrap-server "$BOOTSTRAP" --list | grep '^bloody\.'
