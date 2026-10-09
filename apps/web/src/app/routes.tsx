@@ -48,11 +48,15 @@ export function buildAppRoutes(moduleRoutes: AppRoute[] = MODULE_ROUTES): AppRou
   for (const r of moduleRoutes) byPath.set(r.path, r);
   const explicit = [...byPath.values()];
   const covered = new Set(explicit.map((r) => r.path));
+  // A real `<base>/*` route (a module workspace) also serves `<base>` and every sub-path; a
+  // placeholder for those paths would out-rank it, so they count as covered.
+  const splatBases = explicit.filter((r) => r.path.endsWith("/*")).map((r) => r.path.slice(0, -2));
+  const servedBySplat = (path: string) => splatBases.some((b) => path === b || path.startsWith(`${b}/`));
   const placeholder = <ModulePlaceholderPage />;
 
   const placeholders: AppRoute[] = [];
   for (const path of allNavPaths()) {
-    if (!covered.has(path)) {
+    if (!covered.has(path) && !servedBySplat(path)) {
       placeholders.push({ path, element: placeholder });
       covered.add(path);
     }

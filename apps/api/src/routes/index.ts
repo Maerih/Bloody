@@ -16,8 +16,21 @@ import { organizationRoutes } from "./organizations.js";
 import { searchRoutes } from "./search.js";
 import { teamRoutes } from "./teams.js";
 import { userRoutes } from "./users.js";
+import { aiRoutes } from "./ai.js";
+import { commercialRoutes } from "./commercial.js";
+import { detectionRoutes } from "./detections.js";
+import { eventRoutes } from "./events.js";
+import { graphRoutes } from "./graph.js";
+import { integrationRoutes } from "./integrations.js";
+import { intelRoutes } from "./intel.js";
+import { msspAdminRoutes } from "./mssp-admin.js";
+import { notificationRoutes } from "./notifications.js";
+import { playbookRoutes } from "./playbooks.js";
+import { reportRoutes } from "./reports.js";
+import { responseRoutes } from "./response.js";
+import { vulnerabilityRoutes } from "./vulnerabilities.js";
 
-/** Every /api/v1 route module (part A: foundation). */
+/** Every /api/v1 route module (part A: foundation; part B: SOC operations, SOAR, AI, commercial). */
 export async function registerRoutes(app: FastifyInstance, services: AppServices): Promise<void> {
   await healthRoutes(app, services);
   await authRoutes(app, services);
@@ -35,4 +48,18 @@ export async function registerRoutes(app: FastifyInstance, services: AppServices
   await searchRoutes(app, services);
   await auditRoutes(app, services);
   await ingestRoutes(app, services);
+  // Part B
+  await graphRoutes(app, services);
+  await detectionRoutes(app, services);
+  await eventRoutes(app, services);
+  await intelRoutes(app, services);
+  await vulnerabilityRoutes(app, services);
+  await notificationRoutes(app, services);
+  await integrationRoutes(app, services);
+  await responseRoutes(app, services);
+  await playbookRoutes(app, services);
+  await aiRoutes(app, services);
+  await reportRoutes(app, services);
+  await commercialRoutes(app, services);
+  await msspAdminRoutes(app, services);
 }

@@ -178,6 +178,8 @@ export function VulnerabilitiesTable({
   description,
   savedViewsKey,
   initialId = null,
+  extraColumns = [],
+  toolbar,
 }: {
   filters?: VulnerabilityFilters;
   predicate?: (v: VulnerabilityView) => boolean;
@@ -186,6 +188,9 @@ export function VulnerabilitiesTable({
   description?: ReactNode;
   savedViewsKey?: string;
   initialId?: string | null;
+  /** Lens-specific columns (exception reason, SLA owner…), inserted before Priority. */
+  extraColumns?: DataTableColumn<VulnerabilityView>[];
+  toolbar?: ReactNode;
 }) {
   const session = useSession();
   const vulns = useVulnerabilities(filters);
@@ -220,6 +225,7 @@ export function VulnerabilitiesTable({
     },
     { id: "patch", header: "Patch", accessor: (v) => (v.patchAvailable ? "Available" : "None"), defaultHidden: true },
     { id: "org", header: "Organization", accessor: (v) => session.organizationName(v.organizationId), defaultHidden: session.organizationId !== null },
+    ...extraColumns,
     { id: "priority", header: "Priority", accessor: (v) => v.priority ?? null, cell: (v) => (v.priority ? <Badge size="xs" tone={PRIORITY_TONE[v.priority] ?? "neutral"}>{v.priority}</Badge> : <span className="text-fg-subtle">—</span>), filter: { kind: "select", options: ["P1", "P2", "P3", "P4"].map((p) => ({ value: p, label: p })) } },
     { id: "risk", header: "Risk", accessor: (v) => v.riskScore, cell: (v) => <RiskScore score={v.riskScore} factors={v.risk?.factors} summary={v.risk?.summary} size="sm" label="Risk-based priority" />, align: "right" },
   ];
@@ -239,6 +245,7 @@ export function VulnerabilitiesTable({
         initialState={{ sort: { columnId: "risk", direction: "desc" } }}
         savedViewsKey={savedViewsKey}
         exportFileName="bloody-vulnerabilities"
+        toolbar={toolbar}
         footer={
           vulns.hasNextPage ? (
             <Button size="sm" onClick={() => void vulns.fetchNextPage()} loading={vulns.isFetchingNextPage}>

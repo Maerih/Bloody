@@ -20,6 +20,13 @@ import type { EventSearchService } from "./services/event-search.js";
 import type { GraphQueries } from "./services/graph-queries.js";
 import type { IntelService } from "./services/intel.js";
 import type { NotificationService } from "./services/notifications.js";
+import type { ApprovalGate, PlaybookEngine } from "@bloody/automation";
+import type { AiService } from "./services/ai.js";
+import type { IntegrationService } from "./services/integrations.js";
+import type { ReportService } from "./services/reports.js";
+import type { ResponseService } from "./services/response.js";
+import type { Scheduler } from "./services/scheduler.js";
+import type { PlaybookStore } from "./services/soar.js";
 
 /** Composition root output shared by every route module. */
 export interface AppServices {
@@ -52,4 +59,13 @@ export interface AppServices {
   intel: IntelService;
   enrichment: EnrichmentService;
   notifications: NotificationService;
+  integrations: IntegrationService;
+  /** ApprovalGate for every dangerous action (response actions, playbook steps, AI tools). */
+  approvals: ApprovalGate;
+  responses: ResponseService;
+  playbooks: PlaybookStore;
+  playbookEngine: PlaybookEngine;
+  ai: AiService;
+  reports: ReportService;
+  scheduler: Scheduler;
 }

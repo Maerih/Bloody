@@ -46,6 +46,11 @@ export interface ModuleWorkspaceProps {
   sections: Record<string, SectionRenderer>;
   /** Force a section (alias routes such as /vulnerabilities). */
   section?: string;
+  /**
+   * Alias entry points: alias base path → section it opens (e.g. `{"/intel": ""}` makes
+   * /intel/indicators open the "indicators" section of /cti). Tabs still link to canonical paths.
+   */
+  aliases?: Record<string, string>;
   actions?: ReactNode;
 }
 
@@ -55,10 +60,14 @@ export function withOrg(pathname: string, search: string): { pathname: string; s
   return { pathname, search: org ? `?${ORG_PARAM}=${encodeURIComponent(org)}` : "" };
 }
 
-function sectionFromPath(module: RailModule, pathname: string): string {
+export function sectionFromPath(module: Pick<RailModule, "path">, pathname: string, aliases: Record<string, string> = {}): string {
   const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
   if (path === module.path) return "";
   if (path.startsWith(`${module.path}/`)) return path.slice(module.path.length + 1).split("/")[0] ?? "";
+  for (const [base, section] of Object.entries(aliases)) {
+    if (path === base) return section;
+    if (path.startsWith(`${base}/`)) return path.slice(base.length + 1).split("/")[0] ?? section;
+  }
   return "";
 }
 
@@ -67,13 +76,13 @@ function sectionFromPath(module: RailModule, pathname: string): string {
  * the section's content. Module pages are lenses over the same data model — sections compose
  * the shared tables, drawers and graph rather than bespoke dashboards.
  */
-export function ModuleWorkspace({ moduleId, sections, section, actions }: ModuleWorkspaceProps) {
+export function ModuleWorkspace({ moduleId, sections, section, aliases, actions }: ModuleWorkspaceProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const session = useSession();
   const module = RAIL_MODULES.find((m) => m.id === moduleId);
   if (!module) throw new Error(`Unknown module ${moduleId}`);
-  const key = section ?? sectionFromPath(module, location.pathname);
+  const key = section ?? sectionFromPath(module, location.pathname, aliases);
   const item = module.items.find((i) => i.path === (key ? `${module.path}/${key}` : module.path)) ?? module.items[0];
   const enabled = !module.module || session.isModuleEnabled(module.module);
   const subItems = railItemsFor(module, session);

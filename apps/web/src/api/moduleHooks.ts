@@ -2,6 +2,9 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClie
 import type {
   Agent,
   AiActionRecord,
+  AutomationRule,
+  NotificationChannel,
+  RoleBinding,
   AiChatRequest,
   AiProviderConfig,
   Alert,
@@ -31,6 +34,16 @@ import { keepPreviousWithinOrg, orgKey, toArray, toPage, useScope, withoutOrg } 
 import type {
   AddEvidenceInput,
   AgentFilters,
+  AutomationPreview,
+  AutomationPreviewInput,
+  AutomationTemplatePreset,
+  CreateAssetInput,
+  CreateTeamInput,
+  IntelSource,
+  UpdateAssetInput,
+  UpdateAutomationRuleInput,
+  UpdateNotificationChannelInput,
+  VulnerabilitySummary,
   AiChatResult,
   AiConversationDetail,
   AiConversationSummary,
@@ -762,5 +775,206 @@ export function useUpdateUser() {
   return useMutation<UserSummary, ApiError, { id: string; patch: UpdateUserInput }>({
     mutationFn: ({ id, patch }) => api.patch<UserSummary>(`/users/${enc(id)}`, patch),
     onSuccess: () => void qc.invalidateQueries({ queryKey: moduleKeys.users }),
+  });
+}
+
+// ─── Inventory mutations ────────────────────────────────────────────────────
+
+export function useCreateAsset() {
+  const qc = useQueryClient();
+  return useMutation<Asset, ApiError, CreateAssetInput>({
+    mutationFn: (input) => api.post<Asset>("/assets", input),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: moduleKeys.assets }),
+  });
+}
+
+/** Edit an asset (criticality / crown-jewel designation, ownership, exposure, tags). */
+export function useUpdateAsset(id: string) {
+  const qc = useQueryClient();
+  return useMutation<Asset, ApiError, UpdateAssetInput>({
+    mutationFn: (patch) => api.patch<Asset>(`/assets/${enc(id)}`, patch),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: moduleKeys.assets });
+      void qc.invalidateQueries({ queryKey: ["asset", id] });
+      void qc.invalidateQueries({ queryKey: ["risk", "asset", id] });
+      void qc.invalidateQueries({ queryKey: moduleKeys.attackPaths });
+      void qc.invalidateQueries({ queryKey: moduleKeys.exposure });
+    },
+  });
+}
+
+// ─── Threat intelligence & vulnerability posture ───────────────────────────
+
+/** GET /intel/sources — feeds that contributed indicators (MISP, OpenCTI, manual…). */
+export function useIntelSources(options: ListOptions = {}) {
+  const orgId = useScope(undefined);
+  return useQuery<IntelSource[], ApiError>({
+    queryKey: ["intel-sources", orgKey(orgId)],
+    queryFn: async ({ signal }) => toArray(await api.get<Page<IntelSource> | IntelSource[]>("/intel/sources", { signal, query: { organizationId: orgId } })),
+    enabled: options.enabled ?? true,
+    staleTime: options.staleTime ?? 60_000,
+  });
+}
+
+export function useVulnerabilitySummary(options: { organizationId?: string | null; enabled?: boolean } = {}) {
+  const orgId = useScope(options.organizationId);
+  return useQuery<VulnerabilitySummary, ApiError>({
+    queryKey: ["vulnerabilities", orgKey(orgId), "summary"],
+    queryFn: ({ signal }) => api.get<VulnerabilitySummary>("/vulnerabilities/summary", { signal, query: { organizationId: orgId } }),
+    placeholderData: keepPreviousWithinOrg<VulnerabilitySummary>(orgId),
+    enabled: options.enabled ?? true,
+    staleTime: 60_000,
+  });
+}
+
+// ─── Notification channels & automation rules (management) ────────────────
+
+export function useUpdateNotificationChannel() {
+  const qc = useQueryClient();
+  return useMutation<NotificationChannel, ApiError, { id: string; patch: UpdateNotificationChannelInput }>({
+    mutationFn: ({ id, patch }) => api.patch<NotificationChannel>(`/notifications/channels/${enc(id)}`, patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["notification-channels"] }),
+  });
+}
+
+export function useDeleteNotificationChannel() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: (id) => api.delete<void>(`/notifications/channels/${enc(id)}`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["notification-channels"] });
+      void qc.invalidateQueries({ queryKey: ["automations"] });
+    },
+  });
+}
+
+export function useUpdateAutomationRule() {
+  const qc = useQueryClient();
+  return useMutation<AutomationRule, ApiError, { id: string; patch: UpdateAutomationRuleInput }>({
+    mutationFn: ({ id, patch }) => api.patch<AutomationRule>(`/automations/${enc(id)}`, patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+export function useDeleteAutomationRule() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: (id) => api.delete<void>(`/automations/${enc(id)}`),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["automations"] }),
+  });
+}
+
+/** Rule presets shipped with the automation engine (product content, served by the API). */
+export function useAutomationTemplates(options: { enabled?: boolean } = {}) {
+  return useQuery<AutomationTemplatePreset[], ApiError>({
+    queryKey: ["automations", "templates"],
+    queryFn: async ({ signal }) => toArray(await api.get<Page<AutomationTemplatePreset> | AutomationTemplatePreset[]>("/automations/templates", { signal })),
+    enabled: options.enabled ?? true,
+    staleTime: 30 * 60_000,
+  });
+}
+
+/** Render a rule template server-side against sample data; nothing is sent. */
+export function usePreviewAutomation() {
+  return useMutation<AutomationPreview, ApiError, AutomationPreviewInput>({
+    mutationFn: async (input) => {
+      const raw = await api.post<Partial<AutomationPreview>>("/automations/preview", input);
+      return { subject: raw.subject ?? "", text: raw.text ?? "", missing: raw.missing ?? [], warnings: raw.warnings ?? [] };
+    },
+  });
+}
+
+// ─── Users & teams (role bindings) ─────────────────────────────────────────
+
+export function useGrantUserRole() {
+  const qc = useQueryClient();
+  return useMutation<UserSummary, ApiError, { userId: string; binding: RoleBinding }>({
+    mutationFn: ({ userId, binding }) => api.post<UserSummary>(`/users/${enc(userId)}/roles`, binding),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: moduleKeys.users }),
+  });
+}
+
+export function useRevokeUserRole() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, { userId: string; binding: RoleBinding }>({
+    mutationFn: ({ userId, binding }) =>
+      api.delete<void>(`/users/${enc(userId)}/roles`, { query: { role: binding.role, organizationId: binding.organizationId ?? undefined } }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: moduleKeys.users }),
+  });
+}
+
+function invalidateTeams(qc: QueryClient) {
+  void qc.invalidateQueries({ queryKey: moduleKeys.teams });
+  void qc.invalidateQueries({ queryKey: moduleKeys.users });
+}
+
+export function useCreateTeam() {
+  const qc = useQueryClient();
+  return useMutation<TeamView, ApiError, CreateTeamInput>({
+    mutationFn: (input) => api.post<TeamView>("/teams", input),
+    onSuccess: () => invalidateTeams(qc),
+  });
+}
+
+export function useDeleteTeam() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: (id) => api.delete<void>(`/teams/${enc(id)}`),
+    onSuccess: () => invalidateTeams(qc),
+  });
+}
+
+export function useAddTeamMember() {
+  const qc = useQueryClient();
+  return useMutation<TeamView, ApiError, { teamId: string; userId: string; memberRole: "member" | "lead" }>({
+    mutationFn: ({ teamId, userId, memberRole }) => api.post<TeamView>(`/teams/${enc(teamId)}/members`, { userId, memberRole }),
+    onSuccess: () => invalidateTeams(qc),
+  });
+}
+
+export function useRemoveTeamMember() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, { teamId: string; userId: string }>({
+    mutationFn: ({ teamId, userId }) => api.delete<void>(`/teams/${enc(teamId)}/members/${enc(userId)}`),
+    onSuccess: () => invalidateTeams(qc),
+  });
+}
+
+export function useGrantTeamRole() {
+  const qc = useQueryClient();
+  return useMutation<TeamView, ApiError, { teamId: string; binding: RoleBinding }>({
+    mutationFn: ({ teamId, binding }) => api.post<TeamView>(`/teams/${enc(teamId)}/roles`, binding),
+    onSuccess: () => invalidateTeams(qc),
+  });
+}
+
+export function useRevokeTeamRole() {
+  const qc = useQueryClient();
+  return useMutation<void, ApiError, { teamId: string; binding: RoleBinding }>({
+    mutationFn: ({ teamId, binding }) =>
+      api.delete<void>(`/teams/${enc(teamId)}/roles`, { query: { role: binding.role, organizationId: binding.organizationId ?? undefined } }),
+    onSuccess: () => invalidateTeams(qc),
+  });
+}
+
+/** POST /intel/retro-hunt — re-match indicators against stored telemetry (records environment matches). */
+export function useRetroHunt() {
+  const qc = useQueryClient();
+  return useMutation<{ matches?: number; indicators?: number; eventsScanned?: number }, ApiError, { organizationId: string | null; lookbackDays: number; indicatorIds?: string[] }>({
+    mutationFn: ({ organizationId, lookbackDays, indicatorIds }) =>
+      api.post("/intel/retro-hunt", { ...(organizationId ? { organizationId } : {}), lookbackDays, ...(indicatorIds ? { indicatorIds } : {}) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: moduleKeys.intelMatches });
+      void qc.invalidateQueries({ queryKey: ["command-center"] });
+    },
+  });
+}
+
+/** PATCH /integrations/:id — edit a connection; `credential` is write-only and only sent when replaced. */
+export function useUpdateIntegration() {
+  const qc = useQueryClient();
+  return useMutation<IntegrationView, ApiError, { id: string; patch: Partial<Omit<CreateIntegrationInput, "engine" | "organizationId">> }>({
+    mutationFn: ({ id, patch }) => api.patch<IntegrationView>(`/integrations/${enc(id)}`, patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: moduleKeys.integrations }),
   });
 }

@@ -4,8 +4,17 @@ import { isOneOf, readStorage, writeStorage } from "../lib/storage";
 export type ThemePreference = "system" | "light" | "dark";
 export type ResolvedTheme = "light" | "dark";
 
+export type Density = "comfortable" | "compact";
+
 const STORAGE_KEY = "theme";
+const DENSITY_KEY = "density";
 const isPreference = isOneOf<ThemePreference>(["system", "light", "dark"]);
+const isDensity = isOneOf<Density>(["comfortable", "compact"]);
+
+/** Table / list density, applied as `data-density` on <html> (see styles.css). */
+function applyDensity(density: Density): void {
+  document.documentElement.dataset.density = density;
+}
 
 function systemTheme(): ResolvedTheme {
   try {
@@ -28,6 +37,7 @@ function apply(theme: ResolvedTheme): void {
 /** Apply the stored theme before React renders, avoiding a light→dark flash. */
 export function applyInitialTheme(): void {
   apply(resolve(readStorage(STORAGE_KEY, isPreference) ?? "system"));
+  applyDensity(readStorage(DENSITY_KEY, isDensity) ?? "comfortable");
 }
 
 interface ThemeContextValue {
@@ -35,6 +45,8 @@ interface ThemeContextValue {
   resolved: ResolvedTheme;
   setPreference: (pref: ThemePreference) => void;
   toggle: () => void;
+  density: Density;
+  setDensity: (density: Density) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -42,6 +54,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<ThemePreference>(() => readStorage(STORAGE_KEY, isPreference) ?? "system");
   const [system, setSystem] = useState<ResolvedTheme>(systemTheme);
+  const [density, setDensityState] = useState<Density>(() => readStorage(DENSITY_KEY, isDensity) ?? "comfortable");
 
   useEffect(() => {
     let mql: MediaQueryList | undefined;
@@ -59,6 +72,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const resolved: ResolvedTheme = preference === "system" ? system : preference;
 
   useEffect(() => apply(resolved), [resolved]);
+  useEffect(() => applyDensity(density), [density]);
+
+  const setDensity = useCallback((d: Density) => {
+    setDensityState(d);
+    writeStorage(DENSITY_KEY, d);
+  }, []);
 
   const setPreference = useCallback((pref: ThemePreference) => {
     setPreferenceState(pref);
@@ -67,7 +86,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const toggle = useCallback(() => setPreference(resolved === "dark" ? "light" : "dark"), [resolved, setPreference]);
 
-  const value = useMemo(() => ({ preference, resolved, setPreference, toggle }), [preference, resolved, setPreference, toggle]);
+  const value = useMemo(() => ({ preference, resolved, setPreference, toggle, density, setDensity }), [preference, resolved, setPreference, toggle, density, setDensity]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

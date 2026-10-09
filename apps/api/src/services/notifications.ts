@@ -455,6 +455,16 @@ export class NotificationService {
     await this.systemNotice(e, event, ctx.data, ctx.path);
     const report = await this.engine.dispatch(envelope);
     if (report.totals.failed > 0) this.deps.log.warn({ tenantId: e.tenantId, event, failed: report.totals.failed }, "automation deliveries failed (dead-lettered)");
+    if (report.totals.sent > 0) {
+      // Delivery meter (reports: notifications sent per organization and UTC day).
+      await this.deps.db.withTenant(e.tenantId, (tx) =>
+        tx.query(
+          `INSERT INTO usage_counters (tenant_id, organization_id, metric, period_start, value) VALUES ($1, $2, 'notifications.sent', (now() AT TIME ZONE 'UTC')::date, $3)
+           ON CONFLICT (tenant_id, org_key(organization_id), metric, period_start) DO UPDATE SET value = usage_counters.value + EXCLUDED.value`,
+          [e.tenantId, e.organizationId, report.totals.sent],
+        ),
+      );
+    }
   }
 
   private async systemNotice(e: DomainEvent, event: AutomationEvent, data: Record<string, unknown>, path: string | null): Promise<void> {
