@@ -205,6 +205,10 @@ function withAliases(env: NodeJS.ProcessEnv): Record<string, string | undefined>
     "COOKIE_SECURE",
     "TRUST_PROXY",
     "METRICS_TOKEN",
+    "SCHEDULER_ENABLED",
+    "SCHEDULER_INTERVAL_SECONDS",
+    "AI_ALLOW_PRIVATE_ENDPOINTS",
+    "OIDC_CLIENT_SECRET",
   ];
   for (const name of aliases) {
     if ((out[name] === undefined || out[name] === "") && env[`BLOODY_${name}`]) out[name] = env[`BLOODY_${name}`];

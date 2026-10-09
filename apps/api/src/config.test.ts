@@ -61,6 +61,18 @@ describe("loadConfig", () => {
     expect(c.oidc).toMatchObject({ issuerUrl: "https://idp.example.com/realms/bloody", redirectUri: "https://soc.example.com/api/v1/auth/oidc/callback", scopes: "openid email profile" });
     expect(c.database.appUrl).toBe("postgres://bloody_app:secret@db:5432/bloody");
     expect(() => loadConfig({ ENCRYPTION_PREVIOUS_KEYS: "bad" })).toThrow(/<version>:<base64>/);
+  });
+
+  it("honours the BLOODY_SCHEDULER_ENABLED switch the deployment manifests set", () => {
+    // Defaults: on outside tests, off in tests.
+    expect(loadConfig({}).scheduler.enabled).toBe(true);
+    expect(loadConfig({ NODE_ENV: "test" }).scheduler.enabled).toBe(false);
+    // The API replicas run with BLOODY_SCHEDULER_ENABLED=false so schedules fire exactly once.
+    expect(loadConfig({ BLOODY_SCHEDULER_ENABLED: "false" }).scheduler.enabled).toBe(false);
+    expect(loadConfig({ NODE_ENV: "test", BLOODY_SCHEDULER_ENABLED: "true", BLOODY_SCHEDULER_INTERVAL_SECONDS: "15" }).scheduler).toEqual({ enabled: true, intervalSeconds: 15 });
+    // The un-prefixed spelling wins when both are set.
+    expect(loadConfig({ SCHEDULER_ENABLED: "true", BLOODY_SCHEDULER_ENABLED: "false" }).scheduler.enabled).toBe(true);
+    expect(loadConfig({ BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS: "true" }).ai.allowPrivateEndpoints).toBe(true);
     expect(() => loadConfig({ ...PROD, OIDC_ISSUER_URL: "http://idp.example.com", OIDC_CLIENT_ID: "x" })).toThrow(/https/);
   });
 });
