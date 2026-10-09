@@ -556,6 +556,16 @@ export const HAMBURGER_SECTIONS: MenuSection[] = [
 /** Additional routable pages that are not in the rail/top nav but must never 404. */
 export const AUX_PAGES: NavItem[] = [
   { label: "Settings", path: "/settings", icon: Settings, description: "Account settings, SSO, retention and data policies" },
+  { label: "Security Graph", path: "/graph", icon: Waypoints, permission: "graph:read", description: "Search entities, expand neighbors and pivot", keywords: ["graph", "pivot", "entities"] },
+  { label: "Attack Paths", path: "/attack-paths", icon: Route, permission: "risk:read", description: "Entry point → crown jewel paths with explained risk and fixes", keywords: ["exposure", "crown jewels"] },
+  { label: "Automations", path: "/automations", icon: CalendarClock, description: "Automation rules and notification channels (email, Slack, Teams, webhook, syslog)", keywords: ["email", "smtp", "alerting", "notifications"] },
+  { label: "AI Settings", path: "/settings/ai", icon: BrainCircuit, permission: "ai:configure", description: "Local and cloud AI providers, tool tiers, privacy and retention", keywords: ["ollama", "openai", "anthropic", "model", "llm"] },
+  { label: "Users & Teams", path: "/settings/users", icon: Users, permission: "user:read", description: "Invite users, teams and role bindings" },
+  { label: "Billing & Usage", path: "/settings/billing", icon: CreditCard, permission: "billing:read", description: "Plan, limits and usage meters" },
+  { label: "Vulnerabilities", path: "/vulnerabilities", icon: Bug, permission: "vuln:read", description: "CVE table with CVSS, EPSS, KEV, SLA and risk-based priority", keywords: ["cve", "kev", "epss"] },
+  { label: "Threat Intelligence", path: "/intel", icon: Target, permission: "intel:read", description: "Indicators, environment matches, actors and campaigns", keywords: ["ioc", "cti"] },
+  { label: "Email Security", path: "/email", icon: Mail, description: "Phishing, impersonation and quarantine" },
+  { label: "Deception", path: "/deception", icon: Ghost, description: "Decoys, honeytokens and decoy alerts" },
   { label: "Notification Settings", path: "/settings/notifications", icon: Webhook, description: "Email and chat delivery for alerts, escalations and reports", keywords: ["email", "smtp"] },
   { label: "API Credentials", path: "/settings/api-credentials", icon: KeyRound, description: "Service accounts and API keys" },
   { label: "Data Archive", path: "/settings/data-archive", icon: Archive, description: "Archived events and exports" },

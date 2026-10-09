@@ -21,9 +21,30 @@ import { InMemoryEventBus, type EventBus } from "./pipeline/event-bus.js";
 import { IngestService } from "./pipeline/ingest.js";
 import { registerRoutes } from "./routes/index.js";
 import { SecretBox } from "./security/crypto.js";
+import { ApprovalGate, PlaybookEngine, type HttpTransport, type SyslogTransport } from "@bloody/automation";
+import type { FetchLike as AiFetch, HostResolver as AiHostResolver } from "@bloody/ai";
+import type { FetchLike as EngineFetch, HostResolver as EngineHostResolver } from "@bloody/adapters";
+import type { ModuleKey } from "@bloody/contracts";
+import { AiService } from "./services/ai.js";
+import { PgApprovalStore, activeTenants } from "./services/approvals.js";
 import { AttackPathService } from "./services/attack-paths.js";
+import { EntitlementService, QuotaService } from "./services/commercial.js";
+import { DetectionService } from "./services/detections.js";
+import { DomainEventBus } from "./services/domain-events.js";
+import { EnrichmentService } from "./services/enrichment.js";
+import { EventSearchService } from "./services/event-search.js";
+import { GraphQueries } from "./services/graph-queries.js";
+import { IntegrationService } from "./services/integrations.js";
+import { IntelService } from "./services/intel.js";
 import { InventoryService } from "./services/inventory.js";
+import { NotificationService, type EmailTransport } from "./services/notifications.js";
+import { playbookTriggerHandler } from "./services/playbook-triggers.js";
+import { ReportService } from "./services/reports.js";
+import { ResponseService } from "./services/response.js";
+import { Scheduler } from "./services/scheduler.js";
 import { SecretStore } from "./services/secret-store.js";
+import { PgExecutionStore, PgPlaybookRepository, PlaybookStore } from "./services/soar.js";
+import { PgSocDataPort } from "./services/soc-port.js";
 
 export interface AppDeps {
   config: AppConfig;
@@ -38,6 +59,16 @@ export interface AppDeps {
   logger?: FastifyServerOptions["logger"];
   /** Start the in-process analytics consumer (default: config.ingest.pipelineEnabled). */
   startPipeline?: boolean;
+  /** Start the background scheduler (default: config.scheduler.enabled). */
+  startScheduler?: boolean;
+  /** Outbound HTTP for engine connectors, AI providers and enrichment feeds (default: global fetch). */
+  fetch?: typeof fetch;
+  /** DNS validation for outbound endpoints (false disables — tests with fake hosts only). */
+  hostResolver?: ((hostname: string) => Promise<string[]>) | false;
+  /** Notification transports (tests inject capturing transports). */
+  emailTransport?: EmailTransport;
+  httpTransport?: HttpTransport;
+  syslogTransport?: SyslogTransport;
 }
 
 export interface BuiltApp {
@@ -76,7 +107,97 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   });
 
   const log = app.log;
-  const pipeline = new AnalyticsPipeline({ db, bus, metrics, inventory, risk, log, automation: deps.automation, now });
+  const fetchImpl = deps.fetch ?? globalThis.fetch;
+  const engineFetch = fetchImpl as unknown as EngineFetch;
+  const aiFetch = fetchImpl as unknown as AiFetch;
+  const adapters = deps.adapters ?? createDefaultRegistry();
+  const domainEvents = new DomainEventBus({ log, metrics, forward: deps.automation });
+  const attackPaths = new AttackPathService(db, attackPathEngine, 60_000, now);
+  const secretStore = new SecretStore(secrets, db);
+  const entitlements = new EntitlementService(db, now);
+  const quota = new QuotaService(db, domainEvents, now);
+  const pipeline = new AnalyticsPipeline({
+    db,
+    bus,
+    metrics,
+    inventory,
+    risk,
+    log,
+    automation: domainEvents,
+    now,
+    onBatchProcessed: (result) => {
+      // The graph changed: cached attack paths of the tenant are stale.
+      attackPaths.invalidate(result.tenantId);
+      for (const id of result.alertsCreated) {
+        domainEvents.publish({ tenantId: result.tenantId, organizationId: result.organizationId, event: "alert.created", occurredAt: new Date(now()).toISOString(), subject: { kind: "alert", id }, data: {} });
+      }
+    },
+  });
+  const intel = new IntelService(db, inventory, domainEvents, now);
+  const notifications = new NotificationService({
+    db,
+    secretStore,
+    events: domainEvents,
+    log,
+    smtp: config.smtp,
+    publicUrl: config.http.publicUrl,
+    now,
+    httpTransport: deps.httpTransport,
+    syslogTransport: deps.syslogTransport,
+    emailTransport: deps.emailTransport,
+  });
+  const resolveHost = deps.hostResolver === undefined ? undefined : (deps.hostResolver as EngineHostResolver | false);
+  const integrations = new IntegrationService({
+    db,
+    secretStore,
+    inventory,
+    intel,
+    events: domainEvents,
+    adapters,
+    fetch: engineFetch,
+    resolveHost,
+    allowPrivateNetworks: config.integrations.allowPrivateNetworks,
+    log,
+    now,
+    onSynced: (tenantId) => {
+      attackPaths.invalidate(tenantId);
+      entitlements.invalidate(tenantId);
+    },
+  });
+  const tenantIds = async () => (await activeTenants(db)).map((t) => t.id);
+  const approvals = new ApprovalGate({ store: new PgApprovalStore(db, tenantIds), clock: { now: () => new Date(now()) }, audit: notifications.audit });
+  const responses = new ResponseService({ db, gate: approvals, integrations, notifications, events: domainEvents, risk, log, now });
+  const playbookEngine = new PlaybookEngine({
+    playbooks: new PgPlaybookRepository(db),
+    executions: new PgExecutionStore(db),
+    executor: responses.executor,
+    approvals,
+    clock: { now: () => new Date(now()) },
+    audit: notifications.audit,
+    stepTimeoutMs: 120_000,
+  });
+  responses.attachPlaybookEngine(playbookEngine);
+  const graph = new GraphQueries(db, attackPaths);
+  const detections = new DetectionService(db, now);
+  const eventSearch = new EventSearchService(db, now);
+  const reports = new ReportService({ db, risk, attackPaths, notifications, events: domainEvents, log, publicUrl: config.http.publicUrl, maxStoredBytes: config.reports.maxStoredBytes, now });
+  const port = new PgSocDataPort({ db, graph, attackPaths, eventSearch, detections, responses, notifications, reports, now });
+  const ai = new AiService({
+    db,
+    secretStore,
+    quota,
+    gate: approvals,
+    responses,
+    port,
+    events: domainEvents,
+    fetch: aiFetch,
+    hostResolver: deps.hostResolver === undefined ? undefined : (deps.hostResolver as AiHostResolver | false),
+    allowPrivateEndpoints: config.ai.allowPrivateEndpoints,
+    log,
+    now,
+  });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+
   const services: AppServices = {
     config,
     db,
@@ -84,17 +205,38 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     metrics,
     auth,
     secrets,
-    secretStore: new SecretStore(secrets, db),
+    secretStore,
     risk,
     attackPathEngine,
-    attackPaths: new AttackPathService(db, attackPathEngine, 60_000, now),
+    attackPaths,
     inventory,
     ingest: new IngestService(db, bus, metrics, config.ingest, now),
     pipeline,
-    adapters: deps.adapters ?? createDefaultRegistry(),
+    adapters,
     oidc,
     now,
+    domainEvents,
+    entitlements,
+    quota,
+    graph,
+    detections,
+    eventSearch,
+    intel,
+    enrichment: new EnrichmentService({ db, inventory, events: domainEvents, enabled: config.features.vulnEnrichment, config: config.enrichment, fetch: engineFetch, resolveHost, now }),
+    notifications,
+    integrations,
+    approvals,
+    responses,
+    playbooks: new PlaybookStore(),
+    playbookEngine,
+    ai,
+    reports,
+    scheduler,
   };
+
+  // Domain event subscribers: automation rules + in-app notices, then playbook triggers.
+  domainEvents.subscribe("notifications", (e) => notifications.onDomainEvent(e));
+  domainEvents.subscribe("playbooks", playbookTriggerHandler({ db, engine: playbookEngine, entitlements, log, now }));
 
   app.decorateRequest("auth", null);
   app.decorateRequest("auditState", null as unknown as AuditState);
@@ -168,6 +310,14 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     void reply;
   });
 
+  // Entitlement guard: module routes (`config.module`) answer 402 ENTITLEMENT_REQUIRED unless the
+  // module is active or in an unexpired trial for the caller's tenant.
+  app.addHook("preHandler", async (request) => {
+    const module = (request.routeOptions.config as { module?: ModuleKey } | undefined)?.module;
+    if (!module || !request.auth) return;
+    await services.entitlements.require(request.auth.tenantId, module);
+  });
+
   // Generic audit for every mutation not already audited by a committed handler transaction.
   // Routes marked `audit: false` write their own (richer) record on success; any attempt that
   // fails before or inside the handler — RBAC/CSRF denials, validation, rolled-back work — is
@@ -207,9 +357,13 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
 
   const shouldStart = deps.startPipeline ?? config.ingest.pipelineEnabled;
   if (shouldStart) pipeline.start();
+  if (deps.startScheduler ?? config.scheduler.enabled) scheduler.start();
   app.addHook("onClose", async () => {
     pipeline.stop();
     await bus.drain();
+    await domainEvents.drain();
+    domainEvents.close();
+    await scheduler.stop();
   });
 
   return { app, services };

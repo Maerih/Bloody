@@ -2,12 +2,13 @@ import type { EngineDefinition } from "@bloody/contracts";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { errorMessage } from "../../api/client";
-import { useCreateIntegration } from "../../api/hooks";
+import { useCreateIntegration, useUpdateIntegration } from "../../api/hooks";
 import type { CreateIntegrationInput, IntegrationView } from "../../api/types";
 import { Badge } from "../../components/Badge";
 import { Button } from "../../components/Button";
 import { Checkbox, Field, Input, Textarea } from "../../components/Form";
 import { OrganizationSelect, useDefaultOrganization } from "../../components/OrganizationSelect";
+import { useSession } from "../../app/session";
 import { Dialog } from "../../components/Overlay";
 import { MODE_LABELS, moduleName } from "../../lib/engines";
 
@@ -97,7 +98,10 @@ export function validateIntegrationForm(
  * returned). The engine always runs as a separate, unmodified service reached over its API.
  */
 export function IntegrationDialog({ engine, existing, onClose }: { engine: EngineDefinition; existing?: IntegrationView | null; onClose: () => void }) {
+  const session = useSession();
   const create = useCreateIntegration();
+  const update = useUpdateIntegration();
+  const m = existing ? update : create;
   const defaultOrg = useDefaultOrganization("integration:write", true);
   const scope = readScanScope(existing?.config);
   const [name, setName] = useState(existing?.name ?? engine.name);
@@ -149,7 +153,13 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
       ...(credential.trim() && replaceCredential ? { credential: credential.trim() } : {}),
       ...(Object.keys(config).length > 0 ? { config } : {}),
     };
-    create.mutate(input, { onSuccess: onClose });
+    if (existing) {
+      // Editing never moves a connection between organizations or engines.
+      const { engine: _engine, organizationId: _org, ...patch } = input;
+      update.mutate({ id: existing.id, patch }, { onSuccess: onClose });
+    } else {
+      create.mutate(input, { onSuccess: onClose });
+    }
   };
 
   return (
@@ -161,13 +171,13 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
       description={engine.role}
       footer={
         <>
-          {create.isError ? (
+          {m.isError ? (
             <span role="alert" className="mr-auto text-sm text-sev-critical">
-              {errorMessage(create.error)}
+              {errorMessage(m.error)}
             </span>
           ) : null}
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={submit} loading={create.isPending}>
+          <Button variant="primary" onClick={submit} loading={m.isPending}>
             {existing ? "Save" : "Connect"}
           </Button>
         </>
@@ -191,8 +201,14 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
           <Field label="Name" required error={submitted ? errors.name : null}>
             {(p) => <Input {...p} value={name} onChange={(e) => setName(e.target.value)} maxLength={200} />}
           </Field>
-          <Field label="Scope">
-            {(p) => <OrganizationSelect {...p} value={orgId} onChange={setOrgId} permission="integration:write" allowTenantWide tenantWideLabel="All organizations (MSSP-wide)" />}
+          <Field label="Scope" hint={existing ? "A connection's scope is fixed; add a new connection for another organization." : undefined}>
+            {(p) =>
+              existing ? (
+                <Input {...p} value={existing.organizationId ? (session.organizationName(existing.organizationId) ?? "Organization") : "All organizations (MSSP-wide)"} readOnly disabled />
+              ) : (
+                <OrganizationSelect {...p} value={orgId} onChange={setOrgId} permission="integration:write" allowTenantWide tenantWideLabel="All organizations (MSSP-wide)" />
+              )
+            }
           </Field>
           <Field
             label="Endpoint"

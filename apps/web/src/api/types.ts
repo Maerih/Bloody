@@ -225,9 +225,12 @@ export interface NotificationChannelSummary {
 
 /** GET /billing/usage */
 export interface BillingUsage {
-  plan: PlanKey;
+  /** Older deployments put the plan at the top level; current ones under `limits.plan`. */
+  plan?: PlanKey;
   period?: { start: string; end: string };
-  usage: Record<string, { used: number; limit: number | null }>;
+  /** Effective plan limits with contracted per-account overrides. */
+  limits?: { plan: PlanKey; limits: Record<string, number>; overrides?: Record<string, number> };
+  usage: Record<string, { used: number; limit: number | null; remaining?: number; percent?: number; resetsAt?: string | null }>;
 }
 
 /** POST /notifications/channels. Webhook/Slack/Teams URLs are write-only secrets server-side. */
@@ -911,3 +914,86 @@ export interface UpdateUserInput {
   title?: string | null;
   status?: "active" | "disabled";
 }
+
+// ─── Part B additions: CTI sources, vulnerability posture, automations, teams, assets ──
+
+/** GET /intel/sources — indicator feeds aggregated by source. */
+export interface IntelSource {
+  source: string;
+  indicators: number;
+  active: number;
+  types: number;
+  lastUpdatedAt: string | null;
+}
+
+/** GET /vulnerabilities/summary — open-vulnerability posture for the scope. */
+export interface VulnerabilitySummary {
+  open: number;
+  byPriority: Record<"P1" | "P2" | "P3" | "P4", number>;
+  bySeverity: { critical: number; high: number };
+  knownExploited: number;
+  knownExploitedOnInternetFacing: number;
+  overdueSla: number;
+  patchAvailable: number;
+  affectedAssets: number;
+  lastEnrichedAt: string | null;
+  enrichmentEnabled?: boolean;
+}
+
+/** GET /automations/templates — ready-made rule presets shipped with the platform. */
+export interface AutomationTemplatePreset {
+  event: AutomationEvent;
+  name: string;
+  description: string;
+  audience: "soc" | "mssp" | "customer" | "business" | string;
+  subject: string;
+  body: string;
+  variables: { path: string; description: string }[];
+  throttleMinutes: number;
+}
+
+/** POST /automations/preview — server-side render of a template against sample data. */
+export interface AutomationPreview {
+  subject: string;
+  text: string;
+  missing: string[];
+  warnings: string[];
+}
+
+export interface AutomationPreviewInput {
+  event: AutomationEvent;
+  template: { subject: string; body: string };
+  data: Record<string, unknown>;
+  organizationId: string | null;
+}
+
+export type UpdateAutomationRuleInput = Partial<Pick<CreateAutomationRuleInput, "name" | "conditions" | "channelIds" | "template" | "throttleMinutes" | "enabled">>;
+
+export interface UpdateNotificationChannelInput {
+  name?: string;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+}
+
+export interface CreateTeamInput {
+  name: string;
+  organizationId: string | null;
+  description?: string | null;
+}
+
+/** POST /assets */
+export interface CreateAssetInput {
+  organizationId: string;
+  kind: AssetKind;
+  name: string;
+  hostname?: string | null;
+  ipAddresses: string[];
+  os?: string | null;
+  criticality: Criticality;
+  internetFacing: boolean;
+  tags: string[];
+  owner?: string | null;
+}
+
+/** PATCH /assets/:id */
+export type UpdateAssetInput = Partial<Omit<CreateAssetInput, "organizationId">>;

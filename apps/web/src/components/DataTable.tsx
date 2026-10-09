@@ -447,7 +447,7 @@ export function DataTable<T>({
             }
           />
         ) : (
-          <table className="w-full border-collapse text-base">
+          <table className="bl-table w-full border-collapse text-base">
             {caption ? <caption className="sr-only">{caption}</caption> : null}
             <thead>
               <tr className="border-b border-line bg-surface-2 text-left">

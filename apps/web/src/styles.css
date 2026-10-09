@@ -149,3 +149,14 @@
     transition-duration: 1ms !important;
   }
 }
+
+/* Density preference (Preferences → Density). Comfortable is the default spacing. */
+html[data-density="compact"] .bl-table th {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+html[data-density="compact"] .bl-table td {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+  font-size: 0.8125rem;
+}
