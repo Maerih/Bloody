@@ -15,4 +15,5 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-pnpm dev:web
+# --host makes the UI reachable on the server IP (http://<server-ip>:5173), not just localhost.
+pnpm dev:web --host "${BLOODY_WEB_HOST:-0.0.0.0}"

@@ -68,8 +68,14 @@ COOKIE_SECURE=false
 BLOODY_WEB_HOST=0.0.0.0
 EOF
 else
-  echo "==> .env already exists — leaving it unchanged"
+  echo "==> .env already exists — adding any missing demo settings"
 fi
+# Make sure an older/hand-made .env still has what the IP-reachable demo needs.
+ensure_env() { grep -qE "^$1=" .env || { echo "$1=$2" >> .env; echo "    added $1=$2"; }; }
+ensure_env COOKIE_SECURE false
+ensure_env BLOODY_WEB_HOST 0.0.0.0
+ensure_env PUBLIC_URL "http://${IP}:5173"
+ensure_env CORS_ORIGINS "http://${IP}:5173,http://localhost:5173"
 
 echo "==> Installing dependencies"
 pnpm install
