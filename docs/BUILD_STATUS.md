@@ -56,18 +56,24 @@ Open a Claude Code session on this repository and branch (`maerih/bloody`), then
 
 > Resume the Bloody build from docs/BUILD_STATUS.md — do the "Remaining" steps in order.
 
-## Run it locally
+## Run it locally (demo, no Docker needed)
+
+On a Linux server with Node.js 22 (`nvm install 22`), pnpm 10 and PostgreSQL (`sudo apt install -y postgresql`):
 
 ```bash
-pnpm install
-# Postgres 16 on localhost:5432 (postgres/postgres), or:
-docker compose -f infra/docker-compose.yml up -d postgres valkey mailpit
-pnpm db:migrate
-pnpm db:seed          # dev demo data; prints the logins
-pnpm dev:api          # http://localhost:4000/api/v1/healthz
-pnpm dev:web          # http://localhost:5173
+git switch maerih/bloody
+bash scripts/setup-local.sh     # once: DB roles + databases, .env, install, migrate, seed
+bash scripts/start-demo.sh      # starts the API and the web UI (Ctrl+C stops both)
 ```
 
-Log in as `admin@bloody.local` with password `ChangeMe!123` (MSSP admin). Customer-side logins use the same password: `ciso@kilimanjaro-bank.example`, `it.manager@savannah-logistics.example`, `viewer@nile-health.example`.
+Open `http://<server-ip>:5173`. Log in as `admin@bloody.local` / `ChangeMe!123` (MSSP admin), or use a customer
+login with the same password: `ciso@kilimanjaro-bank.example`, `it.manager@savannah-logistics.example` or
+`viewer@nile-health.example`.
 
-Run the checks with `pnpm -r typecheck` and `pnpm -r test`.
+The setup script never changes the `postgres` superuser password. It creates `bloody_owner` (migrations and
+seed) and `bloody_app` (the API's runtime role), and writes a git-ignored `.env`. To override the detected IP,
+run `BLOODY_IP=192.168.1.3 bash scripts/setup-local.sh`; if `.env` already exists, delete it first so it is
+regenerated with the new IP. The API listens on 127.0.0.1:4000 and the browser reaches it through the web
+server's `/api` proxy.
+
+Checks: `pnpm -r typecheck`, `pnpm -r test`.

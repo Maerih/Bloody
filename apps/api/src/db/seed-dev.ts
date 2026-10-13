@@ -23,6 +23,7 @@ import { hashPassword } from "../security/passwords.js";
 import { sha256Hex } from "../security/crypto.js";
 import { migrate } from "./migrate.js";
 import { Database, createPool } from "./pool.js";
+import { loadDotEnv } from "../env-file.js";
 
 // ─── Specs ──────────────────────────────────────────────────────────────────
 
@@ -533,6 +534,7 @@ interface Page<T> {
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  loadDotEnv();
   const config = loadConfig({ ...process.env, LOG_LEVEL: process.env.LOG_LEVEL ?? "warn" });
   if (config.env === "production") throw new Error("seed-dev refuses to run with NODE_ENV=production");
   const refresh = process.argv.includes("--refresh");

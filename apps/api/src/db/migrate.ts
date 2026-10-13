@@ -220,6 +220,8 @@ export async function migrationStatus(connectionString: string, migrationsDir = 
 }
 
 async function main(): Promise<void> {
+  const { loadDotEnv } = await import("../env-file.js");
+  loadDotEnv();
   const { loadConfig } = await import("../config.js");
   const config = loadConfig();
   const redacted = (() => {

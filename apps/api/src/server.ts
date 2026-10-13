@@ -1,6 +1,7 @@
 import { buildApp } from "./app.js";
 import { ConfigError, loadConfig } from "./config.js";
 import { Database, createPool } from "./db/pool.js";
+import { loadDotEnv } from "./env-file.js";
 
 /**
  * Production entry point. Request handling uses ONLY the RLS-enforced runtime role
@@ -8,6 +9,7 @@ import { Database, createPool } from "./db/pool.js";
  * migrations run as a separate step (`pnpm --filter @bloody/api migrate`).
  */
 async function main(): Promise<void> {
+  loadDotEnv();
   const config = loadConfig();
   const pool = createPool({
     connectionString: config.database.appUrl,
