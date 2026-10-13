@@ -11,7 +11,7 @@ import react from "@vitejs/plugin-react";
  */
 export default defineConfig(({ mode }) => {
   // Settings come from apps/web/.env* and, with lower precedence, the repo-root .env.
-  const env = { ...loadEnv(mode, path.resolve(process.cwd(), "../.."), ""), ...loadEnv(mode, process.cwd(), "") };
+  const env = { ...loadEnv(mode, path.resolve(process.cwd(), "../.."), ""), ...loadEnv(mode, process.cwd(), ""), ...process.env } as Record<string, string | undefined>;
   const apiTarget = env.BLOODY_API_URL || "http://localhost:4000";
   // BLOODY_WEB_HOST=0.0.0.0 serves the UI on every interface (e.g. http://<server-ip>:5173).
   const host = env.BLOODY_WEB_HOST || "localhost";

@@ -16,4 +16,6 @@ for _ in $(seq 1 60); do
 done
 
 # --host makes the UI reachable on the server IP (http://<server-ip>:5173), not just localhost.
+# The UI proxies /api to the API on this same machine.
+export BLOODY_API_URL="http://127.0.0.1:${PORT_API:-4000}"
 pnpm dev:web --host "${BLOODY_WEB_HOST:-0.0.0.0}"
