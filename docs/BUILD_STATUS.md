@@ -52,7 +52,7 @@ Known follow-ups from the infra report:
 - ~~gzip request decoding for collectors~~ (DONE: gzip/deflate/br with zip-bomb guard; Vector and OTel now send gzip);
 - ~~OTLP log envelope unwrapping on `/ingest/:adapter`~~ (DONE, tested with Suricata and syslog);
 - ~~Kafka `EventBus` transport~~ (DONE: tested against a real Kafka 4.3 broker — ordering, retry, DLQ, end-to-end incident);
-- OpenSearch `EventStore`;
+- OpenSearch `EventStore` — BLOCKED here: the environment's network policy denies artifacts.opensearch.org, so it cannot be tested against a real server. Allow that domain, then build it;
 - ~~a Valkey-backed rate limiter~~ (DONE: shared across replicas, fail-open, tested with two replicas);
 - ~~OTel SDK instrumentation~~ (DONE: request tracing over OTLP/HTTP with traceparent propagation; tested in-memory and against a live OTLP receiver).
 
@@ -70,6 +70,7 @@ On a Linux server with Node.js 22 (`nvm install 22`), pnpm 10 and PostgreSQL (`s
 git switch maerih/bloody
 bash scripts/setup-local.sh     # once: DB roles + databases, .env, install, migrate, seed
 bash scripts/start-demo.sh      # starts the API and the web UI (Ctrl+C stops both)
+bash scripts/start-demo.sh --fresh   # same, but first re-anchors the demo data at "now" (use before a demo)
 ```
 
 Open `http://<server-ip>:5173`. Log in as `admin@bloody.local` / `ChangeMe!123` (MSSP admin), or use a customer

@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # Start the Bloody API and web UI together (Ctrl+C stops both).
 # Run scripts/setup-local.sh once first.
+#
+#   bash scripts/start-demo.sh           # start
+#   bash scripts/start-demo.sh --fresh   # first re-anchor the demo data at "now" (agents check in,
+#                                        # incidents are recent) — use this before showing it to someone
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+if [ "${1:-}" = "--fresh" ]; then
+  echo "Refreshing demo data to the current time ..."
+  pnpm --filter @bloody/api seed:dev --refresh
+fi
 
 pnpm dev:api &
 API_PID=$!
