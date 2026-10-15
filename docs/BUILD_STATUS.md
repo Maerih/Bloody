@@ -42,7 +42,7 @@ At pause time `pnpm -r typecheck` passed and all ~870 tests passed. The app runs
    1. Audit each module page for real hooks plus loading, empty and error states.
    2. Remove any remaining `ModulePlaceholderPage` routes.
    3. List every called endpoint in `apps/web/src/api/endpoints.ts`.
-3. **Web ↔ API reconciliation**, about 45 min. Match every web call against the registered Fastify routes and response shapes; fix mismatches.
+3. ~~**Web ↔ API reconciliation**~~ (DONE: all 84 web calls match API routes; a browser crawl of all 153 pages against the live API found 2 bugs, both fixed — Billing page crash and the SOAR actions limit), about 45 min. Match every web call against the registered Fastify routes and response shapes; fix mismatches.
 4. **End-to-end run**, about 1 h. Use Playwright on every page: zero console errors and zero failed requests, compare against the reference screenshots, check dark theme, then run `pnpm -r build`.
 5. **Security, tenancy and completeness review, then fixes**, about 1.5 h.
 

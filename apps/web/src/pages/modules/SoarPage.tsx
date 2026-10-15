@@ -70,7 +70,7 @@ function SoarOverview() {
 }
 
 function ExecutionLog({ selectedId }: { selectedId: string | null }) {
-  const actions = useResponseActions({ limit: 500 }, { refetchIntervalMs: 30_000 });
+  const actions = useResponseActions({ limit: 200 }, { refetchIntervalMs: 30_000 });
   return (
     <div className="space-y-2">
       <p className="text-sm text-fg-muted">Every response action — requested by an analyst, a playbook or the AI analyst — with its approval, executor and result. Filter by status, risk or origin in the column headers.</p>

@@ -47,9 +47,9 @@ export default function BillingPage() {
   const allowed = session.canAnywhere("billing:read");
   const usage = useBillingUsage({ enabled: allowed });
   const entitlements = useEntitlements();
-  const plan: PlanKey = usage.data?.limits?.plan ?? usage.data?.plan ?? session.plan;
+  const plan: PlanKey = usage.data?.plan ?? session.plan;
   const def = PLANS[plan];
-  const overrides = usage.data?.limits?.overrides ?? {};
+  const overrides = usage.data?.overrides ?? {};
 
   const entColumns: DataTableColumn<EntitlementView>[] = [
     { id: "module", header: "Module", accessor: (e) => MODULES.find((m) => m.key === e.module)?.name ?? e.module, hideable: false },
@@ -122,7 +122,7 @@ export default function BillingPage() {
               <div key={key} className="flex justify-between gap-2">
                 <dt className="text-fg-muted">{label}</dt>
                 <dd className="font-medium tabular-nums">
-                  {formatNumber(overrides[key] ?? usage.data?.limits?.limits[key] ?? def.limits[key])}
+                  {formatNumber(overrides[key] ?? usage.data?.limits?.[key] ?? def.limits[key])}
                   {overrides[key] !== undefined ? <Badge size="xs" tone="info" className="ml-1">contracted</Badge> : null}
                 </dd>
               </div>

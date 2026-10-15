@@ -228,8 +228,11 @@ export interface BillingUsage {
   /** Older deployments put the plan at the top level; current ones under `limits.plan`. */
   plan?: PlanKey;
   period?: { start: string; end: string };
-  /** Effective plan limits with contracted per-account overrides. */
-  limits?: { plan: PlanKey; limits: Record<string, number>; overrides?: Record<string, number> };
+  planName?: string;
+  /** Effective plan limits (GET /billing/usage returns a flat map: { endpoints, organizations, … }). */
+  limits?: Record<string, number>;
+  /** Contracted per-account overrides of the plan limits. */
+  overrides?: Record<string, number>;
   usage: Record<string, { used: number; limit: number | null; remaining?: number; percent?: number; resetsAt?: string | null }>;
 }
 
