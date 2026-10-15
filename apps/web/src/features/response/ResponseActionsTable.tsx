@@ -2,7 +2,7 @@ import { RESPONSE_ACTIONS, actionRisk, type ResponseActionRecord } from "@bloody
 import { Check, ShieldAlert, X } from "lucide-react";
 import { useState } from "react";
 import { errorMessage } from "../../api/client";
-import { useApproveResponseAction, useRejectResponseAction } from "../../api/hooks";
+import { useApproveResponseAction, useRejectResponseAction, useReviewEmergencyAction } from "../../api/hooks";
 import { useSession } from "../../app/session";
 import { Badge, StatusBadge } from "../../components/Badge";
 import { Button } from "../../components/Button";
@@ -120,6 +120,7 @@ export function ResponseActionsTable({
 }) {
   const session = useSession();
   const [decision, setDecision] = useState<{ record: ResponseActionRecord; decision: "approve" | "reject" } | null>(null);
+  const [review, setReview] = useState<ResponseActionRecord | null>(null);
   const [detail, setDetail] = useState<ResponseActionRecord | null>(null);
 
   const columns: DataTableColumn<ResponseActionRecord>[] = [
@@ -137,6 +138,24 @@ export function ResponseActionsTable({
       exportable: false,
       sortable: false,
       cell: (a) => {
+        if (a.emergency) {
+          const pending = a.review?.status === "pending";
+          const canReview = pending && session.can("response:approve", a.organizationId) && !isOwnRequest(a, session.principal.id);
+          return (
+            <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              <Badge size="xs" tone="danger" title="Executed without prior approval (break-glass)">
+                Emergency
+              </Badge>
+              {canReview ? (
+                <Button size="xs" icon={Check} onClick={() => setReview(a)}>
+                  Review
+                </Button>
+              ) : (
+                <span className="text-xs text-fg-subtle">{pending ? "Review pending" : "Reviewed"}</span>
+              )}
+            </span>
+          );
+        }
         if (a.status !== "pending_approval") return a.approvedBy ? <span className="text-xs text-fg-muted">by {a.approvedBy}</span> : null;
         if (!session.can("response:approve", a.organizationId)) return <span className="text-xs text-fg-subtle">Awaiting approver</span>;
         if (isOwnRequest(a, session.principal.id)) return <span className="text-xs text-fg-subtle" title="Four-eyes rule: another approver must decide">Requested by you</span>;
@@ -171,6 +190,7 @@ export function ResponseActionsTable({
         exportFileName={exportFileName}
         emptyState={<EmptyState icon={ShieldAlert} title={emptyTitle} description={emptyDescription} />}
       />
+      {review ? <EmergencyReviewDialog record={review} onClose={() => setReview(null)} /> : null}
       {decision ? <ApprovalDialog record={decision.record} decision={decision.decision} onClose={() => setDecision(null)} /> : null}
       {detail ? (
         <Dialog open onClose={() => setDetail(null)} title={actionLabel(detail.action)} description={`${detail.target.label ?? detail.target.id} · ${humanize(detail.status)}`} size="lg">
@@ -202,5 +222,53 @@ export function ResponseActionsTable({
         </Dialog>
       ) : null}
     </>
+  );
+}
+
+/** A second person reviews an emergency (break-glass) action after it ran. */
+export function EmergencyReviewDialog({ record, onClose }: { record: ResponseActionRecord; onClose: () => void }) {
+  const review = useReviewEmergencyAction();
+  const [comment, setComment] = useState("");
+  const valid = comment.trim().length >= 3;
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title="Review emergency action"
+      description="This action ran without prior approval. Confirm the justification was sound; release the endpoint separately if it was not."
+      footer={
+        review.isSuccess ? (
+          <span role="status" className="mr-auto text-sm text-healthy">
+            Review recorded.
+          </span>
+        ) : (
+          <>
+            {review.isError ? (
+              <span role="alert" className="mr-auto text-sm text-sev-critical">
+                {errorMessage(review.error)}
+              </span>
+            ) : null}
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" icon={Check} disabled={!valid} loading={review.isPending} onClick={() => review.mutate({ id: record.id, comment: comment.trim() }, { onSuccess: () => setTimeout(onClose, 900) })}>
+              Record review
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <DescriptionList
+          items={[
+            { label: "Action", value: actionLabel(record.action) },
+            { label: "Target", value: record.target.label ?? record.target.id },
+            { label: "Used by", value: record.requestedBy },
+            { label: "Reason", value: record.reason },
+          ]}
+        />
+        <Field label="Review notes" required hint="Recorded in the audit log.">
+          {(p) => <Textarea {...p} value={comment} maxLength={2000} onChange={(e) => setComment(e.target.value)} />}
+        </Field>
+      </div>
+    </Dialog>
   );
 }

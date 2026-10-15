@@ -32,6 +32,7 @@ export const EVENT_LABELS: Record<AutomationEvent, string> = {
   "escalation.created": "Escalation created",
   "escalation.overdue": "Escalation overdue",
   "response.pending_approval": "Response action awaiting approval",
+  "response.emergency": "Emergency action executed (break-glass)",
   "agent.unresponsive": "Agent unresponsive",
   "indicator.matched": "Threat-intel indicator matched",
   "vulnerability.kev_detected": "Known-exploited vulnerability detected",

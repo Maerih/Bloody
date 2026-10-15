@@ -34,6 +34,8 @@ export const PERMISSIONS = [
   "response:request",
   "response:approve",
   "response:execute",
+  /** Break-glass: execute an emergency action (endpoint isolation) without waiting for approval. */
+  "response:emergency",
   "playbook:read",
   "playbook:write",
   "ai:use",
@@ -110,7 +112,7 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly Permission[]> = {
   soc_analyst_t1: ANALYST_T1,
   soc_analyst_t2: ANALYST_T2,
   threat_hunter: [...ANALYST_T2, "detection:write"],
-  incident_responder: [...ANALYST_T2, "response:approve"],
+  incident_responder: [...ANALYST_T2, "response:approve", "response:emergency"],
   security_engineer: [
     ...READ_ALL,
     "detection:write",

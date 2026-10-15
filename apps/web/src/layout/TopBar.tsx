@@ -1,11 +1,12 @@
 import { clsx } from "clsx";
-import { CircleHelp, Keyboard, LifeBuoy, MessageCircle, Search, Settings, Sparkles } from "lucide-react";
+import { CircleHelp, Keyboard, LifeBuoy, MessageCircle, Moon, Search, Settings, Sparkles, Sun } from "lucide-react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { APP_CONFIG, isExternalUrl } from "../app/config";
 import { TOP_NAV } from "../app/navigation";
 import { useSession } from "../app/session";
 import { useUi } from "../app/ui";
 import { IconButton } from "../components/Button";
+import { useTheme } from "../app/theme";
 import { LogoMark } from "../components/Logo";
 import { MenuList, Popover } from "../components/Popover";
 import { isMac } from "../hooks/useHotkeys";
@@ -84,6 +85,7 @@ export function TopBar() {
         >
           {(close) => <MenuList onClose={close} items={helpMenuItems(() => ui.setShortcutsOpen(true))} />}
         </Popover>
+        <ThemeToggle />
         <NotificationsPanel />
         <IconButton icon={Settings} label="Settings" tone="topbar" onClick={() => navigate("/settings")} />
         <HamburgerMenu />
@@ -103,4 +105,11 @@ export function helpMenuItems(openShortcuts: () => void) {
     { key: "shortcuts", label: "Keyboard shortcuts", icon: Keyboard, onSelect: openShortcuts, hint: "?" },
     { key: "ai", label: "Ask the AI SOC analyst", icon: Sparkles, href: "/ai" },
   ];
+}
+
+/** One-click light/dark switch (Preferences also offers "match system"). */
+function ThemeToggle() {
+  const theme = useTheme();
+  const dark = theme.resolved === "dark";
+  return <IconButton icon={dark ? Sun : Moon} label={dark ? "Switch to light mode" : "Switch to dark mode"} tone="topbar" onClick={() => theme.setPreference(dark ? "light" : "dark")} />;
 }

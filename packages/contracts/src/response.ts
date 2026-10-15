@@ -23,6 +23,14 @@ export const RESPONSE_ACTIONS = [
 export type ResponseActionKey = (typeof RESPONSE_ACTIONS)[number]["key"];
 
 /**
+ * Break-glass: actions an authorised responder may execute immediately in an emergency (needs
+ * response:emergency, a written reason, is audited and alerted, and must be reviewed afterwards
+ * by a second person). Never available to AI or playbooks.
+ */
+export const EMERGENCY_ACTIONS: readonly ResponseActionKey[] = ["isolate_endpoint"];
+export const EMERGENCY_REASON_MIN = 20;
+
+/**
  * Endpoint isolation modes. Both keep the endpoint reachable by the Bloody platform (and the
  * engine manager that delivers commands), so it can always be released from the platform.
  *  - "lan":  cut the endpoint off the local network (RFC1918, CGNAT, link-local, IPv6 ULA) to stop
@@ -52,6 +60,8 @@ export const ResponseActionRequest = z.object({
   target: z.object({ kind: z.enum(["asset", "identity", "indicator", "incident"]), id: z.string(), label: z.string().optional() }),
   parameters: z.record(z.unknown()).default({}),
   reason: z.string().min(3).max(2000),
+  /** Break-glass (EMERGENCY_ACTIONS only, response:emergency): execute now, review afterwards. */
+  emergency: z.boolean().optional(),
 });
 export type ResponseActionRequest = z.input<typeof ResponseActionRequest>;
 
@@ -70,6 +80,12 @@ export const ResponseActionRecord = z.object({
   approvedBy: z.string().nullable(),
   executor: z.string().nullable(),
   result: z.unknown().nullable(),
+  /** Executed under break-glass; `review` tracks the mandatory after-the-fact review. */
+  emergency: z.boolean().optional(),
+  review: z
+    .object({ status: z.enum(["pending", "reviewed"]), reviewedBy: z.string().nullable(), reviewedAt: IsoDateTime.nullable(), comment: z.string().nullable() })
+    .nullable()
+    .optional(),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -133,6 +149,7 @@ export const AUTOMATION_EVENTS = [
   "escalation.created",
   "escalation.overdue",
   "response.pending_approval",
+  "response.emergency",
   "agent.unresponsive",
   "indicator.matched",
   "vulnerability.kev_detected",

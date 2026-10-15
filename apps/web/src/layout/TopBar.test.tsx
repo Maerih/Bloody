@@ -23,6 +23,17 @@ describe("TopBar", () => {
     expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
   });
 
+  it("switches between light and dark mode from the top bar", () => {
+    localStorage.clear();
+    document.documentElement.classList.remove("dark");
+    renderWithSession(<TopBar />);
+    const toDark = screen.getByRole("button", { name: "Switch to dark mode" });
+    fireEvent.click(toDark);
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Switch to light mode" }));
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
+
   it("opens the hamburger menu with support, account and profile sections", () => {
     renderWithSession(<TopBar />);
     fireEvent.click(screen.getByRole("button", { name: "Main menu" }));

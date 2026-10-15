@@ -74,3 +74,54 @@ describe("isolation policy", () => {
     expect(JSON.parse(calls[1]!.body ?? "{}")).toMatchObject({ command: "!bloody-isolate", arguments: ["release"] });
   });
 });
+
+describe("break-glass authorisation (guardRequest)", () => {
+  const base = {
+    actionId: "4f1c2a8e-7d3b-4c6a-9e2f-1a2b3c4d5e6f",
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    organizationId: "00000000-0000-4000-8000-0000000000a1",
+    target: { kind: "asset" as const, id: "001" },
+    parameters: {},
+    reason: "Ransomware spreading, approver unreachable",
+    requestedBy: "user-1",
+    requestedVia: "user" as const,
+    approvedBy: null,
+  };
+  it("accepts a person's own emergency isolation and nothing else", async () => {
+    const { guardRequest } = await import("./types.js");
+    const supported = ["isolate_endpoint", "block_ip", "disable_identity"] as const;
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint", emergency: { authorizedBy: "user-1" } }, [...supported])).not.toThrow();
+    // No approval and no break-glass: refused.
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint" }, [...supported])).toThrow(/requires a recorded approval/);
+    // Not on the emergency list, authorised by someone else, or requested by AI / playbooks: refused.
+    expect(() => guardRequest({ ...base, action: "block_ip", target: { kind: "indicator", id: "203.0.113.9" }, emergency: { authorizedBy: "user-1" } }, [...supported])).toThrow(/break-glass/);
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint", emergency: { authorizedBy: "user-2" } }, [...supported])).toThrow(/break-glass/);
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint", requestedVia: "ai", emergency: { authorizedBy: "user-1" } }, [...supported])).toThrow(/break-glass/);
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint", requestedVia: "playbook", emergency: { authorizedBy: "user-1" } }, [...supported])).toThrow(/break-glass/);
+  });
+});
+
+
+describe("break-glass authorisation (guardRequest)", () => {
+  const base = {
+    actionId: "4f1c2a8e-7d3b-4c6a-9e2f-1a2b3c4d5e6f",
+    tenantId: "00000000-0000-4000-8000-000000000001",
+    organizationId: "00000000-0000-4000-8000-0000000000a1",
+    target: { kind: "asset" as const, id: "001" },
+    parameters: {},
+    reason: "Ransomware spreading, approver unreachable",
+    requestedBy: "user-1",
+    requestedVia: "user" as const,
+    approvedBy: null,
+  };
+  it("accepts a person's own emergency isolation and nothing else", async () => {
+    const { guardRequest } = await import("./types.js");
+    const supported: Parameters<typeof guardRequest>[1] = ["isolate_endpoint", "block_ip"];
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint", emergency: { authorizedBy: "user-1" } }, supported)).not.toThrow();
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint" }, supported)).toThrow(/requires a recorded approval/);
+    expect(() => guardRequest({ ...base, action: "block_ip", target: { kind: "indicator", id: "203.0.113.9" }, emergency: { authorizedBy: "user-1" } }, supported)).toThrow(/break-glass/);
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint", emergency: { authorizedBy: "user-2" } }, supported)).toThrow(/break-glass/);
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint", requestedVia: "ai", emergency: { authorizedBy: "user-1" } }, supported)).toThrow(/break-glass/);
+    expect(() => guardRequest({ ...base, action: "isolate_endpoint", requestedVia: "playbook", emergency: { authorizedBy: "user-1" } }, supported)).toThrow(/break-glass/);
+  });
+});

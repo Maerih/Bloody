@@ -61,6 +61,12 @@ const BY_EVENT: Record<AutomationEvent, TemplateVariable[]> = {
     { name: "action.reason", description: "Requester's reason" },
     { name: "action.requestedBy", description: "Who requested it" },
   ],
+  "response.emergency": [
+    { name: "action.label", description: "Emergency action" },
+    { name: "action.target", description: "Action target" },
+    { name: "action.reason", description: "Written justification" },
+    { name: "action.requestedBy", description: "Responder who used break-glass" },
+  ],
   "agent.unresponsive": [
     { name: "agent.hostname", description: "Endpoint hostname" },
     { name: "agent.lastCheckinAt", description: "Last agent check-in" },

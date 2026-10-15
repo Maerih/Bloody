@@ -1,4 +1,4 @@
-import { ISOLATION_MODES, RESPONSE_ACTIONS, ResponseActionRequest, actionRisk, type IsolationMode, type ResponseActionKey } from "@bloody/contracts";
+import { EMERGENCY_ACTIONS, EMERGENCY_REASON_MIN, ISOLATION_MODES, RESPONSE_ACTIONS, ResponseActionRequest, actionRisk, type IsolationMode, type ResponseActionKey } from "@bloody/contracts";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { errorMessage } from "../../api/client";
@@ -98,6 +98,7 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
   const [reason, setReason] = useState("");
   const [params, setParams] = useState<Record<string, string>>({});
   const [isolationMode, setIsolationMode] = useState<IsolationMode>("full");
+  const [emergency, setEmergency] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   const def = RESPONSE_ACTIONS.find((a) => a.key === action)!;
@@ -106,6 +107,9 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
   const effectiveTarget = def.target === "indicator" ? indicator.trim() : (list.find((t) => t.id === targetId) ?? list[0])?.id ?? "";
   const targetLabel = def.target === "indicator" ? indicator.trim() : list.find((t) => t.id === effectiveTarget)?.label;
   const spec = PARAMS[action];
+  // Break-glass is offered only for eligible actions and to people holding response:emergency.
+  const canEmergency = EMERGENCY_ACTIONS.includes(action) && session.can("response:emergency", organizationId);
+  const isEmergency = emergency && canEmergency;
   const paramError = spec ? spec.validate(params) : null;
 
   const payload = {
@@ -115,11 +119,18 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
     target: { kind: def.target, id: effectiveTarget, ...(targetLabel ? { label: targetLabel } : {}) },
     parameters: action === "isolate_endpoint" ? { mode: isolationMode } : buildParameters(action, params),
     reason: reason.trim(),
+    ...(isEmergency ? { emergency: true } : {}),
   };
   const parsed = ResponseActionRequest.safeParse(payload);
   const errors = {
     target: effectiveTarget ? null : def.target === "indicator" ? "Enter the IP address or domain" : `No ${def.target} available for this action`,
-    reason: reason.trim().length >= 3 ? null : "Explain why this action is needed (min. 3 characters)",
+    reason: isEmergency
+      ? reason.trim().length >= EMERGENCY_REASON_MIN
+        ? null
+        : `An emergency action needs a written reason of at least ${EMERGENCY_REASON_MIN} characters`
+      : reason.trim().length >= 3
+        ? null
+        : "Explain why this action is needed (min. 3 characters)",
   };
   const canRequest = session.can("response:request", organizationId);
 
@@ -143,7 +154,11 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
       footer={
         request.isSuccess ? (
           <span role="status" className="mr-auto text-sm text-healthy">
-            {request.data?.status === "pending_approval" ? "Submitted — waiting in the approval queue." : "Action submitted."}
+            {request.data?.emergency
+              ? "Done — executed as an emergency. A second responder must review it."
+              : request.data?.status === "pending_approval"
+                ? "Submitted — waiting in the approval queue."
+                : "Action submitted."}
           </span>
         ) : (
           <>
@@ -155,8 +170,8 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
               <span className="mr-auto text-sm text-fg-muted">You don't have permission to request response actions here.</span>
             ) : null}
             <Button onClick={onClose}>Cancel</Button>
-            <Button variant={risk === "high" ? "danger" : "primary"} onClick={submit} loading={request.isPending} disabled={!canRequest}>
-              {risk === "high" ? "Request approval" : "Submit action"}
+            <Button variant={risk === "high" || isEmergency ? "danger" : "primary"} onClick={submit} loading={request.isPending} disabled={!canRequest}>
+              {isEmergency ? "Isolate now (emergency)" : risk === "high" ? "Request approval" : "Submit action"}
             </Button>
           </>
         )
@@ -193,7 +208,12 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
           <Badge tone={RISK_TONE[risk]}>{risk} risk</Badge>
           <span className="text-fg-muted">Target: {def.target}</span>
         </div>
-        {risk === "high" ? (
+        {isEmergency ? (
+          <p className="flex items-start gap-2 rounded border border-sev-critical bg-sev-critical/10 p-2 text-sm text-fg" data-testid="emergency-notice">
+            <ShieldAlert size={14} className="mt-0.5 shrink-0 text-sev-critical" aria-hidden />
+            Break-glass: this runs immediately without approval. It is audited, the SOC is alerted, and a different responder must review it afterwards.
+          </p>
+        ) : risk === "high" ? (
           <p className="flex items-start gap-2 rounded border border-sev-critical/30 bg-sev-critical/5 p-2 text-sm text-fg" data-testid="approval-gate">
             <ShieldAlert size={14} className="mt-0.5 shrink-0 text-sev-critical" aria-hidden />
             Approval gate: high-risk actions are never executed directly. They wait in the approval queue until a different user with the response-approval permission approves them.
@@ -236,6 +256,15 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
             ))}
             <p className="text-xs text-fg-muted">Either way the endpoint keeps reaching Bloody and its engine manager, so you can release it from here at any time.</p>
           </fieldset>
+        ) : null}
+        {canEmergency ? (
+          <label className="flex cursor-pointer items-start gap-2 rounded border border-sev-critical/40 p-2 text-sm">
+            <input type="checkbox" checked={emergency} onChange={(e) => setEmergency(e.target.checked)} className="mt-1" />
+            <span>
+              <span className="block font-medium text-sev-critical">Emergency — isolate now, review afterwards</span>
+              <span className="block text-fg-muted">For an active attack when no approver is reachable. Needs a detailed reason ({EMERGENCY_REASON_MIN}+ characters).</span>
+            </span>
+          </label>
         ) : null}
         {spec
           ? spec.fields.map((f) => (

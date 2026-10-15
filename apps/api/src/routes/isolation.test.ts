@@ -161,3 +161,54 @@ describe("Velociraptor LAN isolation via the Bloody artifact", () => {
     expect((await view()).status).toBe("protected");
   });
 });
+
+describe("emergency (break-glass) isolation", () => {
+  const emergency = (overrides: Json = {}) => ({
+    action: "isolate_endpoint",
+    organizationId: org,
+    target: { kind: "asset", id: assetId, label: "ws-sales-03" },
+    parameters: { mode: "full" },
+    reason: "Ransomware encrypting shares right now, no approver reachable",
+    emergency: true,
+    ...overrides,
+  });
+
+  it("isolates immediately, audits and leaves a review for a second person", async () => {
+    const sent = commands.length;
+    const res = await requester.post("/response/actions", emergency());
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ status: "succeeded", emergency: true, review: { status: "pending", reviewedBy: null }, approvalId: null });
+    expect(commands.length).toBe(sent + 1);
+    expect(commands.at(-1)!.body.arguments.slice(0, 2)).toEqual(["isolate", "full"]);
+    expect((await agentOfAsset()).status).toBe("isolated");
+
+    const pending = await approver.get("/response/actions?emergency=pending_review");
+    expect(pending.body.items.map((i: Json) => i.id)).toContain(res.body.id);
+
+    const self = await requester.post(`/response/actions/${res.body.id}/review`, { comment: "looks fine to me" });
+    expect(self.status).toBe(403);
+    const ok = await approver.post(`/response/actions/${res.body.id}/review`, { comment: "Confirmed encryption activity in EDR telemetry" });
+    expect(ok.status).toBe(200);
+    expect(ok.body.review).toMatchObject({ status: "reviewed", comment: "Confirmed encryption activity in EDR telemetry" });
+    expect((await approver.post(`/response/actions/${res.body.id}/review`, { comment: "again" })).status).toBe(409);
+    expect((await approver.get("/response/actions?emergency=pending_review")).body.items.map((i: Json) => i.id)).not.toContain(res.body.id);
+
+    const audit = await t.db.withTenant(tenant.tenantId, async (tx) =>
+      (await tx.query<{ action: string }>("SELECT action FROM audit_log WHERE target_id = $1 ORDER BY seq", [res.body.id])).rows.map((r) => r.action),
+    );
+    expect(audit).toEqual(expect.arrayContaining(["response.requested", "response.emergency", "response.emergency_reviewed"]));
+  });
+
+  it("is refused without the permission, a real reason, or for other actions", async () => {
+    const t1 = await createUser(t, tenant.tenantId, { roles: [{ role: "soc_analyst_t1", organizationId: null }], displayName: "Tier One" });
+    const analyst = api(t.app, { token: (await login(t.app, t1.email)).token });
+    expect((await analyst.post("/response/actions", emergency())).status).toBe(403);
+    expect((await requester.post("/response/actions", emergency({ reason: "urgent!!" }))).status).toBe(400);
+    const notEligible = await requester.post("/response/actions", emergency({ action: "block_ip", target: { kind: "indicator", id: "203.0.113.66" }, parameters: {} }));
+    expect(notEligible.status).toBe(400);
+    // Without the flag the normal approval gate still applies.
+    const normal = await requester.post("/response/actions", emergency({ emergency: undefined }));
+    expect(normal.status).toBe(202);
+    expect(normal.body.status).toBe("pending_approval");
+  });
+});

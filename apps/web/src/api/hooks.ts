@@ -523,6 +523,15 @@ function useResponseDecision(decision: "approve" | "reject") {
   });
 }
 export const useApproveResponseAction = () => useResponseDecision("approve");
+
+/** After-the-fact review of a break-glass (emergency) action by a second person. */
+export function useReviewEmergencyAction() {
+  const qc = useQueryClient();
+  return useMutation<ResponseActionRecord, ApiError, { id: string; comment: string }>({
+    mutationFn: ({ id, comment }) => api.post<ResponseActionRecord>(`/response/actions/${encodeURIComponent(id)}/review`, { comment }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.responseActionsRoot }),
+  });
+}
 export const useRejectResponseAction = () => useResponseDecision("reject");
 
 // ─── Notifications, automations & reporting ─────────────────────────────────

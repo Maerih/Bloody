@@ -1,7 +1,7 @@
 import type { Agent } from "@bloody/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ORG_A, TENANT_ID } from "../../test/fixtures";
+import { makeMe, ORG_A, TENANT_ID } from "../../test/fixtures";
 import { mockApi, renderWithSession } from "../../test/utils";
 import { AgentsTable } from "./AgentsTable";
 
@@ -62,5 +62,34 @@ describe("Agent isolation", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /Submit action|Request approval/ }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/response/actions")).toBe(true));
     expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({ action: "release_endpoint", parameters: {} });
+  });
+
+  it("offers break-glass isolation to responders: runs now, needs a real reason", async () => {
+    const { calls } = mockApi({
+      "/agents": { items: [agent()], nextCursor: null },
+      "POST /response/actions": ({ body }: { body: unknown }) => ({ ...(body as object), id: "00000000-0000-4000-8000-0000000000f2", status: "succeeded", emergency: true, review: { status: "pending", reviewedBy: null, reviewedAt: null, comment: null } }),
+    });
+    renderWithSession(<AgentsTable />);
+    fireEvent.click(await screen.findByRole("button", { name: "Isolate" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /Emergency — isolate now/ }));
+    expect(within(dialog).getByTestId("emergency-notice")).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: "too short" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Isolate now (emergency)" }));
+    expect(await within(dialog).findByText(/at least 20 characters/)).toBeInTheDocument();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: "Ransomware encrypting file shares right now" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Isolate now (emergency)" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({ action: "isolate_endpoint", emergency: true });
+    expect(await within(dialog).findByText(/executed as an emergency/)).toBeInTheDocument();
+  });
+
+  it("never offers break-glass without the emergency permission", async () => {
+    mockApi({ "/agents": { items: [agent()], nextCursor: null } });
+    renderWithSession(<AgentsTable />, { me: makeMe({ bindings: [{ role: "soc_analyst_t1", organizationId: null }] }) });
+    fireEvent.click(await screen.findByRole("button", { name: "Isolate" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("checkbox", { name: /Emergency/ })).toBeNull();
   });
 });

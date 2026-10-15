@@ -157,6 +157,26 @@ export const DEFAULT_RULE_TEMPLATES: Record<AutomationEvent, RuleTemplatePreset>
     ],
     throttleMinutes: 0,
   },
+  "response.emergency": {
+    event: "response.emergency",
+    name: "Emergency action executed (break-glass)",
+    description: "Alert the SOC when a responder bypasses the approval gate; a second person must review it.",
+    audience: "soc",
+    subject: "EMERGENCY: {{action.label}} executed on {{target.label | default:\"target\"}} ({{organization.name}})",
+    body: [
+      "**{{requestedBy.name | default:\"A responder\"}}** used break-glass to run **{{action.label}}** without prior approval.",
+      "Reason: {{reason}}",
+      "- Target: {{target.label | default:\"\"}} ({{target.kind}})",
+      "A different responder must review this action in the Command Center (Response → Emergency reviews).",
+    ].join("\n\n"),
+    variables: [
+      { path: "action.label", description: "Action name" },
+      { path: "target.label", description: "Target display name" },
+      { path: "reason", description: "Written justification" },
+      { path: "requestedBy.name", description: "Responder who used break-glass" },
+    ],
+    throttleMinutes: 0,
+  },
   "agent.unresponsive": {
     event: "agent.unresponsive",
     name: "Agent unresponsive",

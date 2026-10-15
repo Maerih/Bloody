@@ -1,4 +1,4 @@
-import { actionRisk, Uuid, type ActionRisk, type ResponseActionKey, type ResponseActionStatus } from "@bloody/contracts";
+import { actionRisk, EMERGENCY_ACTIONS, Uuid, type ActionRisk, type ResponseActionKey, type ResponseActionStatus } from "@bloody/contracts";
 import { canonicalJson, sha256Hex } from "../core/hash.js";
 import type { EngineClient } from "../http/client.js";
 import { EngineError } from "../http/client.js";
@@ -30,6 +30,12 @@ export interface ResponseExecutionRequest {
   requestedBy: string;
   requestedVia: "user" | "playbook" | "ai";
   approvedBy?: string | null;
+  /**
+   * Break-glass authorisation: a person holding response:emergency executed an EMERGENCY_ACTIONS
+   * action without prior approval (reviewed afterwards). Accepted only for user requests where
+   * the authoriser is the requester.
+   */
+  emergency?: { authorizedBy: string } | null;
   /** Build and return the engine call without sending it (approval preview). */
   dryRun?: boolean;
 }
@@ -119,6 +125,12 @@ export function guardRequest(req: ResponseExecutionRequest, supported: readonly 
   if (!req.reason || req.reason.trim().length < 3) throw new ResponseGuardError("invalid_request", "a justification (reason) is required");
   if (req.dryRun) return;
   if (actionRisk(req.action) === "high") {
+    if (req.emergency) {
+      if (req.requestedVia !== "user" || !EMERGENCY_ACTIONS.includes(req.action) || req.emergency.authorizedBy !== req.requestedBy) {
+        throw new ResponseGuardError("approval_required", `${req.action}: break-glass is only valid for a person's own emergency request`);
+      }
+      return;
+    }
     if (!req.approvedBy) throw new ResponseGuardError("approval_required", `${req.action} is high-risk and requires a recorded approval`);
     if (req.approvedBy === req.requestedBy) throw new ResponseGuardError("self_approval", "the approver must be a different principal than the requester");
   }

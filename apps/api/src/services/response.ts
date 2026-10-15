@@ -24,7 +24,7 @@ import type { ResponseExecutionRequest, ResponseExecutionResult } from "@bloody/
 import type { RiskEngine } from "@bloody/engines";
 import { SYSTEM_ACTOR, writeAudit, type AuditActor } from "../audit/audit.js";
 import type { Database, Queryable } from "../db/pool.js";
-import { HttpError, badRequest, notFound } from "../http/errors.js";
+import { HttpError, badRequest, forbidden, notFound } from "../http/errors.js";
 import type { PipelineLogger } from "../pipeline/analytics.js";
 import type { Row } from "../repo/mappers.js";
 import type { DomainEventBus } from "./domain-events.js";
@@ -82,6 +82,11 @@ export interface ResponseRequestInput {
   preApproved?: { approvalId: string | null; approvedBy: string[] } | undefined;
   /** Force the approval gate even for a low/medium action. */
   forceApproval?: boolean | undefined;
+  /**
+   * Break-glass: execute without prior approval. The route has already checked the action
+   * (EMERGENCY_ACTIONS), the requester (a user with response:emergency) and the written reason.
+   */
+  emergency?: boolean | undefined;
 }
 
 export interface ResponseActionView extends ResponseActionRecord {
@@ -129,6 +134,15 @@ export function toResponseAction(r: Row): ResponseActionView {
     startedAt: (r.started_at as string | null) ?? null,
     finishedAt: (r.finished_at as string | null) ?? null,
     error: r.error ?? null,
+    emergency: Boolean(r.emergency),
+    review: r.review_status
+      ? {
+          status: r.review_status as "pending" | "reviewed",
+          reviewedBy: (r.reviewed_by as string | null) ?? null,
+          reviewedAt: r.reviewed_at ? String(r.reviewed_at) : null,
+          comment: (r.review_comment as string | null) ?? null,
+        }
+      : null,
     ...(r.organization_name !== undefined ? { organizationName: (r.organization_name as string | null) ?? null } : {}),
     ...(r.incident_number !== undefined ? { incidentNumber: (r.incident_number as number | null) ?? null } : {}),
   };
@@ -263,7 +277,8 @@ export class ResponseService {
   async request(input: ResponseRequestInput, actor: AuditActor): Promise<ResponseActionView> {
     const risk = actionRisk(input.action);
     const requirement = this.deps.gate.requirement(input.action, input.forceApproval ?? false);
-    const needsApproval = requirement.required && !input.preApproved;
+    if (input.emergency && input.via !== "user") throw forbidden("Emergency actions can only be requested by a person", "emergency_not_allowed");
+    const needsApproval = requirement.required && !input.preApproved && !input.emergency;
     const requestedBy = input.requestedBy.kind === "playbook" ? input.requestedBy.id : (input.requestedBy.onBehalfOf ?? input.requestedBy.id);
 
     const row = await this.deps.db.withTenant(input.tenantId, async (tx) => {
@@ -281,8 +296,9 @@ export class ResponseService {
       const status: ResponseActionStatus = needsApproval ? "pending_approval" : "approved";
       const { rows } = await tx.query<Row>(
         `INSERT INTO response_actions (tenant_id, organization_id, incident_id, action, target, parameters, reason, status, risk, requested_by, requested_via,
-                                       approved_by, approval_id, ai_action_id, playbook_run_id, playbook_step_id, idempotency_key, decided_at)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+                                       approved_by, approval_id, ai_action_id, playbook_run_id, playbook_step_id, idempotency_key, decided_at,
+                                       emergency, review_status)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
         [
           input.tenantId,
           input.organizationId,
@@ -302,9 +318,20 @@ export class ResponseService {
           input.playbookStepId ?? null,
           input.idempotencyKey ?? null,
           input.preApproved ? new Date(this.deps.now()).toISOString() : null,
+          Boolean(input.emergency),
+          input.emergency ? "pending" : null,
         ],
       );
       const created = rows[0]!;
+      if (input.emergency) {
+        await writeAudit(tx, actor, {
+          action: "response.emergency",
+          organizationId: input.organizationId,
+          targetKind: "response_action",
+          targetId: String(created.id),
+          details: { action: input.action, target, reason: input.reason, parameters: input.parameters, approvalBypassed: requirement.required, gateReasons: requirement.reasons },
+        });
+      }
       await writeAudit(tx, actor, {
         action: "response.requested",
         organizationId: input.organizationId,
@@ -352,8 +379,42 @@ export class ResponseService {
       });
       return toResponseAction(updated);
     }
+    if (input.emergency) {
+      this.deps.events.publish({
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        event: "response.emergency",
+        occurredAt: new Date(this.deps.now()).toISOString(),
+        severity: "high",
+        subject: { kind: "response_action", id: String(row.id), label: `EMERGENCY ${input.action} → ${(row.target as { label?: string }).label ?? ""}` },
+        dedupKey: `emergency:${String(row.id)}`,
+        data: { requestedBy, reason: input.reason, reviewRequired: true },
+      });
+    }
     if (row.status === "approved") return this.execute(input.tenantId, String(row.id), actor);
     return toResponseAction(row);
+  }
+
+  /**
+   * After-the-fact review of a break-glass action by someone other than the requester. The
+   * review records that a second person examined the justification; it does not undo the action
+   * (release is its own action).
+   */
+  async review(principal: Principal, id: string, comment: string, actor: AuditActor): Promise<ResponseActionView> {
+    return this.deps.db.withTenant(principal.tenantId, async (tx) => {
+      const { rows } = await tx.query<Row>("SELECT * FROM response_actions WHERE id = $1 FOR UPDATE", [id]);
+      const row = rows[0];
+      if (!row) throw notFound("Response action");
+      if (!row.emergency) throw new HttpError(409, "not_emergency", "Only emergency (break-glass) actions need a review");
+      if (row.review_status !== "pending") throw new HttpError(409, "already_reviewed", "This emergency action was already reviewed");
+      if (String(row.requested_by) === principal.id) throw forbidden("The person who used break-glass cannot review their own action", "self_review");
+      const { rows: updated } = await tx.query<Row>(
+        "UPDATE response_actions SET review_status = 'reviewed', reviewed_by = $2, reviewed_at = $3, review_comment = $4 WHERE id = $1 RETURNING *",
+        [id, principal.id, new Date(this.deps.now()).toISOString(), comment],
+      );
+      await writeAudit(tx, actor, { action: "response.emergency_reviewed", organizationId: String(row.organization_id), targetKind: "response_action", targetId: id, details: { comment } });
+      return toResponseAction(updated[0]!);
+    });
   }
 
   // ─── Decisions ───────────────────────────────────────────────────────────
@@ -617,6 +678,7 @@ export class ResponseService {
         requestedBy: String(row.requested_by),
         requestedVia: row.requested_via as "user" | "playbook" | "ai",
         approvedBy: (row.approved_by as string | null) ?? null,
+        ...(row.emergency ? { emergency: { authorizedBy: String(row.requested_by) } } : {}),
       };
       return { connector, req, kind };
     });
