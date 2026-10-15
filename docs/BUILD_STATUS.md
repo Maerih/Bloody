@@ -71,6 +71,8 @@ git switch maerih/bloody
 bash scripts/setup-local.sh     # once: DB roles + databases, .env, install, migrate, seed
 bash scripts/start-demo.sh      # starts the API and the web UI (Ctrl+C stops both)
 bash scripts/start-demo.sh --fresh   # same, but first re-anchors the demo data at "now" (use before a demo)
+bash scripts/start-demo.sh --prod    # optimized production build of the UI (faster; recommended for demos)
+bash scripts/start-demo.sh --fresh --prod
 ```
 
 Open `http://<server-ip>:5173`. Log in as `admin@bloody.local` / `ChangeMe!123` (MSSP admin), or use a customer
