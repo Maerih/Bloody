@@ -64,6 +64,10 @@ const RawEnv = z.object({
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(10).max(1_000_000).default(1200),
   /** Valkey/Redis for state shared across API replicas (rate limits). Unset = in-process only. */
   VALKEY_URL: z.string().url().optional(),
+  /** Data-fabric transport: memory (single process) or kafka (KAFKA_BROKERS). */
+  BLOODY_EVENT_BUS: z.enum(["memory", "kafka"]).default("memory"),
+  KAFKA_BROKERS: z.string().max(2000).optional(),
+  KAFKA_CONSUMER_GROUP: z.string().min(1).max(200).default("bloody-pipeline"),
   /** OpenTelemetry: OTLP/HTTP endpoint of the collector (traces). Unset = tracing off. */
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
   OTEL_SERVICE_NAME: z.string().min(1).max(100).default("bloody-api"),
@@ -180,6 +184,7 @@ export interface AppConfig {
     valkeyUrl: string | null;
   };
   telemetry: { otlpEndpoint: string | null; serviceName: string; resourceAttributes: string | undefined };
+  bus: { kind: "memory" | "kafka"; brokers: string[]; consumerGroup: string };
   ingest: { maxBatch: number; bodyLimitBytes: number; maxEventAgeDays: number; pipelineEnabled: boolean };
   scheduler: { enabled: boolean; intervalSeconds: number };
   features: FeatureConfig;
@@ -247,6 +252,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new ConfigError(`Invalid configuration: ${issues}`);
   }
   const e = parsed.data;
+  if (e.BLOODY_EVENT_BUS === "kafka" && !(e.KAFKA_BROKERS ?? "").trim()) throw new ConfigError("BLOODY_EVENT_BUS=kafka requires KAFKA_BROKERS (host:port,host:port)");
   const production = e.NODE_ENV === "production";
   const warnings: string[] = [];
 
@@ -349,6 +355,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     features: { vulnEnrichment: e.FEATURE_VULN_ENRICHMENT },
     enrichment: { allowedHosts: e.ENRICHMENT_ALLOWED_HOSTS.map((h) => h.toLowerCase()), kevFeedUrl: e.KEV_FEED_URL, epssApiUrl: e.EPSS_API_URL },
     reports: { maxStoredBytes: e.REPORT_MAX_STORED_BYTES },
+    bus: { kind: e.BLOODY_EVENT_BUS, brokers: (e.KAFKA_BROKERS ?? "").split(",").map((b) => b.trim()).filter(Boolean), consumerGroup: e.KAFKA_CONSUMER_GROUP },
     telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT ?? null, serviceName: e.OTEL_SERVICE_NAME, resourceAttributes: e.OTEL_RESOURCE_ATTRIBUTES },
     ai: { allowPrivateEndpoints: e.AI_ALLOW_PRIVATE_ENDPOINTS },
     integrations: { allowPrivateNetworks: e.INTEGRATIONS_ALLOW_PRIVATE_NETWORKS },

@@ -51,7 +51,7 @@ Total: about 4–5 hours of agent work.
 Known follow-ups from the infra report:
 - ~~gzip request decoding for collectors~~ (DONE: gzip/deflate/br with zip-bomb guard; Vector and OTel now send gzip);
 - ~~OTLP log envelope unwrapping on `/ingest/:adapter`~~ (DONE, tested with Suricata and syslog);
-- Kafka `EventBus` transport;
+- ~~Kafka `EventBus` transport~~ (DONE: tested against a real Kafka 4.3 broker — ordering, retry, DLQ, end-to-end incident);
 - OpenSearch `EventStore`;
 - ~~a Valkey-backed rate limiter~~ (DONE: shared across replicas, fail-open, tested with two replicas);
 - ~~OTel SDK instrumentation~~ (DONE: request tracing over OTLP/HTTP with traceparent propagation; tested in-memory and against a live OTLP receiver).

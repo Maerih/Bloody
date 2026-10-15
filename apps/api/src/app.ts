@@ -1,3 +1,4 @@
+import { KafkaEventBus } from "./pipeline/kafka-bus.js";
 import type { SpanExporter } from "@opentelemetry/sdk-trace-base";
 import { registerTracing } from "./http/tracing.js";
 import { Redis } from "ioredis";
@@ -93,7 +94,11 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   const { config, db } = deps;
   const now = deps.now ?? (() => Date.now());
   const metrics = deps.metrics ?? new Metrics({ defaultMetrics: config.env !== "test" });
-  const bus = deps.bus ?? new InMemoryEventBus();
+  const bus =
+    deps.bus ??
+    (config.bus.kind === "kafka"
+      ? new KafkaEventBus({ brokers: config.bus.brokers, groupId: config.bus.consumerGroup, clientId: "bloody-api", log: { warn: (o, m) => console.warn(`[bloody-api] ${m}`, o) } })
+      : new InMemoryEventBus());
   const secrets = new SecretBox(config.encryption.keys, config.encryption.activeVersion);
   const risk = new RiskEngine({ clock: { now } });
   const attackPathEngine = new AttackPathEngine({ riskEngine: risk, clock: { now } });
