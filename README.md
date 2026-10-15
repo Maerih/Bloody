@@ -132,6 +132,10 @@ Options:
 
 Accounts: `pnpm admin create-account --name "Customer SOC" --email admin@customer.example`, and `pnpm admin reset-password --email <addr>`.
 
+Backups run daily: database plus secrets, the newest 14 kept in `backups/`. Set `BLOODY_BACKUP_HOOK` to copy each one off-server, e.g. with rclone.
+
+`bash scripts/restore.sh <file>` restores a backup on the same server or a new one. It takes a safety backup first. It also brings the encryption key along, so stored integration credentials keep working.
+
 ### Manual setups
 
 Prerequisites: Node.js ≥ 22, pnpm 10 (`corepack enable`), and either a local PostgreSQL 16 or Docker.

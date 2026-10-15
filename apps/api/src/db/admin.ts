@@ -2,7 +2,10 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type pg from "pg";
-import { hashPassword } from "../security/passwords.js";
+import { hashPassword, verifyPassword } from "../security/passwords.js";
+
+/** The password every demo login is seeded with (seed-dev.ts) — publicly known. */
+export const DEMO_PASSWORD = "ChangeMe!123";
 
 /**
  * Operator CLI for real (non-demo) installs: create the first account and its administrator, or
@@ -121,12 +124,20 @@ export async function resetPassword(pool: pg.Pool, rawEmail: string): Promise<st
   }
 }
 
-export async function accountSummary(pool: pg.Pool): Promise<{ accounts: number; users: number; demo: boolean }> {
+export async function accountSummary(pool: pg.Pool): Promise<{ accounts: number; users: number; demo: boolean; demoPasswordUsers: string[] }> {
   const { rows } = await pool.query<{ accounts: number; users: number; demo: boolean }>(
     `SELECT (SELECT count(*)::int FROM accounts) AS accounts, (SELECT count(*)::int FROM users) AS users,
             EXISTS (SELECT 1 FROM users WHERE lower(email) = 'admin@bloody.local') AS demo`,
   );
-  return rows[0]!;
+  // Active users who can still log in with the publicly known demo password (offline hash check:
+  // no login attempt, so no lockout counters or audit noise).
+  const creds = await pool.query<{ email: string; password_hash: string }>(
+    `SELECT u.email, c.password_hash FROM users u JOIN user_credentials c ON c.user_id = u.id
+     WHERE u.status = 'active' ORDER BY u.email LIMIT 500`,
+  );
+  const demoPasswordUsers: string[] = [];
+  for (const c of creds.rows) if (await verifyPassword(c.password_hash, DEMO_PASSWORD).catch(() => false)) demoPasswordUsers.push(c.email);
+  return { ...rows[0]!, demoPasswordUsers };
 }
 
 async function main(): Promise<void> {

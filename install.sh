@@ -228,9 +228,9 @@ if [ "$SEED" = 0 ]; then
   # Print it right away too, so it is not lost if a later step fails.
   echo "$out" | sed 's/^/    /'
 fi
-if [ "$MODE" = public ] && as_owner pnpm --silent admin status 2>/dev/null | grep -q '"demo":true'; then
-  echo "    ${Y}!${N} the demo login admin@bloody.local (public password) exists on this internet-facing server."
-  echo "      Remove the demo data (fresh database) or at least change that password immediately."
+if [ "$MODE" = public ] && ! as_owner pnpm --silent admin status 2>/dev/null | grep -q '"demoPasswordUsers":\[\]'; then
+  echo "    ${Y}!${N} logins with the public demo password exist on this internet-facing server (see the health check)."
+  echo "      Reset them now: pnpm admin reset-password --email <address>"
 fi
 
 # ─── 6. Reverse proxy (public) / mDNS name (LAN) ─────────────────────────────
@@ -346,6 +346,44 @@ elif [ "$SERVICE" = 1 ]; then
   note "building the UI and starting (first start takes a minute) ..."
   wait_up bash -c "kill -0 \$(cat '$REPO/logs/bloody.pid')" || true
 fi
+
+# ─── 7b. Backups ─────────────────────────────────────────────────────────────
+step "Backups (daily, newest 14 kept in backups/)"
+if [ "$has_systemd" = 1 ]; then
+  $SUDO tee /etc/systemd/system/bloody-backup.service >/dev/null <<UNIT
+[Unit]
+Description=Bloody backup (database + secrets)
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=${RUN_USER}
+WorkingDirectory=${REPO}
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/bash ${REPO}/scripts/backup.sh
+Nice=10
+IOSchedulingClass=idle
+UNIT
+  $SUDO tee /etc/systemd/system/bloody-backup.timer >/dev/null <<UNIT
+[Unit]
+Description=Daily Bloody backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=45min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+  $SUDO systemctl daemon-reload
+  $SUDO systemctl enable --now bloody-backup.timer >/dev/null 2>&1
+  note "daily at ~02:30 (sudo systemctl list-timers bloody-backup)"
+else
+  note "no systemd: schedule it yourself, e.g. cron: 30 2 * * * cd ${REPO} && bash scripts/backup.sh"
+fi
+# A first backup now, so there is always one to go back to.
+as_owner bash scripts/backup.sh --label install | sed 's/^/    /' || echo "    ${Y}!${N} the first backup failed — run: bash scripts/backup.sh"
 
 # ─── 8. Firewall ─────────────────────────────────────────────────────────────
 if [ "$MODE" = public ]; then ports=(80/tcp 443/tcp); else ports=(5173/tcp); fi

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { api, call, createTestApp, login, uniq, type TestApp } from "../test/harness.js";
-import { accountSummary, createAccountWithAdmin, generatePassword, resetPassword } from "./admin.js";
+import { accountSummary, createAccountWithAdmin, DEMO_PASSWORD, generatePassword, resetPassword } from "./admin.js";
 
 let t: TestApp;
 beforeAll(async () => {
@@ -55,5 +55,17 @@ describe("operator admin CLI", () => {
     const s = await accountSummary(t.privileged);
     expect(s.accounts).toBeGreaterThan(0);
     expect(typeof s.demo).toBe("boolean");
+    expect(Array.isArray(s.demoPasswordUsers)).toBe(true);
+  });
+
+  it("finds users still on the public demo password, and forgets them after a reset", async () => {
+    const email = `${uniq("demo")}@soc.example`;
+    await createAccountWithAdmin(t.privileged, { name: "Demo Pw", email });
+    const { rows } = await t.privileged.query<{ id: string }>("SELECT id FROM users WHERE email = $1", [email]);
+    const { hashPassword } = await import("../security/passwords.js");
+    await t.privileged.query("UPDATE user_credentials SET password_hash = $2 WHERE user_id = $1", [rows[0]!.id, await hashPassword(DEMO_PASSWORD)]);
+    expect((await accountSummary(t.privileged)).demoPasswordUsers).toContain(email);
+    await resetPassword(t.privileged, email);
+    expect((await accountSummary(t.privileged)).demoPasswordUsers).not.toContain(email);
   });
 });

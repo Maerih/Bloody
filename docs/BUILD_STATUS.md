@@ -114,6 +114,8 @@ Also tested:
 | Restart | `sudo systemctl restart bloody` (each start applies new migrations and picks up a new LAN IP) |
 | Update | `git pull && ./install.sh` |
 | New account / lost password | `pnpm admin create-account --name "Customer SOC" --email admin@customer.example` / `pnpm admin reset-password --email <addr>` |
+| Back up now | `bash scripts/backup.sh` (runs daily by itself; the newest 14 are kept in `backups/`) |
+| Restore (same or a new server) | `bash scripts/restore.sh backups/<file>.tar` (takes a safety backup first; brings the encryption key along) |
 | Re-anchor demo data at "now" (before a demo) | `pnpm db:seed --refresh`, then restart |
 
 Without systemd (containers, WSL), the installer starts Bloody in the background and logs to `logs/bloody.log`. In that case, re-run it after a reboot.

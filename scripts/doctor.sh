@@ -75,9 +75,15 @@ if [ -n "$db_url" ] && command -v psql >/dev/null; then
     if [ "${pending:-0}" = 0 ]; then ok "database migrations up to date"; else warn "$pending migration(s) pending" "pnpm db:migrate (or restart: the start script migrates)"; fi
     accounts=$(psql "$db_url" -qAtc "SELECT count(*) FROM accounts" 2>/dev/null || echo 0)
     if [ "${accounts:-0}" -gt 0 ]; then ok "$accounts account(s) in the database"; else fail "no accounts yet — nobody can log in" "pnpm admin create-account --name \"My SOC\" --email you@example.com"; fi
-    demo=$(psql "$db_url" -qAtc "SELECT count(*) FROM users WHERE lower(email) = 'admin@bloody.local'" 2>/dev/null || echo 0)
-    if [ "${demo:-0}" -gt 0 ] && [ "$MODE" = public ]; then
-      fail "the demo login admin@bloody.local (publicly known password) exists on an internet-facing install" "pnpm admin reset-password --email admin@bloody.local, or reinstall without demo data"
+    # Logins still on the publicly known demo password (offline hash check — no login attempts).
+    weak=$(pnpm --silent admin status 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).demoPasswordUsers.join(" "))}catch{}})')
+    if [ -n "$weak" ]; then
+      n=$(echo "$weak" | wc -w)
+      if [ "$MODE" = public ]; then
+        fail "$n login(s) still use the public demo password on an internet-facing install: $weak" "pnpm admin reset-password --email <each address> (or reinstall without demo data)"
+      else
+        warn "$n demo login(s) use the public demo password (fine for a demo, not for real data)" "pnpm admin reset-password --email <address> before real use"
+      fi
     fi
   else
     fail "cannot connect to PostgreSQL with DATABASE_URL" "sudo systemctl start postgresql; re-run ./install.sh"
@@ -139,6 +145,18 @@ else
   host_short="$(hostname -s 2>/dev/null | tr 'A-Z' 'a-z')"
   if pgrep -x avahi-daemon >/dev/null; then ok "mDNS name http://${host_short}.local:5173 (stays valid when the IP changes)"
   else warn "mDNS not running — users need the IP address" "re-run ./install.sh (installs avahi-daemon)"; fi
+fi
+
+section "Backups"
+bdir="$(env_get BLOODY_BACKUP_DIR)"; bdir="${bdir:-backups}"
+latest="$(ls -1t "$bdir"/bloody-*.tar 2>/dev/null | head -1)"
+if [ -z "$latest" ]; then
+  warn "no backups yet" "bash scripts/backup.sh (./install.sh schedules a daily one)"
+else
+  age_h=$(( ($(date +%s) - $(stat -c %Y "$latest")) / 3600 ))
+  if [ "$age_h" -le 36 ]; then ok "latest backup ${age_h}h old: $latest ($(ls -1 "$bdir"/bloody-*.tar | wc -l) kept)"
+  else warn "latest backup is ${age_h}h old: $latest" "bash scripts/backup.sh; check: systemctl status bloody-backup.timer"; fi
+  [ -n "$(env_get BLOODY_BACKUP_HOOK)" ] || warn "backups are only on this server" "set BLOODY_BACKUP_HOOK in .env to copy each one off-server (see scripts/backup.sh)"
 fi
 
 section "Firewall"
