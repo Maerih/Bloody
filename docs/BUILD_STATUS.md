@@ -70,27 +70,40 @@ Open a Claude Code session on this repository and branch (`maerih/bloody`), then
 
 > Resume the Bloody build from docs/BUILD_STATUS.md — do the "Remaining" steps in order.
 
-## Run it locally (demo, no Docker needed)
+## Run it on a server (one command)
 
-On a Linux server with Node.js 22 (`nvm install 22`), pnpm 10 and PostgreSQL (`sudo apt install -y postgresql`):
+These steps work on any fresh Ubuntu/Debian or Fedora/RHEL server, and on an existing install:
 
 ```bash
-git switch maerih/bloody
-bash scripts/setup-local.sh     # once: DB roles + databases, .env, install, migrate, seed
-bash scripts/start-demo.sh      # starts the API and the web UI (Ctrl+C stops both)
-bash scripts/start-demo.sh --fresh   # same, but first re-anchors the demo data at "now" (use before a demo)
-bash scripts/start-demo.sh --prod    # optimized production build of the UI (faster; recommended for demos)
-bash scripts/start-demo.sh --fresh --prod
+git clone <repo-url> bloody && cd bloody && git switch maerih/bloody   # or: git pull
+./install.sh
 ```
 
-Open `http://<server-ip>:5173`. Log in as `admin@bloody.local` / `ChangeMe!123` (MSSP admin), or use a customer
-login with the same password: `ciso@kilimanjaro-bank.example`, `it.manager@savannah-logistics.example` or
-`viewer@nile-health.example`.
+The installer checks and installs everything it needs: Node.js 22, pnpm, PostgreSQL, the database, `.env`, dependencies, migrations and demo data. It then installs the `bloody` service, which starts on boot, and opens the firewall port. It finishes with `scripts/doctor.sh`, which prints ✔ or ✘ for every part, with the fix for each problem.
 
-The setup script never changes the `postgres` superuser password. It creates `bloody_owner` (migrations and
-seed) and `bloody_app` (the API's runtime role), and writes a git-ignored `.env`. To override the detected IP,
-run `BLOODY_IP=192.168.1.3 bash scripts/setup-local.sh`; if `.env` already exists, delete it first so it is
-regenerated with the new IP. The API listens on 127.0.0.1:4000 and the browser reaches it through the web
-server's `/api` proxy.
+The installer has been tested on a brand-new Ubuntu 24.04 system, both as root and as a normal sudo user. Re-running it is safe:
+
+- passwords and secrets are kept;
+- a changed IP address is picked up;
+- a previous run is restarted.
+
+Open `http://<server-ip>:5173`. Log in as `admin@bloody.local` / `ChangeMe!123` (MSSP admin). Customer logins use the same password:
+
+- `ciso@kilimanjaro-bank.example`
+- `it.manager@savannah-logistics.example`
+- `viewer@nile-health.example`
+
+| Task | Command |
+|---|---|
+| Check everything | `bash scripts/doctor.sh` |
+| Status / logs | `sudo systemctl status bloody` / `journalctl -u bloody -f` |
+| Restart | `sudo systemctl restart bloody` (each start applies new migrations) |
+| Update | `git pull && ./install.sh` |
+| Re-anchor demo data at "now" (before a demo) | `pnpm db:seed --refresh` then restart |
+| Set the address yourself | `./install.sh --ip 192.168.1.3` |
+
+Without systemd (containers, WSL), the installer starts Bloody in the background and logs to `logs/bloody.log`. In that case, re-run it after a reboot.
+
+To run it by hand instead of as a service, use `bash scripts/start-demo.sh` (dev) or `bash scripts/start-demo.sh --prod`. Stop the service first: `sudo systemctl stop bloody`.
 
 Checks: `pnpm -r typecheck`, `pnpm -r test`.

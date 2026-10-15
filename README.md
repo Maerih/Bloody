@@ -90,6 +90,34 @@ Full specification: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Decisions: [do
 
 ## Quick start
 
+### One command on any Linux server (recommended)
+
+On Ubuntu/Debian or Fedora/RHEL/Rocky/Alma, with no prerequisites:
+
+```bash
+git clone <repo-url> bloody && cd bloody && git switch maerih/bloody
+./install.sh
+```
+
+`install.sh` does the following:
+
+- Checks the server, then installs whatever is missing: Node.js 22, pnpm and PostgreSQL.
+- Creates the database and a private `.env` with random passwords and secrets.
+- Installs dependencies, migrates and loads demo data.
+- Installs the `bloody` service, which starts on boot and restarts on failure.
+- Opens port 5173 in the firewall.
+- Finishes with a health check.
+
+It's safe to re-run. Re-run it after `git pull`, or when the server's IP has changed. `bash scripts/doctor.sh` re-checks everything at any time and prints the fix for each problem.
+
+Options:
+
+- `--ip <addr>` sets the address users open in the browser.
+- `--no-service` skips the system service.
+- `--no-demo-data` skips the demo customers, incidents and logins.
+
+### Manual setups
+
 Prerequisites: Node.js ≥ 22, pnpm 10 (`corepack enable`), and either a local PostgreSQL 16 or Docker.
 
 ### Option A — everything in Docker

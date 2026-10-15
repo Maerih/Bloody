@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Start the Bloody API and web UI together (Ctrl+C stops both).
-# Run scripts/setup-local.sh once first.
+# Run ./install.sh once first (it can also install this as the `bloody` service).
 #
 #   bash scripts/start-demo.sh           # start
 #   bash scripts/start-demo.sh --fresh   # first re-anchor the demo data at "now" (agents check in,
@@ -9,6 +9,8 @@
 #                                        # dev-server live reload); options can be combined
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Background runs (install.sh without systemd) record this process (the group leader) to stop it later.
+if [ -n "${BLOODY_PIDFILE:-}" ]; then echo $$ > "$BLOODY_PIDFILE"; fi
 
 FRESH=0; PROD=0
 for arg in "$@"; do
@@ -19,6 +21,11 @@ for arg in "$@"; do
   esac
 done
 
+# Pick up new dependencies and database migrations after a `git pull` (both are no-ops when current).
+pnpm install --frozen-lockfile --prefer-offline >/dev/null
+echo "Applying database migrations ..."
+pnpm db:migrate
+
 if [ "$FRESH" = 1 ]; then
   echo "Refreshing demo data to the current time ..."
   pnpm --filter @bloody/api seed:dev --refresh
@@ -28,7 +35,11 @@ if [ "$PROD" = 1 ]; then
   pnpm --filter @bloody/web exec vite build
 fi
 
-pnpm dev:api &
+if [ "$PROD" = 1 ]; then
+  pnpm --filter @bloody/api exec tsx src/server.ts &   # no file watching
+else
+  pnpm dev:api &
+fi
 API_PID=$!
 trap 'kill $API_PID 2>/dev/null || true' EXIT INT TERM
 
