@@ -20,6 +20,7 @@ import { SkeletonText } from "../../components/Skeleton";
 import { pathsTouchingAsset } from "../../lib/attackPaths";
 import { hrefForEntity } from "../../lib/entityLinks";
 import { formatDate, humanize } from "../../lib/format";
+import { agentStatusLabel } from "../agents/AgentsTable";
 import { RequestActionDialog } from "../response/RequestActionDialog";
 
 const ACCESS_EDGES = new Set(["has_access_to", "admin_of", "logged_into", "authenticates_as", "owns", "stores_credential_for"]);
@@ -148,7 +149,7 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
             { label: "OS", value: asset.os },
             { label: "Owner", value: asset.owner },
             { label: "Organization", value: session.organizationName(org) },
-            { label: "Agent", value: agent ? `${agent.engine} ${agent.version} · ${humanize(agent.status)}` : null },
+            { label: "Agent", value: agent ? `${agent.engine} ${agent.version} · ${agentStatusLabel(agent)}` : null },
             { label: "Tags", value: asset.tags.length > 0 ? asset.tags.join(", ") : null, wide: true },
           ]}
         />

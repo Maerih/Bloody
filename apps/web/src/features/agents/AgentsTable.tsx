@@ -23,6 +23,12 @@ const AGENT_TONE: Record<Agent["status"], "success" | "danger" | "warning" | "pu
 };
 const AV_TONE: Record<Agent["antivirusStatus"], "success" | "danger" | "warning" | "neutral"> = { protected: "success", unhealthy: "danger", unmanaged: "warning", incompatible: "neutral" };
 
+/** "Isolated · LAN only" / "Isolated · full" when the platform isolated the endpoint. */
+export function agentStatusLabel(a: Pick<Agent, "status" | "isolation">): string {
+  if (a.status !== "isolated" || !a.isolation) return humanize(a.status);
+  return a.isolation.mode === "lan" ? "Isolated · LAN only" : "Isolated · full";
+}
+
 export type AgentActionMode = "containment" | "live-response" | "none";
 
 const LIVE_RESPONSE: ResponseActionKey[] = ["collect_evidence", "run_yara_scan", "kill_process", "quarantine_file"];
@@ -67,7 +73,7 @@ export function AgentsTable({
         ),
     },
     { id: "platform", header: "Platform", accessor: (a) => a.platform, filter: { kind: "select", options: ["windows", "macos", "linux"].map((p) => ({ value: p, label: p })) } },
-    { id: "status", header: "Agent status", accessor: (a) => a.status, cell: (a) => <Badge size="xs" tone={AGENT_TONE[a.status]}>{humanize(a.status)}</Badge>, filter: { kind: "select", options: Object.keys(AGENT_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
+    { id: "status", header: "Agent status", accessor: (a) => a.status, cell: (a) => <Badge size="xs" tone={AGENT_TONE[a.status]}>{agentStatusLabel(a)}</Badge>, filter: { kind: "select", options: Object.keys(AGENT_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
     { id: "av", header: "Antivirus", accessor: (a) => a.antivirusStatus, cell: (a) => <Badge size="xs" tone={AV_TONE[a.antivirusStatus]}>{humanize(a.antivirusStatus)}</Badge>, filter: { kind: "select", options: Object.keys(AV_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
     { id: "firewall", header: "Firewall", accessor: (a) => (a.firewallEnabled ? "enabled" : "disabled"), cell: (a) => (a.firewallEnabled ? <span className="text-healthy">Enabled</span> : <span className="text-sev-high">Disabled</span>), filter: { kind: "select", options: [{ value: "enabled", label: "Enabled" }, { value: "disabled", label: "Disabled" }] } },
     { id: "engine", header: "Engine", accessor: (a) => a.engine },

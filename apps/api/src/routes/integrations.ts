@@ -12,8 +12,16 @@ import { loadOne, parse } from "./util.js";
 
 const Kind = z.string().refine((k) => INTEGRATION_KINDS.includes(k), { message: `kind must be one of ${INTEGRATION_KINDS.join(", ")}` });
 
-const CreateBody = z
-  .object({
+/** The Command Center sends `engine` (ENGINES[].key); API clients may send `kind`. */
+const engineAlias = (v: unknown) => {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+  const { engine, ...rest } = v as Record<string, unknown>;
+  return engine !== undefined && rest.kind === undefined ? { ...rest, kind: engine } : v;
+};
+
+const CreateBody = z.preprocess(
+  engineAlias,
+  z.object({
     kind: Kind,
     name: z.string().trim().min(1).max(200),
     organizationId: Uuid.nullable().default(null),
@@ -23,7 +31,8 @@ const CreateBody = z
     credential: z.string().min(1).max(16_384).optional(),
     enabled: z.boolean().default(true),
   })
-  .strict();
+  .strict(),
+);
 
 const PatchBody = z
   .object({

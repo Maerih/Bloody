@@ -22,6 +22,13 @@ At pause time `pnpm -r typecheck` passed and all ~870 tests passed. The app runs
 
 - API tests added for: SOAR response approvals; AI SOC (write-only keys, connection test, chat, tool-tier enforcement); reports (all types, PDF/CSV/JSON, white-label, schedules) and entitlements (402, usage); CoPilot sync (idempotent); notification channels, automation rules and playbooks; MSSP customer provisioning. The API suite is at 156+ tests.
 - Bugs fixed: manually created incidents never fired automations or playbooks; the AI provider connection test ignored the host-resolver setting.
+- **Endpoint isolation with release from the platform.** Two modes: *LAN isolation*, which blocks the local network but keeps the internet, and *Full isolation*.
+  - Both modes always keep the Bloody platform and the Wazuh manager reachable, so the endpoint can be released from Bloody.
+  - Endpoint scripts are in `infra/agent/active-response/`: `bloody-isolate` uses nftables on Linux, and `bloody-isolate.ps1` uses Windows Firewall.
+  - Each Wazuh integration has an *Isolation allow-list* field.
+  - The Isolate dialog has a mode picker. Agents show "Isolated · LAN only" or "Isolated · full", and have a Release button.
+  - Heartbeats and CoPilot syncs no longer clear an isolation.
+  - Also fixed: connecting an engine from the UI was rejected because the UI sent `engine` and the API expected `kind`.
 - New web pages: Simulate an incident (runs the real pipeline), Download agent, Demo sandbox, Support, Feedback. No hamburger-menu link is a placeholder any more.
 
 ## Remaining (in order)

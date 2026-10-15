@@ -39,6 +39,9 @@ export function readScanScope(config: Record<string, unknown> | undefined): Scan
   };
 }
 
+/** IPv4/IPv6 address or CIDR (the API validates strictly again). */
+const IP_OR_CIDR_RE = /^((\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?|[0-9a-f:]*:[0-9a-f:.]*(\/\d{1,3})?)$/i;
+
 const TARGET_RE = /^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,63}$|^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/i;
 
 function lines(text: string): string[] {
@@ -55,12 +58,14 @@ export interface IntegrationFormErrors {
   targets?: string;
   rate?: string;
   authorization?: string;
+  wazuhUser?: string;
+  isolationAllow?: string;
 }
 
 /** Validate the configure form; ASM/scanner engines additionally need an authorized scope. */
 export function validateIntegrationForm(
   engine: EngineDefinition,
-  v: { name: string; endpoint: string; credential: string; hasStoredCredential: boolean; targets: string; rate: string; authRef: string; approvedBy: string; authExpires: string },
+  v: { name: string; endpoint: string; credential: string; hasStoredCredential: boolean; targets: string; rate: string; authRef: string; approvedBy: string; authExpires: string; wazuhUser?: string; isolationAllow?: string },
 ): IntegrationFormErrors {
   const e: IntegrationFormErrors = {};
   if (!v.name.trim()) e.name = "Name is required";
@@ -77,6 +82,13 @@ export function validateIntegrationForm(
     }
   }
   if (engine.key === "copilot" && !v.credential.trim() && !v.hasStoredCredential) e.credential = "CoPilot requires an API token";
+  if (engine.key === "wazuh") {
+    if (!v.wazuhUser?.trim()) e.wazuhUser = "Enter the Wazuh API user Bloody signs in as";
+    const allow = lines(v.isolationAllow ?? "");
+    const bad = allow.find((a) => !IP_OR_CIDR_RE.test(a));
+    if (bad) e.isolationAllow = `Not an IP address or CIDR: ${bad}`;
+    else if (allow.length > 32) e.isolationAllow = "At most 32 addresses";
+  }
   if (SCANNING_ENGINES.has(engine.key)) {
     const targets = lines(v.targets);
     if (targets.length === 0) e.targets = "List at least one authorized target (domain, wildcard or CIDR)";
@@ -118,10 +130,13 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
   const [authExpires, setAuthExpires] = useState(scope?.authorization.expiresAt ? scope.authorization.expiresAt.slice(0, 10) : "");
   const copilotSync = (existing?.config?.sync as Record<string, boolean> | undefined) ?? { customers: true, agents: true, alerts: true, cases: true };
   const [sync, setSync] = useState<Record<string, boolean>>(copilotSync);
+  const wazuhAr = (existing?.config?.activeResponse as { isolationAllow?: string[] } | undefined) ?? {};
+  const [wazuhUser, setWazuhUser] = useState(String(existing?.config?.username ?? ""));
+  const [isolationAllow, setIsolationAllow] = useState((wazuhAr.isolationAllow ?? []).join("\n"));
   const [submitted, setSubmitted] = useState(false);
 
   const scanning = SCANNING_ENGINES.has(engine.key);
-  const errors = validateIntegrationForm(engine, { name, endpoint, credential, hasStoredCredential: Boolean(existing?.hasCredential) && !replaceCredential, targets, rate, authRef, approvedBy, authExpires });
+  const errors = validateIntegrationForm(engine, { name, endpoint, credential, hasStoredCredential: Boolean(existing?.hasCredential) && !replaceCredential, targets, rate, authRef, approvedBy, authExpires, wazuhUser, isolationAllow });
   const insecure = (() => {
     try {
       const u = new URL(endpoint);
@@ -144,6 +159,12 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
       } satisfies ScanScope;
     }
     if (engine.key === "copilot") config.sync = sync;
+    if (engine.key === "wazuh") {
+      const allow = lines(isolationAllow);
+      const { isolationAllow: _old, ...ar } = (config.activeResponse as Record<string, unknown> | undefined) ?? {};
+      config.username = wazuhUser.trim();
+      config.activeResponse = { ...ar, ...(allow.length ? { isolationAllow: allow } : {}) };
+    }
     const input: CreateIntegrationInput = {
       engine: engine.key,
       name: name.trim(),
@@ -249,6 +270,22 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
                 <Checkbox key={k} label={`Sync ${k}`} checked={sync[k] !== false} onChange={(e) => setSync((s) => ({ ...s, [k]: e.target.checked }))} />
               ))}
             </div>
+          </fieldset>
+        ) : null}
+
+        {engine.key === "wazuh" ? (
+          <fieldset className="space-y-2 rounded border border-line p-3" data-testid="wazuh-response">
+            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">Wazuh API &amp; endpoint isolation</legend>
+            <Field label="API user" required error={submitted ? errors.wazuhUser : null} hint="Wazuh API account with active-response permissions; its password goes in Credential.">
+              {(p) => <Input {...p} value={wazuhUser} onChange={(e) => setWazuhUser(e.target.value)} autoComplete="off" placeholder="bloody" />}
+            </Field>
+            <Field
+              label="Isolation allow-list"
+              error={submitted ? errors.isolationAllow : null}
+              hint="IPs/CIDRs an isolated endpoint can always reach — the Wazuh manager and the Bloody platform — so it can be released from Bloody. Required for LAN or full isolation (bloody-isolate script)."
+            >
+              {(p) => <Textarea {...p} rows={3} value={isolationAllow} onChange={(e) => setIsolationAllow(e.target.value)} placeholder={"10.0.0.5\n203.0.113.10"} />}
+            </Field>
           </fieldset>
         ) : null}
 

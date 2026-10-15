@@ -1,4 +1,4 @@
-import { RESPONSE_ACTIONS, ResponseActionRequest, actionRisk, type ResponseActionKey } from "@bloody/contracts";
+import { ISOLATION_MODES, RESPONSE_ACTIONS, ResponseActionRequest, actionRisk, type IsolationMode, type ResponseActionKey } from "@bloody/contracts";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { errorMessage } from "../../api/client";
@@ -97,6 +97,7 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
   const [indicator, setIndicator] = useState(indicatorValue);
   const [reason, setReason] = useState("");
   const [params, setParams] = useState<Record<string, string>>({});
+  const [isolationMode, setIsolationMode] = useState<IsolationMode>("full");
   const [submitted, setSubmitted] = useState(false);
 
   const def = RESPONSE_ACTIONS.find((a) => a.key === action)!;
@@ -112,7 +113,7 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
     organizationId,
     ...(incidentId ? { incidentId } : {}),
     target: { kind: def.target, id: effectiveTarget, ...(targetLabel ? { label: targetLabel } : {}) },
-    parameters: buildParameters(action, params),
+    parameters: action === "isolate_endpoint" ? { mode: isolationMode } : buildParameters(action, params),
     reason: reason.trim(),
   };
   const parsed = ResponseActionRequest.safeParse(payload);
@@ -221,6 +222,21 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
             )}
           </Field>
         )}
+        {action === "isolate_endpoint" ? (
+          <fieldset className="space-y-2" aria-label="Isolation mode">
+            <legend className="mb-1 text-sm font-medium text-heading">Isolation mode</legend>
+            {ISOLATION_MODES.map((m) => (
+              <label key={m.key} className={`flex cursor-pointer items-start gap-2 rounded border p-2 text-sm ${isolationMode === m.key ? "border-primary bg-primary-soft" : "border-line"}`}>
+                <input type="radio" name="isolation-mode" value={m.key} checked={isolationMode === m.key} onChange={() => setIsolationMode(m.key)} className="mt-1" />
+                <span>
+                  <span className="block font-medium text-fg">{m.label}</span>
+                  <span className="block text-fg-muted">{m.description}</span>
+                </span>
+              </label>
+            ))}
+            <p className="text-xs text-fg-muted">Either way the endpoint keeps reaching Bloody and its engine manager, so you can release it from here at any time.</p>
+          </fieldset>
+        ) : null}
         {spec
           ? spec.fields.map((f) => (
               <Field key={f.key} label={f.label} hint={f.hint}>

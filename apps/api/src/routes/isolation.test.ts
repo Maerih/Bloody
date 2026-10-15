@@ -65,6 +65,14 @@ async function requestAndApprove(action: string, parameters: Json): Promise<Json
 const agentOfAsset = async (): Promise<Json> => (await admin.get(`/assets/${assetId}`)).body.agents[0] as Json;
 
 describe("endpoint isolation (LAN / full) with release from the platform", () => {
+  it("accepts the Command Center's engine field and validates the isolation allow-list", async () => {
+    const bad = await admin.post("/integrations", { engine: "wazuh", name: "Wazuh bad", endpoint: "https://wazuh2.mssp.example:55000", config: { username: "bloody", activeResponse: { isolationAllow: ["wazuh.local"] } }, credential: "pw" });
+    expect(bad.status).toBe(400);
+    const ok = await admin.post("/integrations", { engine: "wazuh", name: "Wazuh UI", organizationId: org, endpoint: "https://wazuh2.mssp.example:55000", config: { username: "bloody", activeResponse: { isolationAllow: ["10.0.0.0/24"] } }, credential: "pw", enabled: false });
+    expect(ok.status).toBe(201);
+    expect(ok.body.engine).toBe("wazuh");
+  });
+
   it("rejects an unknown isolation mode", async () => {
     const res = await requester.post("/response/actions", { action: "isolate_endpoint", organizationId: org, target: { kind: "asset", id: assetId }, parameters: { mode: "wifi" }, reason: "bad mode" });
     expect(res.status).toBe(400);
