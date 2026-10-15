@@ -1,3 +1,4 @@
+import { buildIsolationPolicy, isolationScriptArgs } from "./isolation.js";
 import type { ResponseActionKey } from "@bloody/contracts";
 import { z } from "zod";
 import { arr, field, int, isRecord, rec, str } from "../core/json.js";
@@ -75,6 +76,12 @@ export interface WazuhActiveResponseOptions {
   blockIpCommand?: string;
   /** Default "!disable-account". */
   disableAccountCommand?: string;
+  /**
+   * Management addresses (Wazuh manager, Bloody platform) that isolated endpoints keep reaching, so
+   * they can be released from the platform. Setting it enables isolate/release via Bloody's own
+   * endpoint script `bloody-isolate` (infra/agent/active-response) unless commands are overridden.
+   */
+  isolationAllow?: string[];
   /** Customer-deployed isolation script, e.g. "!bloody-isolate". Enables `isolate_endpoint`. */
   isolateCommand?: string;
   /** Enables `release_endpoint`. */
@@ -114,8 +121,8 @@ export function createWazuhActiveResponse(opts: WazuhActiveResponseOptions = {})
   const commands: Partial<Record<ResponseActionKey, string>> = {
     block_ip: opts.blockIpCommand ?? "!firewall-drop",
     disable_identity: opts.disableAccountCommand ?? "!disable-account",
-    ...(opts.isolateCommand ? { isolate_endpoint: opts.isolateCommand } : {}),
-    ...(opts.releaseCommand ? { release_endpoint: opts.releaseCommand } : {}),
+    ...(opts.isolateCommand || opts.isolationAllow?.length ? { isolate_endpoint: opts.isolateCommand ?? "!bloody-isolate" } : {}),
+    ...(opts.releaseCommand || opts.isolationAllow?.length ? { release_endpoint: opts.releaseCommand ?? opts.isolateCommand ?? "!bloody-isolate" } : {}),
     ...(opts.killProcessCommand ? { kill_process: opts.killProcessCommand } : {}),
     ...(opts.quarantineFileCommand ? { quarantine_file: opts.quarantineFileCommand } : {}),
   };
@@ -147,6 +154,16 @@ export function createWazuhActiveResponse(opts: WazuhActiveResponseOptions = {})
         data["dstuser"] = user;
         agents = agentsFor(req, false);
         if (agents === "all") throw new ResponseGuardError("invalid_parameters", "disable_identity must target specific agents");
+        break;
+      }
+      case "isolate_endpoint": {
+        args.push(...isolationScriptArgs(buildIsolationPolicy(req, opts.isolationAllow ?? [])));
+        agents = agentsFor(req, false);
+        break;
+      }
+      case "release_endpoint": {
+        args.push(...isolationScriptArgs("release"));
+        agents = agentsFor(req, false);
         break;
       }
       case "kill_process": {

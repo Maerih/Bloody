@@ -91,7 +91,7 @@ describe("Wazuh active response", () => {
   });
 
   it("partial failures and isolation reversal", async () => {
-    const custom = createWazuhActiveResponse({ isolateCommand: "!bloody-isolate", releaseCommand: "!bloody-release" });
+    const custom = createWazuhActiveResponse({ isolateCommand: "!bloody-isolate", releaseCommand: "!bloody-release", isolationAllow: ["10.0.0.5"] });
     const { fetch } = mockFetch([
       { method: "PUT", path: "/active-response", json: { data: { affected_items: ["003"], failed_items: [{ error: { code: 1707, message: "Cannot send request, agent is not active" }, id: ["004"] }] }, error: 2 } },
     ]);

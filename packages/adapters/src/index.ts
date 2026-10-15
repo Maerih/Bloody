@@ -60,6 +60,7 @@ export * from "./intel/types.js";
 export * from "./intel/vulnerabilities.js";
 
 // response
+export * from "./response/isolation.js";
 export * from "./response/types.js";
 export * from "./response/velociraptor.js";
 export * from "./response/wazuh.js";

@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: LicenseRef-Bloody-Proprietary
+# Copyright (c) 2026 Bloody. All rights reserved.
+#
+# bloody-isolate — Bloody endpoint network isolation for Linux (nftables).
+#
+# Modes (both ALWAYS keep the management path open, so the endpoint can be released from the
+# Bloody platform at any time):
+#   lan   cut the endpoint off local networks (RFC1918, CGNAT, link-local, IPv6 ULA/link-local)
+#         to stop lateral movement; the internet stays reachable. DNS to the configured resolvers
+#         keeps working (port 53 only).
+#   full  drop everything except the management addresses, DHCP and listed DNS resolvers.
+#
+# Usage
+#   bloody-isolate isolate <lan|full> allow=<ip|cidr,...> [dns=<ip,...>]
+#   bloody-isolate release
+#   bloody-isolate status
+#   bloody-isolate --print isolate ...     print the nftables ruleset instead of applying it
+# As a Wazuh active-response command ("!bloody-isolate"), the same words arrive as
+# parameters.extra_args in the JSON message on stdin.
+#
+# Install: /var/ossec/active-response/bin/bloody-isolate (root:wazuh, 0750). Requires nftables.
+set -euo pipefail
+
+TABLE="bloody_isolation"
+STATE="/run/bloody-isolation.state"
+LOCAL4="10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16"
+LOCAL6="fc00::/7, fe80::/10"
+PRINT=0
+
+log() { logger -t bloody-isolate -- "$*" 2>/dev/null || true; echo "bloody-isolate: $*" >&2; }
+die() { log "error: $*"; exit 1; }
+
+# Strict IP / CIDR validation: nothing but addresses reaches the firewall.
+valid_entry() {
+  local v="$1"
+  [[ "$v" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/([89]|[12][0-9]|3[0-2]))?$ ]] && return 0
+  [[ "$v" =~ ^[0-9A-Fa-f:]+(/([1-9][0-9]?|1[01][0-9]|12[0-8]))?$ && "$v" == *:* ]] && return 0
+  return 1
+}
+
+split_family() { # $1 = csv → sets V4 and V6 (comma-separated element lists)
+  V4=""; V6=""
+  local IFS=','
+  for e in $1; do
+    [ -z "$e" ] && continue
+    valid_entry "$e" || die "invalid address '$e'"
+    if [[ "$e" == *:* ]]; then V6="${V6:+$V6, }$e"; else V4="${V4:+$V4, }$e"; fi
+  done
+}
+
+system_resolvers() {
+  awk '/^nameserver[ \t]/ {print $2}' /etc/resolv.conf 2>/dev/null | while read -r ns; do valid_entry "$ns" && echo "$ns"; done | paste -sd, -
+}
+
+ruleset() { # $1 mode, $2 allow csv, $3 dns csv
+  local mode="$1"
+  split_family "$2"; local A4="$V4" A6="$V6"
+  split_family "$3"; local D4="$V4" D6="$V6"
+  [ -z "$A4$A6" ] && die "allow= must list the platform/manager addresses (otherwise the endpoint could never be released)"
+  echo "table inet $TABLE {"
+  [ -n "$A4" ] && echo "  set mgmt4 { type ipv4_addr; flags interval; elements = { $A4 } }"
+  [ -n "$A6" ] && echo "  set mgmt6 { type ipv6_addr; flags interval; elements = { $A6 } }"
+  [ -n "$D4" ] && echo "  set dns4 { type ipv4_addr; flags interval; elements = { $D4 } }"
+  [ -n "$D6" ] && echo "  set dns6 { type ipv6_addr; flags interval; elements = { $D6 } }"
+  for dir in input output; do
+    local peer4="saddr" peer6="saddr" hook="input"
+    if [ "$dir" = output ]; then peer4="daddr"; peer6="daddr"; hook="output"; fi
+    echo "  chain $dir {"
+    echo "    type filter hook $hook priority -200; policy accept;"
+    if [ "$dir" = input ]; then echo "    iifname \"lo\" accept"; else echo "    oifname \"lo\" accept"; fi
+    [ -n "$A4" ] && echo "    ip $peer4 @mgmt4 accept"
+    [ -n "$A6" ] && echo "    ip6 $peer6 @mgmt6 accept"
+    echo "    udp sport { 67, 68 } udp dport { 67, 68 } accept"
+    echo "    icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } accept"
+    if [ "$dir" = output ]; then
+      [ -n "$D4" ] && echo "    ip daddr @dns4 meta l4proto { tcp, udp } th dport 53 accept"
+      [ -n "$D6" ] && echo "    ip6 daddr @dns6 meta l4proto { tcp, udp } th dport 53 accept"
+    else
+      [ -n "$D4" ] && echo "    ip saddr @dns4 meta l4proto { tcp, udp } th sport 53 accept"
+      [ -n "$D6" ] && echo "    ip6 saddr @dns6 meta l4proto { tcp, udp } th sport 53 accept"
+    fi
+    if [ "$mode" = lan ]; then
+      echo "    ip $peer4 { $LOCAL4 } counter drop"
+      echo "    ip6 $peer6 { $LOCAL6 } counter drop"
+      echo "    accept"
+    else
+      echo "    counter drop"
+    fi
+    echo "  }"
+  done
+  echo "  chain forward {"
+  echo "    type filter hook forward priority -200; policy drop;"
+  echo "  }"
+  echo "}"
+}
+
+isolate() {
+  local mode="${1:-}" allow="" dns=""
+  shift || true
+  [ "$mode" = lan ] || [ "$mode" = full ] || die "mode must be 'lan' or 'full'"
+  for kv in "$@"; do
+    case "$kv" in
+      allow=*) allow="${kv#allow=}" ;;
+      dns=*) dns="${kv#dns=}" ;;
+      block4=*|block6=*) ;; # precomputed ranges for Windows Firewall; nftables uses the sets above
+      *) die "unknown argument '$kv'" ;;
+    esac
+  done
+  if [ "$mode" = lan ]; then
+    local sys; sys="$(system_resolvers || true)"
+    dns="${dns:+$dns,}${sys}"
+  fi
+  local rules; rules="$(ruleset "$mode" "$allow" "$dns")"
+  if [ "$PRINT" = 1 ]; then echo "$rules"; return 0; fi
+  command -v nft >/dev/null || die "nftables (nft) is required"
+  # Atomic replace: delete any previous isolation table and load the new one in one transaction.
+  { nft list table inet "$TABLE" >/dev/null 2>&1 && echo "delete table inet $TABLE"; echo "$rules"; } | nft -f -
+  printf 'mode=%s\nallow=%s\nsince=%s\n' "$mode" "$allow" "$(date -u +%FT%TZ)" > "$STATE"
+  log "isolated (mode=$mode, management=$allow)"
+}
+
+release() {
+  if [ "$PRINT" = 1 ]; then echo "delete table inet $TABLE"; return 0; fi
+  if nft list table inet "$TABLE" >/dev/null 2>&1; then nft delete table inet "$TABLE"; fi
+  rm -f "$STATE"
+  log "released"
+}
+
+status() {
+  if [ -f "$STATE" ] && nft list table inet "$TABLE" >/dev/null 2>&1; then echo "isolated"; cat "$STATE"; else echo "not isolated"; fi
+}
+
+main() {
+  if [ "${1:-}" = "--print" ]; then PRINT=1; shift; fi
+  local args=("$@")
+  if [ ${#args[@]} -eq 0 ] && [ ! -t 0 ]; then
+    # Wazuh active response: one JSON line on stdin; the words are in parameters.extra_args.
+    local msg; IFS= read -r msg || true
+    mapfile -t args < <(printf '%s' "$msg" | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin).get("parameters",{}).get("extra_args",[])))' 2>/dev/null || true)
+    local cmd; cmd="$(printf '%s' "$msg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("command",""))' 2>/dev/null || true)"
+    [ "$cmd" = "delete" ] && args=("release")
+  fi
+  case "${args[0]:-}" in
+    isolate) isolate "${args[@]:1}" ;;
+    release) release ;;
+    status) status ;;
+    *) die "usage: bloody-isolate [--print] isolate <lan|full> allow=<ips> [dns=<ips>] | release | status" ;;
+  esac
+}
+
+main "$@"

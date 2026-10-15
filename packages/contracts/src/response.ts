@@ -21,6 +21,20 @@ export const RESPONSE_ACTIONS = [
 ] as const;
 
 export type ResponseActionKey = (typeof RESPONSE_ACTIONS)[number]["key"];
+
+/**
+ * Endpoint isolation modes. Both keep the endpoint reachable by the Bloody platform (and the
+ * engine manager that delivers commands), so it can always be released from the platform.
+ *  - "lan":  cut the endpoint off the local network (RFC1918, CGNAT, link-local, IPv6 ULA) to stop
+ *            lateral movement, while the internet stays reachable.
+ *  - "full": block everything except the platform/manager addresses (classic EDR network containment).
+ */
+export const ISOLATION_MODES = [
+  { key: "lan", label: "LAN isolation — keep internet", description: "Blocks the local network; internet and the Bloody platform stay reachable." },
+  { key: "full", label: "Full isolation", description: "Blocks all traffic except the Bloody platform and its engine manager." },
+] as const;
+export type IsolationMode = (typeof ISOLATION_MODES)[number]["key"];
+export const IsolationMode = z.enum(["lan", "full"]);
 export const ResponseActionKey = z.enum(RESPONSE_ACTIONS.map((a) => a.key) as [ResponseActionKey, ...ResponseActionKey[]]);
 export type ActionRisk = "low" | "medium" | "high";
 
