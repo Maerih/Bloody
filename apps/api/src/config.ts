@@ -64,6 +64,10 @@ const RawEnv = z.object({
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(10).max(1_000_000).default(1200),
   /** Valkey/Redis for state shared across API replicas (rate limits). Unset = in-process only. */
   VALKEY_URL: z.string().url().optional(),
+  /** OpenTelemetry: OTLP/HTTP endpoint of the collector (traces). Unset = tracing off. */
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
+  OTEL_SERVICE_NAME: z.string().min(1).max(100).default("bloody-api"),
+  OTEL_RESOURCE_ATTRIBUTES: z.string().max(2000).optional(),
 
   INGEST_MAX_BATCH: z.coerce.number().int().min(1).max(50_000).default(5000),
   INGEST_BODY_LIMIT_BYTES: z.coerce.number().int().min(1024).max(512 * 1024 * 1024).default(32 * 1024 * 1024),
@@ -175,6 +179,7 @@ export interface AppConfig {
     /** redis:// or rediss:// URL of Valkey; rate limits are shared across replicas when set. */
     valkeyUrl: string | null;
   };
+  telemetry: { otlpEndpoint: string | null; serviceName: string; resourceAttributes: string | undefined };
   ingest: { maxBatch: number; bodyLimitBytes: number; maxEventAgeDays: number; pipelineEnabled: boolean };
   scheduler: { enabled: boolean; intervalSeconds: number };
   features: FeatureConfig;
@@ -344,6 +349,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     features: { vulnEnrichment: e.FEATURE_VULN_ENRICHMENT },
     enrichment: { allowedHosts: e.ENRICHMENT_ALLOWED_HOSTS.map((h) => h.toLowerCase()), kevFeedUrl: e.KEV_FEED_URL, epssApiUrl: e.EPSS_API_URL },
     reports: { maxStoredBytes: e.REPORT_MAX_STORED_BYTES },
+    telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT ?? null, serviceName: e.OTEL_SERVICE_NAME, resourceAttributes: e.OTEL_RESOURCE_ATTRIBUTES },
     ai: { allowPrivateEndpoints: e.AI_ALLOW_PRIVATE_ENDPOINTS },
     integrations: { allowPrivateNetworks: e.INTEGRATIONS_ALLOW_PRIVATE_NETWORKS },
     metricsToken: e.METRICS_TOKEN ?? null,

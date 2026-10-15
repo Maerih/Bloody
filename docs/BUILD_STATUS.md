@@ -54,7 +54,7 @@ Known follow-ups from the infra report:
 - Kafka `EventBus` transport;
 - OpenSearch `EventStore`;
 - ~~a Valkey-backed rate limiter~~ (DONE: shared across replicas, fail-open, tested with two replicas);
-- OTel SDK instrumentation.
+- ~~OTel SDK instrumentation~~ (DONE: request tracing over OTLP/HTTP with traceparent propagation; tested in-memory and against a live OTLP receiver).
 
 ## How to resume
 

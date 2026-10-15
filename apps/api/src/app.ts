@@ -1,3 +1,5 @@
+import type { SpanExporter } from "@opentelemetry/sdk-trace-base";
+import { registerTracing } from "./http/tracing.js";
 import { Redis } from "ioredis";
 import { registerRequestDecompression } from "./http/content-encoding.js";
 import { randomUUID } from "node:crypto";
@@ -67,6 +69,8 @@ export interface AppDeps {
   fetch?: typeof fetch;
   /** DNS validation for outbound endpoints (false disables — tests with fake hosts only). */
   hostResolver?: ((hostname: string) => Promise<string[]>) | false;
+  /** OpenTelemetry span exporter override (tests inject an in-memory exporter). */
+  spanExporter?: SpanExporter;
   /** Notification transports (tests inject capturing transports). */
   emailTransport?: EmailTransport;
   httpTransport?: HttpTransport;
@@ -277,6 +281,15 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     timeWindow: "1 minute",
     keyGenerator: (req) => req.ip,
     errorResponseBuilder: (_req, ctx) => new HttpError(429, "rate_limited", `Too many requests — retry in ${Math.ceil(ctx.ttl / 1000)} s`, undefined, { "retry-after": String(Math.ceil(ctx.ttl / 1000)) }),
+  });
+
+  // OpenTelemetry request tracing (OTLP/HTTP to the collector) when configured.
+  registerTracing(app, {
+    endpoint: config.telemetry.otlpEndpoint,
+    serviceName: config.telemetry.serviceName,
+    resourceAttributes: config.telemetry.resourceAttributes,
+    serviceVersion: process.env.BLOODY_VERSION ?? "0.1.0",
+    ...(deps.spanExporter ? { exporter: deps.spanExporter } : {}),
   });
 
   // Compressed collector traffic (Content-Encoding: gzip/deflate/br) is decoded before parsing.

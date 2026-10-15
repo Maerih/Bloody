@@ -80,7 +80,7 @@ are accepted for `JWT_SECRET`, `ENCRYPTION_KEY`, `ENCRYPTION_KEY_VERSION`,
 | `BLOODY_VERSION` | Version reported by `/api/v1/healthz` | Set in the image from the `VERSION` build arg |
 | `NODE_EXTRA_CA_CERTS`, `NODE_OPTIONS` | Node.js runtime: extra CA bundle (private PKI), heap size | Per environment |
 
-**Consumed since the October 2026 update:** `BLOODY_SCHEDULER_ENABLED` (`true` only in the single-replica `bloody-scheduler`, so schedules fire once), `VALKEY_URL` (shared login/API rate-limit counters across replicas; fail-open if Valkey is down) and `BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS` (lets AI providers on private networks, e.g. Ollama/vLLM, through the SSRF guard).
+**Consumed since the October 2026 update:** `BLOODY_SCHEDULER_ENABLED` (`true` only in the single-replica `bloody-scheduler`, so schedules fire once), `VALKEY_URL` (shared login/API rate-limit counters across replicas; fail-open if Valkey is down) `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_SERVICE_NAME` / `OTEL_RESOURCE_ATTRIBUTES` (one OpenTelemetry SERVER span per API request, exported over OTLP/HTTP, continuing incoming W3C `traceparent`; spans carry route, status and tenant id, never bodies or query strings) and `BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS` (lets AI providers on private networks, e.g. Ollama/vLLM, through the SSRF guard).
 
 **Reserved (provided by the deployment, not consumed yet).** Wiring them in the API is tracked
 work. Until then they are inert.
@@ -89,7 +89,6 @@ work. Until then they are inert.
 |---|---|
 | `BLOODY_EVENT_BUS`, `KAFKA_BROKERS` | `memory` (today's in-process `EventBus`) or `kafka` (topics in Data fabric) |
 | `OPENSEARCH_URL` | Event search store (`EventStore`); empty means Postgres search |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | OpenTelemetry SDK export of traces, metrics and logs to the collector |
 
 **Endpoints the probes rely on:**
 
