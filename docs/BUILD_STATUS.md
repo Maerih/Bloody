@@ -44,7 +44,7 @@ At pause time `pnpm -r typecheck` passed and all ~870 tests passed. The app runs
    3. List every called endpoint in `apps/web/src/api/endpoints.ts`.
 3. ~~**Web ↔ API reconciliation**~~ (DONE: all 84 web calls match API routes; a browser crawl of all 153 pages against the live API found 2 bugs, both fixed — Billing page crash and the SOAR actions limit), about 45 min. Match every web call against the registered Fastify routes and response shapes; fix mismatches.
 4. ~~**End-to-end run**~~ (DONE: crawl clean, dark theme checked, `pnpm -r build` and typecheck pass), about 1 h. Use Playwright on every page: zero console errors and zero failed requests, compare against the reference screenshots, check dark theme, then run `pnpm -r build`.
-5. **Security, tenancy and completeness review, then fixes**, about 1.5 h.
+5. ~~**Security, tenancy and completeness review**~~ (first pass DONE: no raw-HTML rendering in the UI; SQL interpolation is limited to constants and fixed allow-lists; every flagged route authorizes, directly or through a helper; a live probe as a customer viewer found no cross-customer data in 61 list endpoints and every write was refused with 403. Still recommended: a deeper third-party pentest before production), about 1.5 h.
 
 Total: about 4–5 hours of agent work.
 
