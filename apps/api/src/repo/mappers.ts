@@ -98,6 +98,7 @@ export function toAgent(r: Row): Agent {
     lastCheckinAt: sn(r.last_checkin_at),
     antivirusStatus: s(r.antivirus_status) as Agent["antivirusStatus"],
     firewallEnabled: Boolean(r.firewall_enabled),
+    isolation: r.isolation ? (r.isolation as NonNullable<Agent["isolation"]>) : null,
   };
 }
 

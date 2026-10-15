@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { ResponseActionKey, ResponseActionStatus, Uuid } from "@bloody/contracts";
+import { IsolationMode, ResponseActionKey, ResponseActionStatus, Uuid } from "@bloody/contracts";
 import type { ApprovalRequest } from "@bloody/automation";
 import { actorFromRequest } from "../audit/audit.js";
 import { assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
-import { notFound } from "../http/errors.js";
+import { badRequest, notFound } from "../http/errors.js";
 import { IdParam, Limit, csvOf, decodeCursor } from "../http/params.js";
 import type { Row } from "../repo/mappers.js";
 import { toResponseAction } from "../services/response.js";
@@ -107,6 +107,9 @@ export async function responseRoutes(app: FastifyInstance, s: AppServices): Prom
   app.post("/response/actions", { config: { ...soar, audit: false } }, async (request, reply) => {
     const auth = requireAuth(request);
     const body = parse(RequestBody, request.body);
+    if (body.action === "isolate_endpoint" && body.parameters.mode !== undefined && !IsolationMode.safeParse(body.parameters.mode).success) {
+      throw badRequest('parameters.mode must be "lan" (block the local network, keep internet) or "full"');
+    }
     let organizationId = body.organizationId ?? null;
     if (body.incidentId) {
       const inc = await s.db.withTenant(auth.tenantId, async (tx) => (await tx.query<{ organization_id: string }>("SELECT organization_id FROM incidents WHERE id = $1", [body.incidentId])).rows[0]);

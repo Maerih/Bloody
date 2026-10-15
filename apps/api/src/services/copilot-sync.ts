@@ -225,7 +225,8 @@ export async function persistCoPilotPlan(tx: Queryable, input: PersistCoPilotInp
         asset_id: assetId ?? cur.asset_id ?? null,
         platform: d.platform,
         version: d.version,
-        status: d.status,
+        // A Bloody isolation stays authoritative until released from the platform.
+        status: cur.isolation ? "isolated" : d.status,
         last_checkin_at: d.lastCheckinAt ?? cur.last_checkin_at ?? null,
         antivirus_status: d.antivirusStatus ?? cur.antivirus_status,
         firewall_enabled: d.firewallEnabled ?? cur.firewall_enabled,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AttackTechnique, IndicatorType } from "./event.js";
 import { IsoDateTime, Severity, Uuid } from "./common.js";
+import { IsolationMode } from "./response.js";
 
 /** Columns every tenant-scoped record carries. */
 const Scoped = z.object({ id: Uuid, tenantId: Uuid, organizationId: Uuid, createdAt: IsoDateTime, updatedAt: IsoDateTime });
@@ -64,6 +65,8 @@ export const Agent = Scoped.extend({
   lastCheckinAt: IsoDateTime.nullable(),
   antivirusStatus: z.enum(["protected", "unhealthy", "unmanaged", "incompatible"]),
   firewallEnabled: z.boolean(),
+  /** Set while the endpoint is network-isolated (see ISOLATION_MODES); null otherwise. */
+  isolation: z.object({ mode: IsolationMode, since: z.string(), actionId: z.string().nullable() }).nullable().optional(),
 });
 export type Agent = z.infer<typeof Agent>;
 

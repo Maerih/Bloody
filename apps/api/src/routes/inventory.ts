@@ -299,7 +299,8 @@ export async function inventoryRoutes(app: FastifyInstance, s: AppServices): Pro
         `INSERT INTO agents (tenant_id, organization_id, asset_id, hostname, platform, version, engine, status, last_checkin_at, antivirus_status, firewall_enabled, external_source, external_ref)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT (tenant_id, organization_id, lower(hostname), engine) DO UPDATE SET
-           asset_id = coalesce(EXCLUDED.asset_id, agents.asset_id), platform = EXCLUDED.platform, version = EXCLUDED.version, status = EXCLUDED.status,
+           asset_id = coalesce(EXCLUDED.asset_id, agents.asset_id), platform = EXCLUDED.platform, version = EXCLUDED.version,
+           status = CASE WHEN agents.isolation IS NOT NULL THEN 'isolated' ELSE EXCLUDED.status END,
            last_checkin_at = GREATEST(agents.last_checkin_at, EXCLUDED.last_checkin_at), antivirus_status = EXCLUDED.antivirus_status,
            firewall_enabled = EXCLUDED.firewall_enabled, external_ref = coalesce(EXCLUDED.external_ref, agents.external_ref)
          RETURNING *, (xmax = 0) AS inserted`,

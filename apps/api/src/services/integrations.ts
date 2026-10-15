@@ -7,6 +7,7 @@ import {
   createOpenCtiClient,
   createVelociraptorResponse,
   createWazuhActiveResponse,
+  isIpOrCidr,
   createWazuhApiClient,
   createWebhookBlockConnector,
   mispHealthCheck,
@@ -73,6 +74,8 @@ const CONFIG_SCHEMAS: Record<string, z.ZodTypeAny> = {
         releaseCommand: z.string().max(64).optional(),
         killProcessCommand: z.string().max(64).optional(),
         quarantineFileCommand: z.string().max(64).optional(),
+        /** Addresses isolated endpoints keep reaching (Wazuh manager, Bloody platform) — enables bloody-isolate. */
+        isolationAllow: z.array(z.string().trim().refine(isIpOrCidr, "must be an IP address or CIDR")).max(32).optional(),
         allowAllAgents: z.boolean().optional(),
       })
       .strict()

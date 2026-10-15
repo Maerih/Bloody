@@ -529,8 +529,16 @@ export class ResponseService {
 
   /** Mirror successful containment into inventory (agent isolation, identity disabled…). */
   private async applySideEffects(tx: Queryable, row: Row, action: ResponseActionKey, target: ResponseTargetInput): Promise<void> {
-    if (target.kind === "asset" && (action === "isolate_endpoint" || action === "release_endpoint")) {
-      await tx.query("UPDATE agents SET status = $2 WHERE asset_id = $1 AND status <> 'pending'", [target.id, action === "isolate_endpoint" ? "isolated" : "protected"]);
+    if (target.kind === "asset" && action === "isolate_endpoint") {
+      const params = (row.parameters ?? {}) as Record<string, unknown>;
+      const mode = params.mode === "lan" ? "lan" : "full";
+      await tx.query(
+        "UPDATE agents SET status = 'isolated', isolation = jsonb_build_object('mode', $2::text, 'since', now(), 'actionId', $3::text) WHERE asset_id = $1 AND status <> 'pending'",
+        [target.id, mode, String(row.id)],
+      );
+    }
+    if (target.kind === "asset" && action === "release_endpoint") {
+      await tx.query("UPDATE agents SET status = 'protected', isolation = NULL WHERE asset_id = $1 AND status <> 'pending'", [target.id]);
     }
     if (target.kind === "identity" && action === "disable_identity") {
       await tx.query("UPDATE identities SET enabled = false WHERE id = $1", [target.id]);
