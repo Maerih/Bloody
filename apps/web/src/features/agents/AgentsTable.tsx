@@ -6,7 +6,7 @@ import { useAgents } from "../../api/hooks";
 import type { AgentFilters } from "../../api/types";
 import { useSession } from "../../app/session";
 import { Badge, StatusBadge } from "../../components/Badge";
-import { Button } from "../../components/Button";
+import { Button, ButtonLink } from "../../components/Button";
 import { ConnectEngineEmptyState } from "../../components/ConnectEngine";
 import { DataTable, type DataTableColumn } from "../../components/DataTable";
 import { RelativeTime } from "../../components/RelativeTime";
@@ -76,7 +76,7 @@ export function AgentsTable({
     { id: "status", header: "Agent status", accessor: (a) => a.status, cell: (a) => <Badge size="xs" tone={AGENT_TONE[a.status]}>{agentStatusLabel(a)}</Badge>, filter: { kind: "select", options: Object.keys(AGENT_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
     { id: "av", header: "Antivirus", accessor: (a) => a.antivirusStatus, cell: (a) => <Badge size="xs" tone={AV_TONE[a.antivirusStatus]}>{humanize(a.antivirusStatus)}</Badge>, filter: { kind: "select", options: Object.keys(AV_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
     { id: "firewall", header: "Firewall", accessor: (a) => (a.firewallEnabled ? "enabled" : "disabled"), cell: (a) => (a.firewallEnabled ? <span className="text-healthy">Enabled</span> : <span className="text-sev-high">Disabled</span>), filter: { kind: "select", options: [{ value: "enabled", label: "Enabled" }, { value: "disabled", label: "Disabled" }] } },
-    { id: "engine", header: "Engine", accessor: (a) => a.engine },
+    { id: "engine", header: "Engine", accessor: (a) => (a.engine === "sciat" ? "SCIAT Agent" : a.engine) },
     { id: "version", header: "Version", accessor: (a) => a.version, cell: (a) => <span className="font-mono text-xs">{a.version}</span> },
     { id: "org", header: "Organization", accessor: (a) => session.organizationName(a.organizationId), defaultHidden: session.organizationId !== null },
     { id: "checkin", header: "Last check-in", accessor: (a) => (a.lastCheckinAt ? new Date(a.lastCheckinAt) : null), cell: (a) => <RelativeTime value={a.lastCheckinAt} /> },
@@ -130,7 +130,7 @@ export function AgentsTable({
             </Button>
           ) : null
         }
-        emptyState={<ConnectEngineEmptyState compact icon={Monitor} title={emptyTitle} engines={engines} />}
+        emptyState={<ConnectEngineEmptyState compact icon={Monitor} title={emptyTitle} engines={engines} extraAction={<ButtonLink to="/agents/download" size="sm" variant="secondary">Install the SCIAT Agent</ButtonLink>} />}
       />
       {action && action.agent.assetId ? (
         <RequestActionDialog

@@ -16,6 +16,7 @@ import { organizationRoutes } from "./organizations.js";
 import { searchRoutes } from "./search.js";
 import { teamRoutes } from "./teams.js";
 import { userRoutes } from "./users.js";
+import { agentRoutes } from "./agent.js";
 import { aiRoutes } from "./ai.js";
 import { billingRoutes } from "./billing.js";
 import { commercialRoutes } from "./commercial.js";
@@ -63,5 +64,6 @@ export async function registerRoutes(app: FastifyInstance, services: AppServices
   await reportRoutes(app, services);
   await commercialRoutes(app, services);
   await billingRoutes(app, services);
+  await agentRoutes(app, services);
   await msspAdminRoutes(app, services);
 }

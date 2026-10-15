@@ -97,6 +97,8 @@ COPY --from=build /repo/apps/api/package.json ./package.json
 COPY --from=build /repo/apps/api/dist ./dist
 COPY --from=build /repo/apps/api/migrations ./migrations
 COPY infra/docker/healthcheck.mjs /app/healthcheck.mjs
+# SCIAT Agent installers and scripts served by /api/v1/agent/install and /api/v1/agent/files.
+COPY infra/agent ./agent
 
 USER 65532:65532
 EXPOSE 4000

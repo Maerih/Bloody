@@ -1,0 +1,146 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import type { Database, Queryable } from "../db/pool.js";
+import { HttpError } from "../http/errors.js";
+import type { Row } from "../repo/mappers.js";
+import type { SecretBox } from "../security/crypto.js";
+import type { QuotaService } from "./commercial.js";
+import type { InventoryService } from "./inventory.js";
+
+/**
+ * SCIAT Agent enrollment (proprietary).
+ *
+ *  - Account key `sak_<tenant hex>_<secret>`: one per account, shown to admins (sealed at rest,
+ *    hashed for checks), regenerable — enrolled agents keep their own tokens.
+ *  - Organization key: the organization's slug (an identifier, not a secret). Organizations are
+ *    never created by enrollment, so a leaked account key cannot add customers.
+ *  - Agent token `sat_<tenant hex>_<agent hex>_<secret>`: issued at enrollment, only its hash is
+ *    stored; the heartbeat authenticates with it. The tenant is part of every key, so lookups
+ *    run inside that tenant's RLS context.
+ */
+
+const ACCOUNT_KEY_RE = /^sak_([0-9a-f]{32})_([A-Za-z0-9_-]{32,64})$/;
+const AGENT_TOKEN_RE = /^sat_([0-9a-f]{32})_([0-9a-f]{32})_([A-Za-z0-9_-]{32,64})$/;
+const hex = (uuid: string) => uuid.replace(/-/g, "").toLowerCase();
+const uuidOf = (h: string) => `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+const secret = () => randomBytes(32).toString("base64url");
+const sameHash = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+
+export const AGENT_POLL_SECONDS = 60;
+export const SCIAT_AGENT_VERSION = "1.0.0";
+
+export interface EnrollInput {
+  accountKey: string;
+  organizationKey: string;
+  hostname: string;
+  platform: "windows" | "macos" | "linux";
+  os?: string | undefined;
+  version: string;
+  ips?: string[] | undefined;
+  machineId?: string | undefined;
+}
+
+export interface HeartbeatInput {
+  hostname: string;
+  os?: string | undefined;
+  version: string;
+  ips?: string[] | undefined;
+  uptimeSeconds?: number | undefined;
+  isolation?: { state: "isolated" | "not_isolated" | "unknown"; mode?: string | undefined } | undefined;
+  engines?: Record<string, string> | undefined;
+}
+
+export class AgentEnrollmentError extends HttpError {}
+
+const keyContext = (tenantId: string) => `${tenantId}:agent-enrollment:account-key`;
+
+/** Read the account key inside the tenant's transaction (created on first use). */
+export async function readAccountKey(tx: Queryable, box: SecretBox, tenantId: string): Promise<string> {
+  const { rows } = await tx.query<Row>("SELECT key_sealed FROM agent_enrollment");
+  if (rows[0]) return box.decrypt(String(rows[0].key_sealed), keyContext(tenantId));
+  return rotateAccountKey(tx, box, tenantId);
+}
+
+/** Issue a new account key; endpoints already enrolled keep working with their own tokens. */
+export async function rotateAccountKey(tx: Queryable, box: SecretBox, tenantId: string): Promise<string> {
+  const key = `sak_${hex(tenantId)}_${secret()}`;
+  await tx.query(
+    `INSERT INTO agent_enrollment (tenant_id, key_hash, key_sealed) VALUES ($1, $2, $3)
+     ON CONFLICT (tenant_id) DO UPDATE SET key_hash = EXCLUDED.key_hash, key_sealed = EXCLUDED.key_sealed, rotated_at = now()`,
+    [tenantId, sha256(key), box.encrypt(key, keyContext(tenantId))],
+  );
+  return key;
+}
+
+export class AgentEnrollmentService {
+  constructor(
+    private readonly deps: { db: Database; box: SecretBox; inventory: InventoryService; quota?: QuotaService; now: () => number },
+  ) {}
+
+  /** The account key (created on first use). */
+  accountKey(tx: Queryable, tenantId: string): Promise<string> {
+    return readAccountKey(tx, this.deps.box, tenantId);
+  }
+
+  rotate(tx: Queryable, tenantId: string): Promise<string> {
+    return rotateAccountKey(tx, this.deps.box, tenantId);
+  }
+
+  /** Enroll (or re-enroll) an endpoint; returns its own token. */
+  async enroll(input: EnrollInput): Promise<{ agentId: string; token: string; organizationId: string; pollSeconds: number }> {
+    const m = ACCOUNT_KEY_RE.exec(input.accountKey.trim());
+    if (!m) throw new AgentEnrollmentError(401, "invalid_account_key", "Invalid account key");
+    const tenantId = uuidOf(m[1]!);
+    return this.deps.db.withTenant(tenantId, async (tx) => {
+      const { rows } = await tx.query<Row>("SELECT key_hash FROM agent_enrollment");
+      if (!rows[0] || !sameHash(String(rows[0].key_hash), sha256(input.accountKey.trim()))) throw new AgentEnrollmentError(401, "invalid_account_key", "Invalid account key");
+      const org = await tx.query<Row>("SELECT id FROM organizations WHERE lower(slug) = lower($1) AND status <> 'offboarded'", [input.organizationKey.trim()]);
+      if (!org.rows[0]) throw new AgentEnrollmentError(404, "unknown_organization", "Unknown organization key — create the organization in the Command Center first");
+      const organizationId = String(org.rows[0].id);
+      // A new endpoint counts against the plan; re-enrolling the same machine does not.
+      const known = await tx.query("SELECT 1 FROM agents WHERE organization_id = $1 AND lower(hostname) = lower($2) AND engine = 'sciat'", [organizationId, input.hostname]);
+      if ((known.rowCount ?? 0) === 0) await this.deps.quota?.assertCapacity(tx, tenantId, "endpoints", 1);
+      const now = new Date(this.deps.now()).toISOString();
+      const assets = await this.deps.inventory.resolveOrDiscoverHosts(tx, tenantId, organizationId, [{ hostname: input.hostname, os: input.os, ips: input.ips, lastSeenAt: now }]);
+      const assetId = [...assets.values()][0] ?? null;
+      const agentSecret = secret();
+      const { rows: agent } = await tx.query<Row>(
+        `INSERT INTO agents (tenant_id, organization_id, asset_id, hostname, platform, version, engine, status, last_checkin_at, antivirus_status, firewall_enabled,
+                             external_source, external_ref, agent_token_hash, enrolled_at, host_info)
+         VALUES ($1, $2, $3, $4, $5, $6, 'sciat', 'protected', $7, 'unmanaged', false, 'sciat', $8, $9, $7, $10::jsonb)
+         ON CONFLICT (tenant_id, organization_id, lower(hostname), engine) DO UPDATE SET
+           asset_id = coalesce(EXCLUDED.asset_id, agents.asset_id), platform = EXCLUDED.platform, version = EXCLUDED.version,
+           status = CASE WHEN agents.isolation IS NOT NULL THEN 'isolated' ELSE 'protected' END, last_checkin_at = EXCLUDED.last_checkin_at,
+           external_ref = coalesce(EXCLUDED.external_ref, agents.external_ref), agent_token_hash = EXCLUDED.agent_token_hash,
+           enrolled_at = EXCLUDED.enrolled_at, host_info = EXCLUDED.host_info
+         RETURNING id`,
+        [tenantId, organizationId, assetId, input.hostname, input.platform, input.version, now, input.machineId ?? null, sha256(agentSecret), JSON.stringify({ os: input.os ?? null, ips: input.ips ?? [] })],
+      );
+      const agentId = String(agent[0]!.id);
+      return { agentId, token: `sat_${hex(tenantId)}_${hex(agentId)}_${agentSecret}`, organizationId, pollSeconds: AGENT_POLL_SECONDS };
+    });
+  }
+
+  /** Authenticated check-in: refresh liveness and host facts. */
+  async heartbeat(token: string, input: HeartbeatInput): Promise<{ pollSeconds: number; agentId: string; tenantId: string }> {
+    const m = AGENT_TOKEN_RE.exec(token.trim());
+    if (!m) throw new AgentEnrollmentError(401, "invalid_agent_token", "Invalid agent token");
+    const tenantId = uuidOf(m[1]!);
+    const agentId = uuidOf(m[2]!);
+    return this.deps.db.withTenant(tenantId, async (tx) => {
+      const { rows } = await tx.query<Row>("SELECT id, organization_id, agent_token_hash FROM agents WHERE id = $1 AND engine = 'sciat'", [agentId]);
+      const row = rows[0];
+      if (!row?.agent_token_hash || !sameHash(String(row.agent_token_hash), sha256(m[3]!))) throw new AgentEnrollmentError(401, "invalid_agent_token", "Invalid agent token");
+      const now = new Date(this.deps.now()).toISOString();
+      const assets = await this.deps.inventory.resolveOrDiscoverHosts(tx, tenantId, String(row.organization_id), [{ hostname: input.hostname, os: input.os, ips: input.ips, lastSeenAt: now }]);
+      await tx.query(
+        `UPDATE agents SET last_checkin_at = $2, version = $3, hostname = $4, asset_id = coalesce($5, asset_id),
+                status = CASE WHEN isolation IS NOT NULL THEN 'isolated' ELSE 'protected' END,
+                host_info = $6::jsonb
+         WHERE id = $1`,
+        [agentId, now, input.version, input.hostname, [...assets.values()][0] ?? null, JSON.stringify({ os: input.os ?? null, ips: input.ips ?? [], uptimeSeconds: input.uptimeSeconds ?? null, isolation: input.isolation ?? null, engines: input.engines ?? {} })],
+      );
+      return { pollSeconds: AGENT_POLL_SECONDS, agentId, tenantId };
+    });
+  }
+}
