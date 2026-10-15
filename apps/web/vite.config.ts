@@ -1,5 +1,6 @@
+import { isIP } from "node:net";
 import path from "node:path";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type CorsOptions } from "vite";
 import react from "@vitejs/plugin-react";
 
 /**
@@ -17,13 +18,25 @@ export default defineConfig(({ mode }) => {
   const host = env.BLOODY_WEB_HOST || "localhost";
   // Extra hostnames (DNS names) allowed to reach the dev server; IP addresses are always allowed.
   const allowedHosts = (env.BLOODY_WEB_ALLOWED_HOSTS || "").split(",").map((h) => h.trim()).filter(Boolean);
-  // Browser origins allowed to talk to the dev server (incl. the live-reload websocket):
-  // localhost plus PUBLIC_URL and any BLOODY_WEB_ORIGINS, e.g. http://<server-ip>:5173.
+  // Browser origins allowed to talk to the dev server (incl. the live-reload websocket): any IP
+  // address the server is reached on (it may change), localhost, the allowed DNS names and
+  // PUBLIC_URL / BLOODY_WEB_ORIGINS. DNS names stay limited to allowedHosts (DNS-rebinding guard).
   const extraOrigins = [env.PUBLIC_URL || env.BLOODY_PUBLIC_URL, ...(env.BLOODY_WEB_ORIGINS || "").split(",")]
     .map((o) => (o || "").trim())
     .filter(Boolean)
     .map((o) => new URL(o).origin);
-  const cors = { origin: [/^https?:\/\/(?:(?:[^:]+\.)?localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/, ...extraOrigins] };
+  const originAllowed = (origin: string): boolean => {
+    if (extraOrigins.includes(origin)) return true;
+    let hostname: string;
+    try {
+      hostname = new URL(origin).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    } catch {
+      return false;
+    }
+    if (hostname === "localhost" || hostname.endsWith(".localhost") || isIP(hostname)) return true;
+    return allowedHosts.some((h) => (h.startsWith(".") ? hostname.endsWith(h) || hostname === h.slice(1) : hostname === h.toLowerCase()));
+  };
+  const cors: CorsOptions = { origin: (origin, cb) => cb(null as unknown as Error, !origin || originAllowed(origin)) };
   return {
     plugins: [react()],
     server: {

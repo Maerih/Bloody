@@ -21,6 +21,12 @@ for arg in "$@"; do
   esac
 done
 
+. scripts/lib.sh
+# LAN installs follow the server's current address (links in e-mails and reports use PUBLIC_URL).
+if bloody_refresh_address; then echo "Server address is now $(bloody_env_get PUBLIC_URL)"; fi
+# Where the UI listens: .env decides (public installs: 127.0.0.1 behind HTTPS; LAN: every interface).
+BLOODY_WEB_HOST="${BLOODY_WEB_HOST:-$(bloody_env_get BLOODY_WEB_HOST)}"
+
 # Pick up new dependencies and database migrations after a `git pull` (both are no-ops when current).
 pnpm install --frozen-lockfile --prefer-offline >/dev/null
 echo "Applying database migrations ..."

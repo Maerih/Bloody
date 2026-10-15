@@ -92,29 +92,45 @@ Full specification: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Decisions: [do
 
 ### One command on any Linux server (recommended)
 
-On Ubuntu/Debian or Fedora/RHEL/Rocky/Alma, with no prerequisites:
+This works on Ubuntu/Debian or Fedora/RHEL/Rocky/Alma: a home or office server, a customer's on-prem box, or an internet VPS. No prerequisites.
 
 ```bash
 git clone <repo-url> bloody && cd bloody && git switch maerih/bloody
-./install.sh
+./install.sh                                        # home / office / client network
+./install.sh --domain soc.example.com --email you@example.com   # internet VPS with a domain
 ```
 
-`install.sh` does the following:
+The installer picks a mode from the server's address. You can force one with `--lan` or `--public`.
 
-- Checks the server, then installs whatever is missing: Node.js 22, pnpm and PostgreSQL.
+| | LAN mode (private network) | Public mode (VPS) |
+|---|---|---|
+| Address | `http://<ip>:5173`, plus `http://<hostname>.local:5173` via mDNS | `https://<domain>` (Let's Encrypt) or `https://<ip>` (self-signed) |
+| IP changes | followed automatically; the `.local` name never changes | fixed; re-run the installer if it changes |
+| Exposed | port 5173 on the LAN | only 80/443 through Caddy; the app listens on localhost |
+| Settings | development, demo data | production, Secure cookies, HSTS, no demo data |
+| First login | `admin@bloody.local` / `ChangeMe!123` (demo) | your `--admin-email`, with a random password shown once |
+
+The address never needs to match a list. The UI and API accept any address the server is reached on: a new IP, the `.local` name, or the domain. Cross-site requests are still refused.
+
+What it does:
+
+- Checks the server, then installs whatever is missing: Node.js 22, pnpm, PostgreSQL, and Caddy (public) or mDNS (LAN).
 - Creates the database and a private `.env` with random passwords and secrets.
 - Installs dependencies, migrates and loads demo data.
-- Installs the `bloody` service, which starts on boot and restarts on failure.
-- Opens port 5173 in the firewall.
-- Finishes with a health check.
+- Installs the `bloody` service, which starts on boot.
+- Opens the firewall.
+- Finishes with `scripts/doctor.sh`, which prints ✔ or ✘ for each part, with the fix for each problem.
 
-It's safe to re-run. Re-run it after `git pull`, or when the server's IP has changed. `bash scripts/doctor.sh` re-checks everything at any time and prints the fix for each problem.
+It's safe to re-run, for example after `git pull` or to switch modes.
 
 Options:
 
-- `--ip <addr>` sets the address users open in the browser.
-- `--no-service` skips the system service.
-- `--no-demo-data` skips the demo customers, incidents and logins.
+- `--admin-email`, `--org-name`, `--enterprise`: a single company's own SOC, instead of an MSSP.
+- `--ip <addr>`: pin the address.
+- `--demo-data` / `--no-demo-data`.
+- `--no-service`.
+
+Accounts: `pnpm admin create-account --name "Customer SOC" --email admin@customer.example`, and `pnpm admin reset-password --email <addr>`.
 
 ### Manual setups
 

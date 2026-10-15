@@ -11,6 +11,7 @@
 #   BLOODY_SEED=0 bash scripts/setup-local.sh   # no demo data
 set -euo pipefail
 cd "$(dirname "$0")/.."
+. scripts/lib.sh
 
 # Privileged commands run directly as root, otherwise through sudo.
 if [ "$(id -u)" = 0 ]; then SUDO=""; else SUDO="sudo"; fi
@@ -23,8 +24,7 @@ existing_owner_pw="$(env_get DATABASE_URL | sed -nE 's#^postgres(ql)?://bloody_o
 OWNER_PW="${BLOODY_OWNER_DB_PASSWORD:-${existing_owner_pw:-$(rand 32)}}"
 APP_PW="${BLOODY_APP_DB_PASSWORD:-$(env_get BLOODY_APP_DB_PASSWORD)}"
 APP_PW="${APP_PW:-$(rand 32)}"
-IP="${BLOODY_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
-IP="${IP:-localhost}"
+IP="${BLOODY_IP:-$(bloody_detect_ip)}"
 
 node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
 if [ "$node_major" -lt 22 ]; then
@@ -87,15 +87,12 @@ ENV
 else
   echo "==> .env already exists — keeping it, adding any missing settings"
 fi
-# Follow the server's address: update PUBLIC_URL / CORS_ORIGINS when an IP was given explicitly
-# or when the recorded IP no longer belongs to this machine (DHCP change). DNS names are kept.
-cur_host="$(env_get PUBLIC_URL | sed -E 's#^[a-z]+://([^:/]+).*#\1#')"
-if [[ "$cur_host" =~ ^[0-9.]+$ ]] && [ "$cur_host" != "$IP" ]; then
-  if [ -n "${BLOODY_IP:-}" ] || ! hostname -I 2>/dev/null | tr ' ' '\n' | grep -qx "$cur_host"; then
-    echo "==> Server address changed: $cur_host → $IP (updating PUBLIC_URL and CORS_ORIGINS)"
-    sed -i -E "s#^PUBLIC_URL=.*#PUBLIC_URL=http://${IP}:5173#; s#^CORS_ORIGINS=.*#CORS_ORIGINS=http://${IP}:5173,http://localhost:5173#" .env
-  fi
+# A LAN install follows the server's address (DHCP): the start script refreshes PUBLIC_URL.
+# ./install.sh sets the mode explicitly (lan / public with a domain or fixed IP).
+if [ -z "$(bloody_env_get BLOODY_ADDRESS_MODE)" ]; then
+  if [ -n "${BLOODY_IP:-}" ]; then bloody_env_set BLOODY_ADDRESS_MODE fixed; else bloody_env_set BLOODY_ADDRESS_MODE auto; fi
 fi
+[ "$(bloody_env_get BLOODY_ADDRESS_MODE)" = auto ] && bloody_refresh_address && echo "==> Server address: $(bloody_env_get PUBLIC_URL)"
 # Make sure an older/hand-made .env still has what the IP-reachable demo needs.
 ensure_env() { grep -qE "^$1=" .env || { echo "$1=$2" >> .env; echo "    added $1"; }; }
 ensure_env COOKIE_SECURE false
@@ -114,4 +111,4 @@ if [ "${BLOODY_SEED:-1}" = 1 ]; then
   pnpm db:seed
 fi
 
-echo "==> Setup complete (UI: http://${IP}:5173)"
+echo "==> Setup complete"

@@ -87,6 +87,25 @@ export interface BuiltApp {
   services: AppServices;
 }
 
+/**
+ * Same-origin check for CSRF: the browser's Origin names the host the user is on, and the web
+ * server's /api proxy (or a reverse proxy) passes that host through. Comparing the two keeps the
+ * protection without pinning the install to one address — a server whose IP changes, or that is
+ * reached by IP, mDNS name and domain alike, keeps working. A cross-site page carries its own
+ * Origin, which never matches.
+ */
+export function isSameOrigin(origin: string, request: FastifyRequest, trustProxy: boolean): boolean {
+  let host: string;
+  try {
+    host = new URL(origin).host.toLowerCase();
+  } catch {
+    return false;
+  }
+  const forwarded = trustProxy ? request.headers["x-forwarded-host"] : undefined;
+  const candidates = [typeof forwarded === "string" ? forwarded.split(",")[0]!.trim() : undefined, request.headers.host];
+  return candidates.some((h) => typeof h === "string" && h.toLowerCase() === host);
+}
+
 const REQUEST_ID_RE = /^[A-Za-z0-9._:-]{8,128}$/;
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -343,7 +362,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     }
     if (request.auth.csrfProtected && UNSAFE_METHODS.has(request.method)) {
       const origin = request.headers.origin;
-      const originOk = typeof origin !== "string" || allowed.has(origin);
+      const originOk = typeof origin !== "string" || allowed.has(origin) || isSameOrigin(origin, request, config.http.trustProxy);
       const header = request.headers[CSRF_HEADER];
       const tokenOk = originOk && auth.verifyCsrf(request.auth.sessionId!, request.cookies[CSRF_COOKIE], typeof header === "string" ? header : undefined);
       if (!tokenOk) {

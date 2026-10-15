@@ -145,6 +145,20 @@ describe("CSRF protection for cookie sessions", () => {
     const ok = await call(t.app, "POST", "/teams", { auth: { session: s, origin: "http://localhost:5173" }, body });
     expect(ok.status).toBe(201);
 
+    // Same-origin through the web server's proxy works on any address (changed DHCP IP, mDNS
+    // name, domain) without listing it; a foreign page on that same server address does not.
+    for (const host of ["192.168.7.42:5173", "bloody-box.local:5173", "soc.customer.example"]) {
+      const scheme = host.includes(":") ? "http" : "https";
+      const same = await call(t.app, "POST", "/teams", { auth: { session: s, origin: `${scheme}://${host}` }, headers: { host }, body: { name: `SOC pod ${host}` } });
+      expect(same.status).toBe(201);
+    }
+    const spoofed = await call(t.app, "POST", "/teams", { auth: { session: s, origin: "https://evil.example" }, headers: { host: "192.168.7.42:5173" }, body });
+    expect(spoofed.status).toBe(403);
+    expect(spoofed.body.error.code).toBe("csrf_origin");
+    // X-Forwarded-Host is only honoured when TRUST_PROXY is on (it is off here).
+    const forged = await call(t.app, "POST", "/teams", { auth: { session: s, origin: "https://evil.example" }, headers: { host: "192.168.7.42:5173", "x-forwarded-host": "evil.example" }, body });
+    expect(forged.status).toBe(403);
+
     // Bearer tokens are not ambient credentials: no CSRF token needed.
     const bearer = await api(t.app, { token: s.token }).post("/teams", { name: "SOC pod (bearer)" });
     expect(bearer.status).toBe(201);

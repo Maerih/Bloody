@@ -13,7 +13,8 @@
     "test": "vitest run",
     "migrate": "tsx src/db/migrate.ts",
     "seed:dev": "tsx src/db/seed-dev.ts",
-    "search:backfill": "tsx src/db/search-backfill.ts"
+    "search:backfill": "tsx src/db/search-backfill.ts",
+    "admin": "tsx src/db/admin.ts"
   },
   "dependencies": {
     "@bloody/adapters": "workspace:*",

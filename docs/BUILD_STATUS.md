@@ -72,38 +72,50 @@ Open a Claude Code session on this repository and branch (`maerih/bloody`), then
 
 ## Run it on a server (one command)
 
-These steps work on any fresh Ubuntu/Debian or Fedora/RHEL server, and on an existing install:
+This works on any Ubuntu/Debian or Fedora/RHEL server: home, office, a client site, or a VPS. It works on a fresh machine and on an existing install.
 
 ```bash
 git clone <repo-url> bloody && cd bloody && git switch maerih/bloody   # or: git pull
-./install.sh
+./install.sh                                                            # LAN: home / office / client network
+./install.sh --domain soc.example.com --email you@example.com           # VPS with a domain (trusted HTTPS)
+./install.sh --public                                                    # VPS without a domain (self-signed HTTPS on the IP)
 ```
 
-The installer checks and installs everything it needs: Node.js 22, pnpm, PostgreSQL, the database, `.env`, dependencies, migrations and demo data. It then installs the `bloody` service, which starts on boot, and opens the firewall port. It finishes with `scripts/doctor.sh`, which prints ✔ or ✘ for every part, with the fix for each problem.
+**LAN mode** is chosen automatically on a private address:
 
-The installer has been tested on a brand-new Ubuntu 24.04 system, both as root and as a normal sudo user. Re-running it is safe:
+- Open `http://<server-ip>:5173`, or `http://<hostname>.local:5173`. The `.local` name stays the same when the IP changes.
+- The install follows IP changes. Saving works on whatever address is used, and each start updates `PUBLIC_URL`.
+- Demo login: `admin@bloody.local` / `ChangeMe!123`.
 
-- passwords and secrets are kept;
-- a changed IP address is picked up;
-- a previous run is restarted.
+**Public mode** is chosen automatically on a public address, or with `--domain`/`--public`:
 
-Open `http://<server-ip>:5173`. Log in as `admin@bloody.local` / `ChangeMe!123` (MSSP admin). Customer logins use the same password:
+- HTTPS through Caddy. Only ports 80/443 are exposed.
+- Production settings: Secure cookies and HSTS.
+- No demo data. The first administrator (`--admin-email`, default `admin@<domain>`) gets a random password, shown once.
 
-- `ciso@kilimanjaro-bank.example`
-- `it.manager@savannah-logistics.example`
-- `viewer@nile-health.example`
+A cloud VM behind NAT looks private. The installer warns about this and suggests `--domain` or `--public`.
+
+Tested on brand-new Ubuntu 24.04 systems:
+
+- **LAN mode:** an upgrade of an existing install, as a normal sudo user.
+- **Public mode with a self-signed certificate:** HTTPS login and saving, Secure cookies, HSTS, and port 5173 closed to the outside.
+- **Domain mode:** checked up to certificate issuance, which needs real DNS.
+
+Also tested:
+
+- **Stale IP:** detected and repaired on restart.
+- **Saves via the `.local` name:** work.
+- **Forged cross-site saves and unknown host names:** refused (403).
 
 | Task | Command |
 |---|---|
 | Check everything | `bash scripts/doctor.sh` |
 | Status / logs | `sudo systemctl status bloody` / `journalctl -u bloody -f` |
-| Restart | `sudo systemctl restart bloody` (each start applies new migrations) |
+| Restart | `sudo systemctl restart bloody` (each start applies new migrations and picks up a new LAN IP) |
 | Update | `git pull && ./install.sh` |
-| Re-anchor demo data at "now" (before a demo) | `pnpm db:seed --refresh` then restart |
-| Set the address yourself | `./install.sh --ip 192.168.1.3` |
+| New account / lost password | `pnpm admin create-account --name "Customer SOC" --email admin@customer.example` / `pnpm admin reset-password --email <addr>` |
+| Re-anchor demo data at "now" (before a demo) | `pnpm db:seed --refresh`, then restart |
 
 Without systemd (containers, WSL), the installer starts Bloody in the background and logs to `logs/bloody.log`. In that case, re-run it after a reboot.
-
-To run it by hand instead of as a service, use `bash scripts/start-demo.sh` (dev) or `bash scripts/start-demo.sh --prod`. Stop the service first: `sudo systemctl stop bloody`.
 
 Checks: `pnpm -r typecheck`, `pnpm -r test`.
