@@ -66,6 +66,8 @@ CORS_ORIGINS=http://${IP}:5173,http://localhost:5173
 COOKIE_SECURE=false
 # Web UI: listen on every interface so http://${IP}:5173 works from other machines.
 BLOODY_WEB_HOST=0.0.0.0
+# Local AI models (Ollama on this server, e.g. http://localhost:11434) are allowed for the demo.
+BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS=true
 EOF
 else
   echo "==> .env already exists — adding any missing demo settings"
@@ -76,6 +78,7 @@ ensure_env COOKIE_SECURE false
 ensure_env BLOODY_WEB_HOST 0.0.0.0
 ensure_env PUBLIC_URL "http://${IP}:5173"
 ensure_env CORS_ORIGINS "http://${IP}:5173,http://localhost:5173"
+ensure_env BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS true
 
 echo "==> Installing dependencies"
 pnpm install

@@ -1,6 +1,9 @@
 import type { AiProviderConfig, AiProviderKind } from "@bloody/contracts";
 import { BrainCircuit, Cloud, HardDrive, Pencil, PlugZap, Plus, ShieldCheck, Star, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../../api/client";
+import { Checkbox } from "../../components/Form";
 import { useLocation, useNavigate } from "react-router-dom";
 import { errorMessage } from "../../api/client";
 import { useAiProviders, useDeleteAiProvider, useTestAiProvider } from "../../api/hooks";
@@ -170,6 +173,8 @@ export default function AiSettingsPage() {
         <Tabs<View> ariaLabel="AI settings sections" idPrefix="ai-settings" value={view} onChange={go} tabs={[{ id: "providers", label: "Models & providers", icon: BrainCircuit }, { id: "policies", label: "Policies", icon: ShieldCheck }]} />
       </PageHeader>
 
+      {session.canAnywhere("ai:use") || session.canAnywhere("ai:configure") ? <LocalModelsCard /> : null}
+
       {!session.canAnywhere("ai:configure") && !session.canAnywhere("ai:use") ? (
         <div className="rounded border border-line bg-surface shadow-card">
           <EmptyState title="You don't have access to AI settings" description="Ask an administrator for the ai:configure permission." />
@@ -260,5 +265,45 @@ export default function AiSettingsPage() {
         </Dialog>
       ) : null}
     </div>
+  );
+}
+
+interface AiTenantSettings {
+  allowPrivateEndpoints: boolean;
+  effectiveAllowPrivateEndpoints: boolean;
+  enforcedByDeployment: boolean;
+}
+
+/** Tenant switch that lets AI providers run on private/loopback networks (local Ollama, vLLM, LM Studio). */
+export function LocalModelsCard() {
+  const session = useSession();
+  const qc = useQueryClient();
+  const settings = useQuery({ queryKey: ["ai", "settings"], queryFn: ({ signal }) => api.get<AiTenantSettings>("/ai/settings", { signal }) });
+  const update = useMutation({
+    mutationFn: (allow: boolean) => api.patch<AiTenantSettings>("/ai/settings", { allowPrivateEndpoints: allow }),
+    onSuccess: (data) => qc.setQueryData(["ai", "settings"], data),
+  });
+  const canEdit = session.can("ai:configure", null);
+  const data = settings.data;
+  return (
+    <Card title={<span className="inline-flex items-center gap-2"><HardDrive size={14} aria-hidden /> Local models on your network</span>} info="Local providers (Ollama, vLLM, LM Studio) usually run on localhost or a private IP. Those addresses are blocked by default to prevent server-side request forgery; cloud-metadata addresses stay blocked either way.">
+      {settings.isPending ? (
+        <p className="text-sm text-fg-muted">Loading…</p>
+      ) : settings.isError || !data ? (
+        <p className="text-sm text-sev-high">Couldn't load AI settings: {errorMessage(settings.error)}</p>
+      ) : (
+        <div className="space-y-2 text-sm">
+          <Checkbox
+            label="Allow AI providers on private and loopback addresses (e.g. http://localhost:11434 for Ollama)"
+            checked={data.effectiveAllowPrivateEndpoints}
+            disabled={!canEdit || data.enforcedByDeployment || update.isPending}
+            onChange={(e) => update.mutate(e.target.checked)}
+          />
+          {data.enforcedByDeployment ? <p className="text-xs text-fg-muted">Enabled for the whole deployment (BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS).</p> : null}
+          {!canEdit ? <p className="text-xs text-fg-muted">Only administrators with ai:configure can change this.</p> : null}
+          {update.isError ? <p className="text-xs text-sev-high">{errorMessage(update.error)}</p> : null}
+        </div>
+      )}
+    </Card>
   );
 }

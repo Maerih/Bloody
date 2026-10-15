@@ -70,6 +70,31 @@ export async function aiRoutes(app: FastifyInstance, s: AppServices): Promise<vo
     }
   };
 
+  // ─── Tenant AI settings ───────────────────────────────────────────────────
+  /** Whether AI providers may live on private/loopback networks (local Ollama, vLLM, LM Studio). */
+  app.get("/ai/settings", { config: aiModule }, async (request) => {
+    const auth = requireAuth(request);
+    requirePermission(request, "ai:use", null);
+    const tenant = await s.db.withTenant(auth.tenantId, async (tx) => (await tx.query<{ v: unknown }>("SELECT settings->'ai'->'allowPrivateEndpoints' AS v FROM accounts WHERE id = $1", [auth.tenantId])).rows[0]?.v === true);
+    const effective = await s.ai.settings(auth.tenantId);
+    return { allowPrivateEndpoints: tenant, effectiveAllowPrivateEndpoints: effective.allowPrivateEndpoints, enforcedByDeployment: effective.allowPrivateEndpoints && !tenant };
+  });
+
+  app.patch("/ai/settings", { config: { ...aiModule, audit: false } }, async (request) => {
+    const auth = requireAuth(request);
+    requireConfigure(request, null);
+    const body = parse(z.object({ allowPrivateEndpoints: z.boolean() }).strict(), request.body);
+    await s.db.withTenant(auth.tenantId, async (tx) => {
+      await tx.query(
+        "UPDATE accounts SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{ai}', COALESCE(settings->'ai', '{}'::jsonb) || jsonb_build_object('allowPrivateEndpoints', $2::boolean)) WHERE id = $1",
+        [auth.tenantId, body.allowPrivateEndpoints],
+      );
+      await recordAudit(tx, request, { action: "ai_settings.updated", organizationId: null, targetKind: "account", targetId: auth.tenantId, details: { allowPrivateEndpoints: body.allowPrivateEndpoints } });
+    });
+    const effective = await s.ai.settings(auth.tenantId);
+    return { allowPrivateEndpoints: body.allowPrivateEndpoints, effectiveAllowPrivateEndpoints: effective.allowPrivateEndpoints, enforcedByDeployment: effective.allowPrivateEndpoints && !body.allowPrivateEndpoints };
+  });
+
   // ─── Providers ────────────────────────────────────────────────────────────
   app.get("/ai/providers/catalog", { config: aiModule }, async (request) => {
     requireAuth(request);
