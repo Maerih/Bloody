@@ -124,13 +124,14 @@ export async function testProviderConnection(
   config: ProviderConfigInput,
   secret: string | null,
   fetchImpl: FetchLike,
-  options: ProviderRuntimeOptions & { hostResolver?: HostResolver } = {},
+  options: ProviderRuntimeOptions & { hostResolver?: HostResolver | false } = {},
   signal?: AbortSignal,
 ): Promise<HealthStatus> {
   const clock = options.clock ?? systemClock;
   try {
     const endpoint = resolveEndpoint(config);
-    if (endpoint) {
+    // hostResolver === false disables DNS validation (tests with fake hosts only), matching the registry.
+    if (endpoint && options.hostResolver !== false) {
       await assertSafeEndpointResolved(
         endpoint,
         { allowPrivate: options.allowPrivateEndpoints ?? false, requireHttps: classifyEgress(config.kind, endpoint) === "cloud" },

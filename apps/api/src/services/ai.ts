@@ -307,7 +307,7 @@ export class AiService {
     const secret = cfg.credentialRef ? await this.deps.db.withTenant(cfg.tenantId, (tx) => this.deps.secretStore.resolve(tx, cfg.tenantId, cfg.credentialRef!)) : null;
     const { allowPrivateEndpoints } = await this.settings(cfg.tenantId);
     const runtime = { allowPrivateEndpoints, timeoutMs: 20_000, maxRetries: 0, governance: false as const };
-    const health = await testProviderConnection(cfg, secret, this.deps.fetch, { ...runtime, ...(this.deps.hostResolver ? { hostResolver: this.deps.hostResolver } : {}) });
+    const health = await testProviderConnection(cfg, secret, this.deps.fetch, { ...runtime, ...(this.deps.hostResolver !== undefined ? { hostResolver: this.deps.hostResolver } : {}) });
     let models: Array<{ id: string; name?: string; contextWindow?: number }> = [];
     let modelsError: string | null = null;
     if (health.ok || health.modelsListed !== null) {
