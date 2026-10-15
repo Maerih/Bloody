@@ -38,6 +38,7 @@ import { api, type ApiError, type DownloadResult } from "./client";
 import type {
   AlertFilters,
   AssetDetail,
+  AgentEnrollment,
   BillingOverview,
   BillingUsage,
   CreateAutomationRuleInput,
@@ -96,6 +97,7 @@ export const queryKeys = {
   reportSchedules: (orgId: string | null) => ["reports", "schedules", orgKey(orgId)] as const,
   billingUsage: ["billing", "usage"] as const,
   billingOverview: ["billing", "overview"] as const,
+  agentEnrollment: ["agents", "enrollment"] as const,
 };
 
 /** Re-exported for existing callers; implemented in queryUtils. */
@@ -720,3 +722,21 @@ export function useNotificationFeed(access: { escalations: boolean; approvals: b
 // Module workspaces (part B): investigations, graph, attack paths, SIEM, exposure, intel,
 // SOAR, AI SOC, integrations and settings.
 export * from "./moduleHooks";
+
+/** SCIAT Agent enrollment: the account key and one organization key per customer. */
+export function useAgentEnrollment(options: { enabled?: boolean } = {}) {
+  return useQuery<AgentEnrollment, ApiError>({
+    queryKey: queryKeys.agentEnrollment,
+    queryFn: ({ signal }) => api.get<AgentEnrollment>("/agents/enrollment", { signal }),
+    enabled: options.enabled ?? true,
+    staleTime: 60_000,
+  });
+}
+
+export function useRegenerateAccountKey() {
+  const qc = useQueryClient();
+  return useMutation<{ accountKey: string }, ApiError, void>({
+    mutationFn: () => api.post<{ accountKey: string }>("/agents/enrollment/regenerate", {}),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.agentEnrollment }),
+  });
+}

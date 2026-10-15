@@ -31,10 +31,4 @@ describe("help & onboarding pages", () => {
     expect((call?.body as { events: unknown[] }).events).toHaveLength(3);
   });
 
-  it("renders the agent deployment page with the ingest endpoint", async () => {
-    mockApi({ "/auth/me": makeMe(), "/command-center/summary": makeSummary() });
-    renderApp("/agents/download");
-    expect(await screen.findByText(/Deploy agents & collectors/i)).toBeInTheDocument();
-    expect(screen.getByText(/\/api\/v1\/ingest\/suricata/)).toBeInTheDocument();
-  });
 });

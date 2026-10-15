@@ -1016,3 +1016,12 @@ export interface CreateAssetInput {
 
 /** PATCH /assets/:id */
 export type UpdateAssetInput = Partial<Omit<CreateAssetInput, "organizationId">>;
+
+/** GET /agents/enrollment */
+export interface AgentEnrollment {
+  accountKey: string;
+  rotatedAt: string | null;
+  agentVersion: string;
+  platformUrl: string;
+  organizations: Array<{ id: string; name: string; key: string; agents: number }>;
+}
