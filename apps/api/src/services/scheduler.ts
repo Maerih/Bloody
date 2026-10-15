@@ -1,4 +1,5 @@
 import type pg from "pg";
+import { monthPeriod, type BillingService } from "../billing/service.js";
 import { MODULES, type ModuleKey } from "@bloody/contracts";
 import type { ApprovalGate, PlaybookEngine } from "@bloody/automation";
 import type { Database } from "../db/pool.js";
@@ -36,6 +37,8 @@ export interface SchedulerDeps {
   reports: ReportService;
   conversations: PgConversationStore;
   entitlements: EntitlementService;
+  /** Monthly invoicing (in arrears) and dunning; optional so tests can leave it out. */
+  billing?: BillingService;
   log: PipelineLogger;
   intervalSeconds: number;
   now: () => number;
@@ -51,6 +54,7 @@ export interface TickResult {
   agentsUnresponsive: number;
   trialNotices: number;
   messagesPurged: number;
+  invoicesIssued: number;
   errors: string[];
 }
 
@@ -144,7 +148,7 @@ export class Scheduler {
   }
 
   private async run(opts: { force?: boolean }): Promise<TickResult> {
-    const result: TickResult = { leader: false, tenants: 0, approvalsExpired: 0, reportsRun: 0, playbooksStarted: 0, escalationsOverdue: 0, agentsUnresponsive: 0, trialNotices: 0, messagesPurged: 0, errors: [] };
+    const result: TickResult = { leader: false, tenants: 0, approvalsExpired: 0, reportsRun: 0, playbooksStarted: 0, escalationsOverdue: 0, agentsUnresponsive: 0, trialNotices: 0, messagesPurged: 0, invoicesIssued: 0, errors: [] };
     if (this.stopped && !opts.force) return result;
     if (!(await this.lead())) return result;
     result.leader = true;
@@ -225,6 +229,19 @@ export class Scheduler {
           });
         }
         result.agentsUnresponsive += rows.length;
+      });
+      await guard(`billing:${t.id}`, async () => {
+        const billing = this.deps.billing;
+        if (!billing) return;
+        // Invoice the previous calendar month (idempotent per account and period), then dunning.
+        const thisMonth = monthPeriod(now.getTime());
+        const previous = monthPeriod(thisMonth.start.getTime() - 1);
+        await this.deps.db.withTenant(t.id, async (tx) => {
+          const before = (await tx.query("SELECT 1 FROM invoices WHERE period_start = $1", [previous.start.toISOString()])).rowCount ?? 0;
+          const inv = await billing.generateInvoice(tx, t.id, previous);
+          if (inv && before === 0) result.invoicesIssued += 1;
+          await billing.markOverdue(tx);
+        });
       });
       await guard(`trials:${t.id}`, async () => {
         result.trialNotices += await this.trialNotices(t.id, now);

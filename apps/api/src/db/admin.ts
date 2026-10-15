@@ -144,7 +144,7 @@ async function main(): Promise<void> {
   const { loadDotEnv } = await import("../env-file.js");
   loadDotEnv();
   const { loadConfig } = await import("../config.js");
-  const { createPool } = await import("./pool.js");
+  const { createPool, Database } = await import("./pool.js");
   const config = loadConfig();
   const [command, ...rest] = process.argv.slice(2);
   const arg = (name: string) => {
@@ -172,13 +172,44 @@ async function main(): Promise<void> {
         console.log(`new password for ${email.toLowerCase()}: ${password}\n  (shown once; all of their sessions were signed out)`);
         break;
       }
+      case "mark-paid": {
+        // Bank transfers have no webhook: the operator confirms receipt.
+        const number = arg("--invoice");
+        if (!number || !/^INV-\d{6}-\d{4,}$/.test(number)) throw new Error("usage: mark-paid --invoice INV-YYYYMM-NNNN [--account <slug>] [--reference <bank ref>]");
+        const { BillingService } = await import("../billing/service.js");
+        const svc = new BillingService({ db: new Database(pool, pool), priceBook: config.billing.priceBook, providers: new Map(), publicUrl: config.http.publicUrl, invoiceDueDays: config.billing.invoiceDueDays, now: Date.now });
+        const owners = await pool.query<{ tenant_id: string; slug: string }>(
+          "SELECT i.tenant_id, a.slug FROM invoices i JOIN accounts a ON a.id = i.tenant_id WHERE i.number = $1 AND ($2::text IS NULL OR a.slug = $2)",
+          [number, arg("--account") ?? null],
+        );
+        if (owners.rows.length === 0) throw new Error(`no invoice ${number}${arg("--account") ? ` for account ${arg("--account")}` : ""}`);
+        if (owners.rows.length > 1) throw new Error(`${number} exists in several accounts (${owners.rows.map((r) => r.slug).join(", ")}): add --account <slug>`);
+        const inv = await new Database(pool, pool).withTenant(owners.rows[0]!.tenant_id, (tx) => svc.markPaid(tx, number, "bank_transfer", arg("--reference") ?? null));
+        console.log(`${inv.number} marked paid (${owners.rows[0]!.slug}, ${(inv.total / 100).toFixed(2)} ${inv.currency})`);
+        break;
+      }
+      case "generate-invoices": {
+        // Invoice a month for every account now (the scheduler does this automatically each month).
+        const period = arg("--period");
+        if (!period || !/^\d{4}-\d{2}$/.test(period)) throw new Error("usage: generate-invoices --period YYYY-MM");
+        const { BillingService, monthPeriod } = await import("../billing/service.js");
+        const db = new Database(pool, pool);
+        const svc = new BillingService({ db, priceBook: config.billing.priceBook, providers: new Map(), publicUrl: config.http.publicUrl, invoiceDueDays: config.billing.invoiceDueDays, now: Date.now });
+        const range = monthPeriod(Date.parse(`${period}-01T00:00:00Z`));
+        const accounts = await pool.query<{ id: string; slug: string }>("SELECT id, slug FROM accounts WHERE status = 'active' ORDER BY slug");
+        for (const a of accounts.rows) {
+          const inv = await db.withTenant(a.id, (tx) => svc.generateInvoice(tx, a.id, range));
+          if (inv) console.log(`${a.slug}: ${inv.number} ${(inv.total / 100).toFixed(2)} ${inv.currency} (${inv.status})`);
+        }
+        break;
+      }
       case "status": {
         const s = await accountSummary(pool);
         console.log(JSON.stringify(s));
         break;
       }
       default:
-        throw new Error("commands: create-account, reset-password, status");
+        throw new Error("commands: create-account, reset-password, status, mark-paid, generate-invoices");
     }
   } finally {
     await pool.end();

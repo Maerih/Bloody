@@ -17,6 +17,7 @@ import { searchRoutes } from "./search.js";
 import { teamRoutes } from "./teams.js";
 import { userRoutes } from "./users.js";
 import { aiRoutes } from "./ai.js";
+import { billingRoutes } from "./billing.js";
 import { commercialRoutes } from "./commercial.js";
 import { detectionRoutes } from "./detections.js";
 import { eventRoutes } from "./events.js";
@@ -61,5 +62,6 @@ export async function registerRoutes(app: FastifyInstance, services: AppServices
   await aiRoutes(app, services);
   await reportRoutes(app, services);
   await commercialRoutes(app, services);
+  await billingRoutes(app, services);
   await msspAdminRoutes(app, services);
 }

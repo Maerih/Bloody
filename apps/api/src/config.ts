@@ -1,3 +1,4 @@
+import { DEFAULT_PRICE_BOOK, PriceBook } from "@bloody/contracts";
 import { z } from "zod";
 
 /**
@@ -68,6 +69,25 @@ const RawEnv = z.object({
   BLOODY_EVENT_BUS: z.enum(["memory", "kafka"]).default("memory"),
   KAFKA_BROKERS: z.string().max(2000).optional(),
   KAFKA_CONSUMER_GROUP: z.string().min(1).max(200).default("bloody-pipeline"),
+  /** Billing (operator side). Price book JSON overrides DEFAULT_PRICE_BOOK (cents). */
+  BLOODY_PRICE_BOOK: z.string().max(10_000).optional(),
+  /** Wire-transfer instructions shown on invoices (use \n for new lines). Enables bank transfer. */
+  BLOODY_BILLING_BANK_DETAILS: z.string().max(2000).optional(),
+  /** Account team shown on the billing page: "Name <email>". */
+  BLOODY_BILLING_CONTACT: z.string().max(300).optional(),
+  BLOODY_INVOICE_DUE_DAYS: z.coerce.number().int().min(0).max(90).default(14),
+  STRIPE_SECRET_KEY: z.string().max(300).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().max(300).optional(),
+  PADDLE_API_KEY: z.string().max(300).optional(),
+  PADDLE_WEBHOOK_SECRET: z.string().max(300).optional(),
+  PADDLE_SANDBOX: bool.default(false),
+  NOWPAYMENTS_API_KEY: z.string().max(300).optional(),
+  NOWPAYMENTS_IPN_SECRET: z.string().max(300).optional(),
+  NOWPAYMENTS_SANDBOX: bool.default(false),
+  BTCPAY_URL: z.string().url().optional(),
+  BTCPAY_STORE_ID: z.string().max(200).optional(),
+  BTCPAY_API_KEY: z.string().max(300).optional(),
+  BTCPAY_WEBHOOK_SECRET: z.string().max(300).optional(),
   /** Event search engine: postgres (default) or opensearch (OPENSEARCH_URL; Postgres stays the system of record). */
   BLOODY_EVENT_SEARCH: z.enum(["postgres", "opensearch"]).default("postgres"),
   OPENSEARCH_URL: z.string().url().optional(),
@@ -191,6 +211,16 @@ export interface AppConfig {
   };
   telemetry: { otlpEndpoint: string | null; serviceName: string; resourceAttributes: string | undefined };
   bus: { kind: "memory" | "kafka"; brokers: string[]; consumerGroup: string };
+  billing: {
+    priceBook: PriceBook;
+    bankDetails: string | null;
+    contact: { name: string; email: string } | null;
+    invoiceDueDays: number;
+    stripe: { secretKey: string; webhookSecret: string } | null;
+    paddle: { apiKey: string; webhookSecret: string; sandbox: boolean } | null;
+    nowpayments: { apiKey: string; ipnSecret: string; sandbox: boolean } | null;
+    btcpay: { url: string; storeId: string; apiKey: string; webhookSecret: string } | null;
+  };
   search: { engine: "postgres" | "opensearch"; opensearch: { url: string; username: string | undefined; password: string | undefined; indexPrefix: string } | null };
   ingest: { maxBatch: number; bodyLimitBytes: number; maxEventAgeDays: number; pipelineEnabled: boolean };
   scheduler: { enabled: boolean; intervalSeconds: number };
@@ -260,6 +290,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const e = parsed.data;
   if (e.BLOODY_EVENT_BUS === "kafka" && !(e.KAFKA_BROKERS ?? "").trim()) throw new ConfigError("BLOODY_EVENT_BUS=kafka requires KAFKA_BROKERS (host:port,host:port)");
+  let priceBook: PriceBook = DEFAULT_PRICE_BOOK;
+  if (e.BLOODY_PRICE_BOOK) {
+    try {
+      priceBook = PriceBook.parse(JSON.parse(e.BLOODY_PRICE_BOOK));
+    } catch (err) {
+      throw new ConfigError(`BLOODY_PRICE_BOOK is not a valid price book: ${err instanceof Error ? err.message.slice(0, 300) : "invalid JSON"}`);
+    }
+  }
   if (e.BLOODY_EVENT_SEARCH === "opensearch" && !e.OPENSEARCH_URL) throw new ConfigError("BLOODY_EVENT_SEARCH=opensearch requires OPENSEARCH_URL");
   const production = e.NODE_ENV === "production";
   const warnings: string[] = [];
@@ -363,6 +401,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     features: { vulnEnrichment: e.FEATURE_VULN_ENRICHMENT },
     enrichment: { allowedHosts: e.ENRICHMENT_ALLOWED_HOSTS.map((h) => h.toLowerCase()), kevFeedUrl: e.KEV_FEED_URL, epssApiUrl: e.EPSS_API_URL },
     reports: { maxStoredBytes: e.REPORT_MAX_STORED_BYTES },
+    billing: {
+      priceBook,
+      bankDetails: e.BLOODY_BILLING_BANK_DETAILS ? e.BLOODY_BILLING_BANK_DETAILS.replace(/\\n/g, "\n") : null,
+      contact: (() => {
+        const m = /^\s*(.*?)\s*<([^>]+)>\s*$/.exec(e.BLOODY_BILLING_CONTACT ?? "");
+        return m ? { name: m[1] || m[2]!, email: m[2]! } : null;
+      })(),
+      invoiceDueDays: e.BLOODY_INVOICE_DUE_DAYS,
+      stripe: e.STRIPE_SECRET_KEY && e.STRIPE_WEBHOOK_SECRET ? { secretKey: e.STRIPE_SECRET_KEY, webhookSecret: e.STRIPE_WEBHOOK_SECRET } : null,
+      paddle: e.PADDLE_API_KEY && e.PADDLE_WEBHOOK_SECRET ? { apiKey: e.PADDLE_API_KEY, webhookSecret: e.PADDLE_WEBHOOK_SECRET, sandbox: e.PADDLE_SANDBOX } : null,
+      nowpayments: e.NOWPAYMENTS_API_KEY && e.NOWPAYMENTS_IPN_SECRET ? { apiKey: e.NOWPAYMENTS_API_KEY, ipnSecret: e.NOWPAYMENTS_IPN_SECRET, sandbox: e.NOWPAYMENTS_SANDBOX } : null,
+      btcpay:
+        e.BTCPAY_URL && e.BTCPAY_STORE_ID && e.BTCPAY_API_KEY && e.BTCPAY_WEBHOOK_SECRET
+          ? { url: e.BTCPAY_URL, storeId: e.BTCPAY_STORE_ID, apiKey: e.BTCPAY_API_KEY, webhookSecret: e.BTCPAY_WEBHOOK_SECRET }
+          : null,
+    },
     search: {
       engine: e.BLOODY_EVENT_SEARCH,
       opensearch: e.OPENSEARCH_URL ? { url: e.OPENSEARCH_URL, username: e.OPENSEARCH_USERNAME, password: e.OPENSEARCH_PASSWORD, indexPrefix: e.OPENSEARCH_INDEX_PREFIX } : null,

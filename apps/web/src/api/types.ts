@@ -224,6 +224,22 @@ export interface NotificationChannelSummary {
 }
 
 /** GET /billing/usage */
+/** GET /billing/overview — commercial billing (models, prices, subscriptions, methods, invoices). */
+export interface BillingOverview {
+  contact: { name: string; email: string } | null;
+  currency: import("@bloody/contracts").Currency;
+  priceBook: import("@bloody/contracts").PriceBook;
+  models: Array<{ key: import("@bloody/contracts").BillingModel; label: string; description: string; termMonths: number; discount: number; defaultMinimum: number }>;
+  products: Array<{ key: import("@bloody/contracts").BillingProduct; label: string; unit: string; meter: string }>;
+  providers: Array<{ key: import("@bloody/contracts").PaymentProviderKey; label: string; kinds: readonly import("@bloody/contracts").PaymentMethodKind[]; note: string; canSaveCard: boolean }>;
+  bankDetails: string | null;
+  profile: import("@bloody/contracts").BillingProfile;
+  units: Record<import("@bloody/contracts").BillingProduct, number>;
+  subscriptions: import("@bloody/contracts").Subscription[];
+  paymentMethods: import("@bloody/contracts").PaymentMethod[];
+  invoices: Array<import("@bloody/contracts").Invoice & { paymentUrl: string | null }>;
+}
+
 export interface BillingUsage {
   /** Older deployments put the plan at the top level; current ones under `limits.plan`. */
   plan?: PlanKey;

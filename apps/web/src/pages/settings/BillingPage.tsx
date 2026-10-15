@@ -15,6 +15,7 @@ import { RelativeTime } from "../../components/RelativeTime";
 import { SkeletonText } from "../../components/Skeleton";
 import type { EntitlementView } from "../../api/types";
 import { formatDate, formatInteger, formatNumber } from "../../lib/format";
+import { CommercialBilling } from "../../features/billing/CommercialBilling";
 
 export const METER_LABELS: Record<string, { label: string; daily: boolean }> = {
   endpoints: { label: "Protected endpoints", daily: false },
@@ -72,7 +73,7 @@ export default function BillingPage() {
     <div>
       <PageHeader
         title="Billing & Usage"
-        subtitle="Your plan, its limits and live usage. Daily meters reset at 00:00 UTC; capacity meters count what exists now."
+        subtitle="Plans, payment methods, invoices and live usage. Daily meters reset at 00:00 UTC."
         breadcrumbs={[{ label: "Settings", href: "/settings" }, { label: "Billing & Usage" }]}
         actions={
           <ButtonLink size="sm" to="/trials">
@@ -80,6 +81,8 @@ export default function BillingPage() {
           </ButtonLink>
         }
       />
+      <CommercialBilling />
+      <h2 className="mb-2 mt-5 text-sm font-semibold uppercase tracking-wide text-fg-muted">Usage & limits</h2>
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card title="Usage vs limits" actions={<Gauge size={14} className="text-fg-muted" aria-hidden />} info="Measured by the platform's metering (usage_counters). When a meter reaches its limit, new endpoints/organizations/users are refused and an automation event fires.">
           {usage.isPending ? (

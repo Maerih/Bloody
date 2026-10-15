@@ -38,6 +38,8 @@ import { DetectionService } from "./services/detections.js";
 import { DomainEventBus } from "./services/domain-events.js";
 import { EnrichmentService } from "./services/enrichment.js";
 import { EventSearchService } from "./services/event-search.js";
+import { configuredProviders, type PaymentProvider } from "./billing/providers.js";
+import { BillingService } from "./billing/service.js";
 import { OpenSearchEventIndex } from "./services/opensearch-events.js";
 import { SearchIndexer } from "./pipeline/search-indexer.js";
 import { GraphQueries } from "./services/graph-queries.js";
@@ -64,6 +66,8 @@ export interface AppDeps {
   now?: () => number;
   /** Fastify logger option (default: config.logLevel, silent in tests). */
   logger?: FastifyServerOptions["logger"];
+  /** Payment providers (tests inject fakes; default: built from config.billing). */
+  paymentProviders?: Map<import("@bloody/contracts").PaymentProviderKey, PaymentProvider>;
   /** Search engine index (default: built from config.search when BLOODY_EVENT_SEARCH=opensearch). */
   searchIndex?: OpenSearchEventIndex | null;
   /** Start the in-process analytics consumer (default: config.ingest.pipelineEnabled). */
@@ -227,6 +231,9 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
       if (reason === "error") log.warn({ err: err instanceof Error ? err.message : String(err) }, "search engine unavailable — answered from Postgres");
     },
   });
+  const paymentProviders =
+    deps.paymentProviders ?? configuredProviders({ publicUrl: config.http.publicUrl, ...config.billing }, deps.fetch ?? fetch);
+  const billing = new BillingService({ db, priceBook: config.billing.priceBook, providers: paymentProviders, publicUrl: config.http.publicUrl, invoiceDueDays: config.billing.invoiceDueDays, now });
   const searchIndexer = searchIndex ? new SearchIndexer({ bus, index: searchIndex, metrics, log }) : null;
   const reports = new ReportService({ db, risk, attackPaths, notifications, events: domainEvents, log, publicUrl: config.http.publicUrl, maxStoredBytes: config.reports.maxStoredBytes, now });
   const port = new PgSocDataPort({ db, graph, attackPaths, eventSearch, detections, responses, notifications, reports, now });
@@ -244,7 +251,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     log,
     now,
   });
-  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
   const services: AppServices = {
     config,
@@ -269,6 +276,8 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     graph,
     detections,
     eventSearch,
+    billing,
+    paymentProviders,
     intel,
     enrichment: new EnrichmentService({ db, inventory, events: domainEvents, enabled: config.features.vulnEnrichment, config: config.enrichment, fetch: engineFetch, resolveHost, now }),
     notifications,

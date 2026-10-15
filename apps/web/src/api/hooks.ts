@@ -10,6 +10,13 @@ import {
   REPORT_TYPES,
   type Alert,
   type AutomationRule,
+  type BillingInterval,
+  type BillingModel,
+  type BillingProduct,
+  type BillingProfile,
+  type PaymentMethod,
+  type PaymentProviderKey,
+  type Subscription,
   type CommandCenterSummary,
   type CreateOrganizationInput,
   type Escalation,
@@ -31,6 +38,7 @@ import { api, type ApiError, type DownloadResult } from "./client";
 import type {
   AlertFilters,
   AssetDetail,
+  BillingOverview,
   BillingUsage,
   CreateAutomationRuleInput,
   CreateNotificationChannelInput,
@@ -87,6 +95,7 @@ export const queryKeys = {
   reportTypes: ["reports", "types"] as const,
   reportSchedules: (orgId: string | null) => ["reports", "schedules", orgKey(orgId)] as const,
   billingUsage: ["billing", "usage"] as const,
+  billingOverview: ["billing", "overview"] as const,
 };
 
 /** Re-exported for existing callers; implemented in queryUtils. */
@@ -452,6 +461,33 @@ export function useBillingUsage(options: { enabled?: boolean } = {}) {
     enabled: options.enabled ?? true,
   });
 }
+
+export function useBillingOverview(options: { enabled?: boolean } = {}) {
+  return useQuery<BillingOverview, ApiError>({
+    queryKey: queryKeys.billingOverview,
+    queryFn: ({ signal }) => api.get<BillingOverview>("/billing/overview", { signal }),
+    enabled: options.enabled ?? true,
+  });
+}
+
+/** Mutations that change billing state refresh the overview afterwards. */
+function useBillingMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation<TResult, ApiError, TVars>({ mutationFn: fn, onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.billingOverview }) });
+}
+export const useSubscribe = () =>
+  useBillingMutation((v: { product: BillingProduct; model: BillingModel; interval?: BillingInterval; minimum?: number }) => api.post<{ subscription: Subscription }>("/billing/subscriptions", v));
+export const useUpdateSubscription = () =>
+  useBillingMutation((v: { id: string; autoRenew?: boolean; cancel?: true }) => {
+    const { id, ...patch } = v;
+    return api.patch<Subscription>(`/billing/subscriptions/${encodeURIComponent(id)}`, patch);
+  });
+export const useSaveBillingProfile = () => useBillingMutation((v: BillingProfile) => api.put<BillingProfile>("/billing/profile", v));
+export const useInvoiceCheckout = () => useBillingMutation((v: { invoiceId: string; provider: PaymentProviderKey }) => api.post<{ url: string }>(`/billing/invoices/${encodeURIComponent(v.invoiceId)}/checkout`, { provider: v.provider }));
+export const useSetupCard = () => useBillingMutation((v: { provider: PaymentProviderKey }) => api.post<{ url: string }>("/billing/payment-methods/card", v));
+export const useAddPaymentPreference = () => useBillingMutation((v: { kind: "crypto" | "bank_transfer"; provider: PaymentProviderKey }) => api.post<PaymentMethod>("/billing/payment-methods", v));
+export const useSetDefaultPaymentMethod = () => useBillingMutation((id: string) => api.post<{ ok: boolean }>(`/billing/payment-methods/${encodeURIComponent(id)}/default`, {}));
+export const useRemovePaymentMethod = () => useBillingMutation((id: string) => api.delete<void>(`/billing/payment-methods/${encodeURIComponent(id)}`));
 
 // ─── Users ──────────────────────────────────────────────────────────────────
 
