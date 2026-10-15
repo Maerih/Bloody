@@ -1,3 +1,4 @@
+import { unwrapOtlpLogs } from "@bloody/adapters";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { Uuid } from "@bloody/contracts";
@@ -90,7 +91,9 @@ export async function ingestRoutes(app: FastifyInstance, s: AppServices): Promis
     const receivedAt = new Date(s.now()).toISOString();
     let normalized;
     try {
-      normalized = s.adapters.ingest(adapter, request.body, {
+      // OpenTelemetry Collector (otlphttp / otlp_json) wraps each raw record in an OTLP log envelope.
+      const payload = unwrapOtlpLogs(request.body) ?? request.body;
+      normalized = s.adapters.ingest(adapter, payload, {
         receivedAt,
         idNamespace: auth.tenantId,
         maxRecords: s.config.ingest.maxBatch,

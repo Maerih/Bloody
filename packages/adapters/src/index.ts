@@ -18,6 +18,7 @@
 export * from "./core/adapter.js";
 export * from "./core/attack.js";
 export * from "./core/hash.js";
+export * from "./core/otlp.js";
 export * from "./core/indicators.js";
 export * from "./core/json.js";
 export * from "./core/records.js";

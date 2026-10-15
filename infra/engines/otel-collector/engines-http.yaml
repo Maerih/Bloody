@@ -7,9 +7,8 @@
 #   Authorization: Bearer <API key with event:ingest>   (an org-bound key fixes tenant + organization)
 #   Content-Type: application/json — an OTLP/HTTP JSON ExportLogsServiceRequest whose log-record
 #   bodies are the raw vendor lines.
-# REQUIREMENT: the API's adapter route must unwrap OTLP log envelopes (resourceLogs → scopeLogs →
-# logRecords[].body) before handing records to the adapter. Until it does, use Vector (sinks/http.yaml)
-# or the Kafka transport (engines-kafka.yaml) for engine logs — see docs/OPERATIONS.md §Data fabric.
+# The API's adapter route unwraps OTLP log envelopes (resourceLogs → scopeLogs → logRecords[].body)
+# and hands each raw record to the engine's adapter, so this transport is equivalent to Vector's.
 # Compression: gzip (the API decodes gzip/deflate/br request bodies).
 # Retries on 429/5xx honour Retry-After; the persistent queue absorbs API maintenance windows.
 
