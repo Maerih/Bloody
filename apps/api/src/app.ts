@@ -1,3 +1,4 @@
+import { Redis } from "ioredis";
 import { registerRequestDecompression } from "./http/content-encoding.js";
 import { randomUUID } from "node:crypto";
 import cookie from "@fastify/cookie";
@@ -260,8 +261,18 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     exposedHeaders: ["x-request-id", "content-disposition", "retry-after"],
     maxAge: 600,
   });
+  // Shared rate-limit counters across API replicas when Valkey is configured; fail-open on outages
+  // (skipOnError) so a cache incident degrades to per-request limits instead of an API outage.
+  const valkey = config.http.valkeyUrl ? new Redis(config.http.valkeyUrl, { connectTimeout: 1000, maxRetriesPerRequest: 1, enableOfflineQueue: false, lazyConnect: false }) : null;
+  if (valkey) {
+    valkey.on("error", (err) => app.log.warn({ err: err.message }, "valkey unavailable — rate limits fall back to fail-open"));
+    app.addHook("onClose", async () => {
+      valkey.disconnect();
+    });
+  }
   await app.register(rateLimit, {
     global: true,
+    ...(valkey ? { redis: valkey, nameSpace: "bloody:rl:", skipOnError: true } : {}),
     max: config.http.rateLimitPerMinute,
     timeWindow: "1 minute",
     keyGenerator: (req) => req.ip,

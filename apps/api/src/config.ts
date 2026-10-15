@@ -62,6 +62,8 @@ const RawEnv = z.object({
   LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).max(24 * 60).default(15),
   LOGIN_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(20),
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(10).max(1_000_000).default(1200),
+  /** Valkey/Redis for state shared across API replicas (rate limits). Unset = in-process only. */
+  VALKEY_URL: z.string().url().optional(),
 
   INGEST_MAX_BATCH: z.coerce.number().int().min(1).max(50_000).default(5000),
   INGEST_BODY_LIMIT_BYTES: z.coerce.number().int().min(1024).max(512 * 1024 * 1024).default(32 * 1024 * 1024),
@@ -170,6 +172,8 @@ export interface AppConfig {
     trustProxy: boolean;
     rateLimitPerMinute: number;
     bodyLimitBytes: number;
+    /** redis:// or rediss:// URL of Valkey; rate limits are shared across replicas when set. */
+    valkeyUrl: string | null;
   };
   ingest: { maxBatch: number; bodyLimitBytes: number; maxEventAgeDays: number; pipelineEnabled: boolean };
   scheduler: { enabled: boolean; intervalSeconds: number };
@@ -332,6 +336,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       cookieSecure: e.COOKIE_SECURE ?? true,
       trustProxy: e.TRUST_PROXY,
       rateLimitPerMinute: e.RATE_LIMIT_PER_MINUTE,
+      valkeyUrl: e.VALKEY_URL ?? null,
       bodyLimitBytes: e.BODY_LIMIT_BYTES,
     },
     ingest: { maxBatch: e.INGEST_MAX_BATCH, bodyLimitBytes: e.INGEST_BODY_LIMIT_BYTES, maxEventAgeDays: e.INGEST_MAX_EVENT_AGE_DAYS, pipelineEnabled: e.PIPELINE_ENABLED },

@@ -53,7 +53,7 @@ Known follow-ups from the infra report:
 - ~~OTLP log envelope unwrapping on `/ingest/:adapter`~~ (DONE, tested with Suricata and syslog);
 - Kafka `EventBus` transport;
 - OpenSearch `EventStore`;
-- a Valkey-backed rate limiter;
+- ~~a Valkey-backed rate limiter~~ (DONE: shared across replicas, fail-open, tested with two replicas);
 - OTel SDK instrumentation.
 
 ## How to resume
