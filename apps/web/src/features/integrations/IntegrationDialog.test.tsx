@@ -5,6 +5,7 @@ import { mockApi, renderWithSession } from "../../test/utils";
 import { IntegrationDialog } from "./IntegrationDialog";
 
 const wazuh = ENGINES.find((e) => e.key === "wazuh")!;
+const velociraptor = ENGINES.find((e) => e.key === "velociraptor")!;
 
 describe("Wazuh integration — isolation allow-list", () => {
   it("validates and sends the API user and isolation allow-list", async () => {
@@ -27,6 +28,23 @@ describe("Wazuh integration — isolation allow-list", () => {
     expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({
       engine: "wazuh",
       config: { username: "bloody", activeResponse: { isolationAllow: ["10.0.0.5", "203.0.113.10"] } },
+    });
+  });
+
+  it("Velociraptor: sends the Bloody isolation artifact and allow-list", async () => {
+    const { calls } = mockApi({ "POST /integrations": ({ body }: { body: unknown }) => ({ ...(body as object), id: "00000000-0000-4000-8000-000000000098", hasCredential: true, status: "pending" }) });
+    const onClose = vi.fn();
+    renderWithSession(<IntegrationDialog engine={velociraptor} onClose={onClose} />);
+    const section = await screen.findByTestId("velociraptor-isolation");
+    fireEvent.change(screen.getByLabelText(/Endpoint/), { target: { value: "https://velo.mssp.example:8001" } });
+    fireEvent.change(screen.getByLabelText(/^Credential/), { target: { value: "velo-token" } });
+    fireEvent.change(within(section).getByLabelText(/Bloody isolation artifact/), { target: { value: "Custom.Bloody.Isolate" } });
+    fireEvent.change(within(section).getByLabelText(/Isolation allow-list/), { target: { value: "192.168.1.3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({
+      engine: "velociraptor",
+      config: { response: { bloodyIsolateArtifact: "Custom.Bloody.Isolate", isolationAllow: ["192.168.1.3"] } },
     });
   });
 });

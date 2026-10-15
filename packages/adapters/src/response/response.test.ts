@@ -137,6 +137,27 @@ describe("Velociraptor collections", () => {
     expect(JSON.parse(calls[1]?.body ?? "{}")).toMatchObject({ specs: [{ artifact: "Windows.Remediation.Quarantine", parameters: { env: [{ key: "RemovePolicy", value: "Y" }] } }] });
   });
 
+  it("LAN isolation needs the Bloody artifact; with it both modes keep the management path", async () => {
+    const { client: c, calls } = client([{ method: "POST", path: "/api/v1/CollectArtifact", json: { flow_id: "F.ISO1", request: { client_id: "C.4f3e2d1c0b0a9988" } } }]);
+    const stock = await velo.execute(req({ action: "isolate_endpoint", target: { kind: "asset", id: "C.4f3e2d1c0b0a9988" }, parameters: { platform: "linux", mode: "lan" } }), { client: c, clock });
+    expect(stock.outcome).toBe("rejected");
+    expect(stock.error?.message).toContain("bloodyIsolateArtifact");
+
+    const bloody = createVelociraptorResponse({ bloodyIsolateArtifact: "Custom.Bloody.Isolate", isolationAllow: ["192.168.1.3", "203.0.113.20"] });
+    const lan = await bloody.execute(req({ action: "isolate_endpoint", target: { kind: "asset", id: "C.4f3e2d1c0b0a9988" }, parameters: { mode: "lan" } }), { client: c, clock });
+    expect(lan.outcome).toBe("succeeded");
+    const env = Object.fromEntries((JSON.parse(calls[0]?.body ?? "{}").specs[0].parameters.env as Array<{ key: string; value: string }>).map((e) => [e.key, e.value]));
+    expect(env).toMatchObject({ Command: "isolate", Mode: "lan", Allow: "192.168.1.3,203.0.113.20" });
+    expect(env.Block4).toContain("192.168.0.0-192.168.1.2,192.168.1.4-192.168.255.255");
+
+    const rel = await bloody.execute(req({ action: "release_endpoint", target: { kind: "asset", id: "C.4f3e2d1c0b0a9988" }, parameters: {} }), { client: c, clock });
+    expect(rel.outcome).toBe("succeeded");
+    expect(JSON.parse(calls[1]?.body ?? "{}")).toMatchObject({ artifacts: ["Custom.Bloody.Isolate"], specs: [{ parameters: { env: [{ key: "Command", value: "release" }] } }] });
+
+    const noAllow = await createVelociraptorResponse({ bloodyIsolateArtifact: "Custom.Bloody.Isolate" }).execute(req({ action: "isolate_endpoint", target: { kind: "asset", id: "C.4f3e2d1c0b0a9988" }, parameters: { mode: "full" } }), { client: c, clock });
+    expect(noAllow.outcome).toBe("rejected");
+  });
+
   it("evidence collection is allow-listed; YARA rule text is not copied into audit", async () => {
     const { client: c, calls } = client([{ method: "POST", path: "/api/v1/CollectArtifact", json: { flow_id: "F.2", request: { client_id: "C.4f3e2d1c0b0a9988" } } }]);
     const bad = await velo.execute(req({ action: "collect_evidence", approvedBy: null, target: { kind: "asset", id: "C.4f3e2d1c0b0a9988" }, parameters: { artifacts: ["Windows.System.PowerShell"] } }), { client: c, clock });

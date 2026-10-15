@@ -1,5 +1,6 @@
 import type { ResponseActionKey } from "@bloody/contracts";
 import { field, str } from "../core/json.js";
+import { buildIsolationPolicy, isolationBlockRanges } from "./isolation.js";
 import {
   executeResponse,
   paramString,
@@ -30,6 +31,14 @@ export interface VelociraptorResponseOptions {
   isolateArtifacts?: Partial<Record<"windows" | "linux" | "macos", string>>;
   /** Parameter that removes the quarantine policy (Windows.Remediation.Quarantine: RemovePolicy=Y). */
   releaseParameter?: { key: string; value: string };
+  /**
+   * Bloody isolation artifact (infra/agent/velociraptor/Custom.Bloody.Isolate.yaml). When set,
+   * isolate/release use it for every platform and both modes (LAN keeps internet; full blocks all
+   * but the management path). Without it only full quarantine via the stock artifacts is available.
+   */
+  bloodyIsolateArtifact?: string;
+  /** Addresses an isolated endpoint always keeps reaching (Velociraptor server, Bloody platform). */
+  isolationAllow?: string[];
   /** Customer-approved artifact killing a process (receives `Pid`). Enables `kill_process`. */
   killProcessArtifact?: string;
   /** Customer-approved artifact quarantining a file (receives `TargetPath`). Enables `quarantine_file`. */
@@ -68,6 +77,30 @@ export function createVelociraptorResponse(opts: VelociraptorResponseOptions = {
     switch (req.action) {
       case "isolate_endpoint":
       case "release_endpoint": {
+        if (opts.bloodyIsolateArtifact) {
+          if (!ARTIFACT_RE.test(opts.bloodyIsolateArtifact)) throw new ResponseGuardError("invalid_parameters", "invalid bloodyIsolateArtifact name");
+          if (req.action === "release_endpoint") {
+            specs.push({ artifact: opts.bloodyIsolateArtifact, env: [{ key: "Command", value: "release" }] });
+          } else {
+            const policy = buildIsolationPolicy(req, opts.isolationAllow ?? []);
+            const block = isolationBlockRanges(policy);
+            specs.push({
+              artifact: opts.bloodyIsolateArtifact,
+              env: [
+                { key: "Command", value: "isolate" },
+                { key: "Mode", value: policy.mode },
+                { key: "Allow", value: policy.allow.join(",") },
+                { key: "Dns", value: policy.dns.join(",") },
+                { key: "Block4", value: block.v4.join(",") },
+                { key: "Block6", value: block.v6.join(",") },
+              ],
+            });
+          }
+          break;
+        }
+        if (req.action === "isolate_endpoint" && req.parameters["mode"] === "lan") {
+          throw new ResponseGuardError("invalid_parameters", "LAN isolation through Velociraptor needs the Bloody isolation artifact (integration response.bloodyIsolateArtifact); the stock quarantine only supports full isolation");
+        }
         const platform = paramString(req, "platform") as "windows" | "linux" | "macos" | undefined;
         const artifact = platform ? isolate[platform] : undefined;
         if (!artifact) throw new ResponseGuardError("invalid_parameters", "parameters.platform (windows|linux|macos) with a configured quarantine artifact is required");

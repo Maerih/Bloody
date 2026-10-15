@@ -40,3 +40,23 @@ sudo bloody-isolate release
 ```powershell
 .\bloody-isolate.ps1 release      # Windows, elevated
 ```
+
+## Velociraptor clients
+
+Velociraptor's stock `*.Remediation.Quarantine` artifacts only do **full** isolation. For LAN
+isolation (and the same behaviour on every platform), use the Bloody artifact
+`infra/agent/velociraptor/Custom.Bloody.Isolate.yaml`, which runs these same scripts:
+
+1. Upload the scripts as Velociraptor tools (served by your Velociraptor server):
+   ```sh
+   velociraptor --config server.config.yaml tools upload --name BloodyIsolateLinux   infra/agent/active-response/bloody-isolate --serve_remote=false
+   velociraptor --config server.config.yaml tools upload --name BloodyIsolateWindows infra/agent/active-response/bloody-isolate.ps1 --serve_remote=false
+   ```
+2. Add the artifact: Velociraptor GUI → View Artifacts → Add an Artifact → paste the YAML (or
+   `velociraptor artifacts import Custom.Bloody.Isolate.yaml`).
+3. In Bloody, set the Velociraptor integration's **Bloody isolation artifact** to
+   `Custom.Bloody.Isolate` and its **isolation allow-list** to the Velociraptor server and Bloody
+   platform addresses.
+
+Without the artifact, Bloody still isolates through the stock quarantine (full mode only) and
+refuses LAN mode with a clear error.

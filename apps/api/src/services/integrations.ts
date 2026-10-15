@@ -88,6 +88,10 @@ const CONFIG_SCHEMAS: Record<string, z.ZodTypeAny> = {
         quarantineFileArtifact: z.string().max(200).optional(),
         evidenceArtifactAllowList: z.array(z.string().max(200)).max(50).optional(),
         yaraArtifact: z.string().max(200).optional(),
+        /** Bloody isolation artifact (Custom.Bloody.Isolate) — enables LAN isolation via Velociraptor. */
+        bloodyIsolateArtifact: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/).max(200).optional(),
+        /** Addresses isolated endpoints keep reaching (Velociraptor server, Bloody platform). */
+        isolationAllow: z.array(z.string().trim().refine(isIpOrCidr, "must be an IP address or CIDR")).max(32).optional(),
       })
       .strict()
       .default({}),

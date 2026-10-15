@@ -28,6 +28,7 @@ At pause time `pnpm -r typecheck` passed and all ~870 tests passed. The app runs
   - Each Wazuh integration has an *Isolation allow-list* field.
   - The Isolate dialog has a mode picker. Agents show "Isolated · LAN only" or "Isolated · full", and have a Release button.
   - Heartbeats and CoPilot syncs no longer clear an isolation.
+  - Velociraptor clients can also be isolated in LAN mode. This uses the `Custom.Bloody.Isolate` artifact in `infra/agent/velociraptor/`, which runs the same scripts. Without that artifact, only full quarantine is available, through the stock Velociraptor artifact.
   - Also fixed: connecting an engine from the UI was rejected because the UI sent `engine` and the API expected `kind`.
 - New web pages: Simulate an incident (runs the real pipeline), Download agent, Demo sandbox, Support, Feedback. No hamburger-menu link is a placeholder any more.
 

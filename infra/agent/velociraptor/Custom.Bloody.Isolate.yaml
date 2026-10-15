@@ -1,0 +1,61 @@
+# Proprietary — Bloody. Velociraptor (AGPL) runs unmodified; this artifact only invokes the Bloody
+# endpoint isolation scripts (infra/agent/active-response) shipped to clients as Velociraptor tools.
+name: Custom.Bloody.Isolate
+author: Bloody
+description: |
+  Network-isolate or release an endpoint from the Bloody platform.
+
+    Command=isolate Mode=lan   block local networks (RFC1918, CGNAT, link-local, ULA); internet stays up
+    Command=isolate Mode=full  block everything except the Allow list (management path), DHCP and DNS
+    Command=release            remove the isolation
+    Command=status             report the current state
+
+  Allow must contain the Velociraptor server and Bloody platform addresses; the scripts refuse to
+  isolate without it, so an isolated endpoint can always be released remotely. Block4/Block6 carry
+  the precomputed block ranges used by Windows Firewall (nftables on Linux ignores them).
+type: CLIENT
+required_permissions:
+  - EXECVE
+
+tools:
+  - name: BloodyIsolateLinux
+    serve_locally: true
+  - name: BloodyIsolateWindows
+    filename: bloody-isolate.ps1
+    serve_locally: true
+
+parameters:
+  - name: Command
+    type: choices
+    default: status
+    choices: [isolate, release, status]
+  - name: Mode
+    type: choices
+    default: full
+    choices: [lan, full]
+  - name: Allow
+    description: Comma-separated IPs/CIDRs that stay reachable (Velociraptor server, Bloody platform).
+  - name: Dns
+    description: Comma-separated DNS resolvers kept reachable in full mode.
+  - name: Block4
+  - name: Block6
+
+sources:
+  - name: Linux
+    precondition: SELECT OS FROM info() WHERE OS = 'linux'
+    query: |
+      LET Tool <= SELECT OSPath FROM Artifact.Generic.Utils.FetchBinary(ToolName="BloodyIsolateLinux", IsExecutable=TRUE)
+      LET Words <= if(condition=Command = "isolate",
+                      then=("isolate", Mode, "allow=" + Allow, "dns=" + Dns, "block4=" + Block4, "block6=" + Block6),
+                      else=(Command, ))
+      SELECT Stdout, Stderr, ReturnCode FROM execve(argv=("/bin/bash", str(str=Tool[0].OSPath)) + Words, length=100000)
+
+  - name: Windows
+    precondition: SELECT OS FROM info() WHERE OS = 'windows'
+    query: |
+      LET Tool <= SELECT OSPath FROM Artifact.Generic.Utils.FetchBinary(ToolName="BloodyIsolateWindows", IsExecutable=FALSE)
+      LET Words <= if(condition=Command = "isolate",
+                      then=("isolate", Mode, "allow=" + Allow, "dns=" + Dns, "block4=" + Block4, "block6=" + Block6),
+                      else=(Command, ))
+      SELECT Stdout, Stderr, ReturnCode
+      FROM execve(argv=("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(str=Tool[0].OSPath)) + Words, length=100000)

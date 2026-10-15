@@ -13,6 +13,12 @@ const fakeWazuh = (async (input: string | URL | Request, init?: RequestInit) => 
     commands.push({ agents, body: JSON.parse(raw) as Json });
     return json({ data: { affected_items: (agents ?? "").split(",").filter(Boolean), failed_items: [] } });
   }
+  if (url.pathname === "/api/v1/CollectArtifact") {
+    const raw = input instanceof Request ? await input.text() : String(init?.body ?? "");
+    const body = JSON.parse(raw) as Json;
+    commands.push({ agents: String(body.client_id), body });
+    return json({ flow_id: `F.${commands.length}`, request: { client_id: body.client_id } });
+  }
   return new Response("not found", { status: 404 });
 }) as typeof fetch;
 
@@ -113,5 +119,45 @@ describe("endpoint isolation (LAN / full) with release from the platform", () =>
     expect(done.status).toBe("succeeded");
     expect((commands.at(-1)!.body.arguments as string[]).slice(0, 2)).toEqual(["isolate", "full"]);
     expect((await agentOfAsset()).isolation).toMatchObject({ mode: "full" });
+  });
+});
+
+describe("Velociraptor LAN isolation via the Bloody artifact", () => {
+  it("isolates on the LAN and releases through Custom.Bloody.Isolate", async () => {
+    const vt = await createTenant(t, { orgs: 1, plan: "mssp" });
+    const vorg = vt.orgIds[0]!;
+    const vadmin = api(t.app, { token: (await login(t.app, vt.admin.email)).token });
+    const r1 = await createUser(t, vt.tenantId, { roles: [{ role: "incident_responder", organizationId: null }], displayName: "V Responder A" });
+    const r2 = await createUser(t, vt.tenantId, { roles: [{ role: "incident_responder", organizationId: null }], displayName: "V Responder B" });
+    const req1 = api(t.app, { token: (await login(t.app, r1.email)).token });
+    const req2 = api(t.app, { token: (await login(t.app, r2.email)).token });
+    const integ = await vadmin.post("/integrations", {
+      engine: "velociraptor",
+      name: "Velociraptor",
+      endpoint: "https://velo.mssp.example:8001",
+      config: { response: { bloodyIsolateArtifact: "Custom.Bloody.Isolate", isolationAllow: ["192.168.1.3"] } },
+      credential: "velo-api-token",
+    });
+    expect(integ.status).toBe(201);
+    const agent = await vadmin.post("/agents", { organizationId: vorg, hostname: "lnx-web-01", platform: "linux", version: "0.7.1", engine: "velociraptor", status: "protected" });
+    const vasset = agent.body.assetId as string;
+    await t.db.withTenant(vt.tenantId, (tx) => tx.query(`UPDATE agents SET engine_refs = '{"velociraptor":"C.4f3e2d1c0b0a9988"}'::jsonb WHERE id = $1`, [agent.body.id]));
+
+    const run = async (action: string, parameters: Json) => {
+      const c = await req1.post("/response/actions", { action, organizationId: vorg, target: { kind: "asset", id: vasset }, parameters, reason: "Contain the web server" });
+      if (c.body.status !== "pending_approval") return c.body as Json;
+      return (await req2.post(`/response/actions/${c.body.id}/approve`, {})).body as Json;
+    };
+    expect((await run("isolate_endpoint", { mode: "lan" })).status).toBe("succeeded");
+    const sent = commands.at(-1)!;
+    expect(sent.agents).toBe("C.4f3e2d1c0b0a9988");
+    expect(sent.body.artifacts).toEqual(["Custom.Bloody.Isolate"]);
+    expect(JSON.stringify(sent.body.specs)).toContain('{"key":"Mode","value":"lan"}');
+    const view = async () => (await vadmin.get(`/assets/${vasset}`)).body.agents[0] as Json;
+    expect((await view()).isolation).toMatchObject({ mode: "lan" });
+
+    expect((await run("release_endpoint", {})).status).toBe("succeeded");
+    expect(JSON.stringify(commands.at(-1)!.body.specs)).toContain('{"key":"Command","value":"release"}');
+    expect((await view()).status).toBe("protected");
   });
 });

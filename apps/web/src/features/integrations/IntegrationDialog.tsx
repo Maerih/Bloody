@@ -82,8 +82,8 @@ export function validateIntegrationForm(
     }
   }
   if (engine.key === "copilot" && !v.credential.trim() && !v.hasStoredCredential) e.credential = "CoPilot requires an API token";
-  if (engine.key === "wazuh") {
-    if (!v.wazuhUser?.trim()) e.wazuhUser = "Enter the Wazuh API user Bloody signs in as";
+  if (engine.key === "wazuh" && !v.wazuhUser?.trim()) e.wazuhUser = "Enter the Wazuh API user Bloody signs in as";
+  if (engine.key === "wazuh" || engine.key === "velociraptor") {
     const allow = lines(v.isolationAllow ?? "");
     const bad = allow.find((a) => !IP_OR_CIDR_RE.test(a));
     if (bad) e.isolationAllow = `Not an IP address or CIDR: ${bad}`;
@@ -130,9 +130,11 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
   const [authExpires, setAuthExpires] = useState(scope?.authorization.expiresAt ? scope.authorization.expiresAt.slice(0, 10) : "");
   const copilotSync = (existing?.config?.sync as Record<string, boolean> | undefined) ?? { customers: true, agents: true, alerts: true, cases: true };
   const [sync, setSync] = useState<Record<string, boolean>>(copilotSync);
-  const wazuhAr = (existing?.config?.activeResponse as { isolationAllow?: string[] } | undefined) ?? {};
+  const responseKey = engine.key === "wazuh" ? "activeResponse" : "response";
+  const wazuhAr = (existing?.config?.[responseKey] as { isolationAllow?: string[]; bloodyIsolateArtifact?: string } | undefined) ?? {};
   const [wazuhUser, setWazuhUser] = useState(String(existing?.config?.username ?? ""));
   const [isolationAllow, setIsolationAllow] = useState((wazuhAr.isolationAllow ?? []).join("\n"));
+  const [isolateArtifact, setIsolateArtifact] = useState(wazuhAr.bloodyIsolateArtifact ?? "");
   const [submitted, setSubmitted] = useState(false);
 
   const scanning = SCANNING_ENGINES.has(engine.key);
@@ -159,11 +161,15 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
       } satisfies ScanScope;
     }
     if (engine.key === "copilot") config.sync = sync;
-    if (engine.key === "wazuh") {
+    if (engine.key === "wazuh" || engine.key === "velociraptor") {
       const allow = lines(isolationAllow);
-      const { isolationAllow: _old, ...ar } = (config.activeResponse as Record<string, unknown> | undefined) ?? {};
-      config.username = wazuhUser.trim();
-      config.activeResponse = { ...ar, ...(allow.length ? { isolationAllow: allow } : {}) };
+      const { isolationAllow: _old, bloodyIsolateArtifact: _artifact, ...ar } = (config[responseKey] as Record<string, unknown> | undefined) ?? {};
+      if (engine.key === "wazuh") config.username = wazuhUser.trim();
+      config[responseKey] = {
+        ...ar,
+        ...(allow.length ? { isolationAllow: allow } : {}),
+        ...(engine.key === "velociraptor" && isolateArtifact.trim() ? { bloodyIsolateArtifact: isolateArtifact.trim() } : {}),
+      };
     }
     const input: CreateIntegrationInput = {
       engine: engine.key,
@@ -285,6 +291,18 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
               hint="IPs/CIDRs an isolated endpoint can always reach — the Wazuh manager and the Bloody platform — so it can be released from Bloody. Required for LAN or full isolation (bloody-isolate script)."
             >
               {(p) => <Textarea {...p} rows={3} value={isolationAllow} onChange={(e) => setIsolationAllow(e.target.value)} placeholder={"10.0.0.5\n203.0.113.10"} />}
+            </Field>
+          </fieldset>
+        ) : null}
+
+        {engine.key === "velociraptor" ? (
+          <fieldset className="space-y-2 rounded border border-line p-3" data-testid="velociraptor-isolation">
+            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">Endpoint isolation</legend>
+            <Field label="Bloody isolation artifact" hint="Custom.Bloody.Isolate (infra/agent/velociraptor). Enables LAN isolation that keeps internet; without it only full quarantine is available.">
+              {(p) => <Input {...p} value={isolateArtifact} onChange={(e) => setIsolateArtifact(e.target.value)} placeholder="Custom.Bloody.Isolate" />}
+            </Field>
+            <Field label="Isolation allow-list" error={submitted ? errors.isolationAllow : null} hint="IPs/CIDRs an isolated endpoint always reaches — the Velociraptor server and the Bloody platform — so it can be released from Bloody.">
+              {(p) => <Textarea {...p} rows={3} value={isolationAllow} onChange={(e) => setIsolationAllow(e.target.value)} placeholder={"10.0.0.7\n203.0.113.10"} />}
             </Field>
           </fieldset>
         ) : null}

@@ -37,3 +37,17 @@ describe("bloody-isolate (Linux endpoint script)", () => {
     expect(out.trim()).toBe("delete table inet bloody_isolation");
   });
 });
+
+describe("Custom.Bloody.Isolate (Velociraptor artifact)", () => {
+  it("declares every parameter the Velociraptor connector sends, and passes them to the script", async () => {
+    const { readFileSync } = await import("node:fs");
+    const yaml = readFileSync(fileURLToPath(new URL("../../../../infra/agent/velociraptor/Custom.Bloody.Isolate.yaml", import.meta.url)), "utf8");
+    expect(yaml).toMatch(/^name: Custom\.Bloody\.Isolate$/m);
+    for (const key of ["Command", "Mode", "Allow", "Dns", "Block4", "Block6"]) expect(yaml).toMatch(new RegExp(`^  - name: ${key}$`, "m"));
+    for (const word of ['"allow=" + Allow', '"dns=" + Dns', '"block4=" + Block4', '"block6=" + Block6']) expect(yaml.split(word).length - 1).toBe(2);
+    // The script accepts the artifact's argument shape (empty dns=/block6= included).
+    const out = run(["isolate", "full", "allow=192.168.1.3", "dns=", "block4=0.0.0.0-192.168.1.2", "block6="]);
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain("elements = { 192.168.1.3 }");
+  });
+});
