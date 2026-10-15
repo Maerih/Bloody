@@ -1,5 +1,5 @@
 import type { GraphEdge, GraphNode, Subgraph } from "@bloody/contracts";
-import { Background, Controls, Handle, MiniMap, Position, ReactFlow, useEdgesState, useNodesState, type Edge, type Node, type NodeProps } from "@xyflow/react";
+import { Background, Controls, Handle, MiniMap, Position, ReactFlow, useEdgesState, useNodesInitialized, useNodesState, useReactFlow, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { clsx } from "clsx";
 import { memo, useEffect, useMemo, useRef } from "react";
@@ -46,6 +46,27 @@ const SecurityNodeView = memo(function SecurityNodeView({ data }: NodeProps<Secu
 });
 
 const NODE_TYPES = { security: SecurityNodeView };
+/** Stable defaults: a fresh `[]` per render would re-run the layout effect on every render. */
+const NO_IDS: string[] = [];
+
+const FIT_VIEW = { padding: 0.2, maxZoom: 1.2 };
+
+/**
+ * Re-fit the viewport when nodes are added or removed (search, expand, hide) once React Flow has
+ * measured them. `fitView` on <ReactFlow> only runs at mount, when the explorer canvas is empty.
+ * Panning / zooming by the user is left alone until the node set changes again.
+ */
+function FitOnGrowth({ count }: { count: number }) {
+  const { fitView } = useReactFlow();
+  const initialized = useNodesInitialized();
+  const fitted = useRef(-1);
+  useEffect(() => {
+    if (!initialized || count === 0 || fitted.current === count) return;
+    fitted.current = count;
+    void fitView({ ...FIT_VIEW, duration: 250 });
+  }, [initialized, count, fitView]);
+  return null;
+}
 
 export interface GraphCanvasProps {
   graph: Subgraph;
@@ -82,25 +103,33 @@ function toFlowEdge(e: GraphEdge, highlight: Set<string>): Edge {
  * Security Graph canvas (React Flow): typed node badges, deterministic incremental layout,
  * select / expand (double-click) / contextual actions (right-click).
  */
-export function GraphCanvas({ graph, roots = [], selectedId = null, highlightIds = [], onSelect, onExpand, onContextMenu, height = 520, className, showMiniMap = true }: GraphCanvasProps) {
+export function GraphCanvas({ graph, roots = NO_IDS, selectedId = null, highlightIds = NO_IDS, onSelect, onExpand, onContextMenu, height = 520, className, showMiniMap = true }: GraphCanvasProps) {
   const positionsRef = useRef<Map<string, Point>>(new Map());
-  const highlight = useMemo(() => new Set(highlightIds), [highlightIds]);
+  // Keyed by content, not array identity: callers may pass inline arrays.
+  const highlightKey = highlightIds.join("|");
+  const rootsKey = roots.join("|");
+  const highlight = useMemo(() => new Set(highlightIds), [highlightKey]);
+  const stableRoots = useMemo(() => roots, [rootsKey]);
   const [nodes, setNodes, onNodesChange] = useNodesState<SecurityFlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   useEffect(() => {
-    const positions = layoutGraph(graph.nodes, graph.edges, roots, positionsRef.current);
+    const positions = layoutGraph(graph.nodes, graph.edges, stableRoots, positionsRef.current);
     positionsRef.current = positions;
-    setNodes(
-      graph.nodes.map((n) => ({
+    setNodes((prev) => {
+      // React Flow keeps a node hidden until it is measured; carry the measurement over so
+      // re-layouts (expand, select, highlight) never make existing nodes disappear.
+      const measured = new Map(prev.map((p) => [p.id, p.measured]));
+      return graph.nodes.map((n) => ({
         id: n.id,
-        type: "security",
+        type: "security" as const,
         position: positions.get(n.id) ?? { x: 0, y: 0 },
+        ...(measured.get(n.id) ? { measured: measured.get(n.id) } : {}),
         data: { node: n, selected: n.id === selectedId, highlighted: highlight.has(n.id), dimmed: highlight.size > 0 && !highlight.has(n.id) },
-      })),
-    );
+      }));
+    });
     setEdges(graph.edges.map((e) => toFlowEdge(e, highlight)));
-  }, [graph, roots, selectedId, highlight, setNodes, setEdges]);
+  }, [graph, stableRoots, selectedId, highlight, setNodes, setEdges]);
 
   return (
     <div className={clsx("relative overflow-hidden rounded border border-line bg-surface-2", className)} style={{ height }} data-testid="graph-canvas">
@@ -122,10 +151,11 @@ export function GraphCanvas({ graph, roots = [], selectedId = null, highlightIds
         onPaneClick={() => onSelect?.(null)}
         nodesConnectable={false}
         fitView
-        fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
+        fitViewOptions={FIT_VIEW}
         minZoom={0.1}
         proOptions={{ hideAttribution: true }}
       >
+        <FitOnGrowth count={nodes.length} />
         <Background gap={24} size={1} />
         <Controls showInteractive={false} />
         {showMiniMap ? <MiniMap pannable zoomable nodeColor={(n) => nodeKindMeta((n.data as SecurityNodeData).node.kind).color} /> : null}

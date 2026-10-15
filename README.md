@@ -5,7 +5,7 @@ MSSPs and MDR providers — endpoint, identity, network, SIEM, exposure, cloud, 
 intelligence, vulnerability, DFIR, SOAR and AI-driven security operations through **one
 Security Graph** and **one Risk Engine**.
 
-> **Proprietary software.** Copyright (c) 2026 Bloody. All rights reserved. See [LICENSE](LICENSE).
+> **Proprietary software.** Copyright (c) 2026 SCIAT AFRICA. All rights reserved. See [LICENSE](LICENSE).
 > Open-source security engines are an extensible, replaceable *engine layer* run as separate,
 > unmodified services; the Security Graph, Detection Engine, Risk Engine, Command Center,
 > AI SOC, SaaS control plane and operational workflows are the proprietary core.
@@ -247,7 +247,7 @@ docs                  architecture, ADRs, licence inventory, operations, MSSP wo
 
 ## Proprietary notice
 
-This repository and everything in it is confidential and proprietary to Bloody (Bloody /
-Dorisec Africa). No licence is granted by access to it. Third-party open-source components keep
+This repository and everything in it is confidential and proprietary to SCIAT AFRICA, the
+security company that owns and operates the Bloody platform. No licence is granted by access to it. Third-party open-source components keep
 their own licences ([docs/LICENSES.md](docs/LICENSES.md)); no open-source source code is copied
 into this repository.

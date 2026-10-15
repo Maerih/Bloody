@@ -85,7 +85,7 @@ describe("other formatters", () => {
   });
 
   it("slugify produces valid organization slugs", () => {
-    expect(slugify("Dorisec Africa & Co.")).toBe("dorisec-africa-co");
+    expect(slugify("SCIAT Africa & Co.")).toBe("sciat-africa-co");
     expect(slugify("  Équipe Sécurité ")).toBe("equipe-securite");
     expect(/^[a-z0-9-]{2,63}$/.test(slugify("A".repeat(100)))).toBe(true);
   });

@@ -1,7 +1,7 @@
 /**
  * DEVELOPMENT SEED — never run against production (refuses NODE_ENV=production).
  *
- * Creates the demo MSSP tenant "Dorisec Africa" with three customer organizations, staff and
+ * Creates the demo MSSP tenant "SCIAT AFRICA" (the security company operating the platform) with three customer organizations, staff and
  * customer users, inventory (assets incl. crown jewels and internet-facing hosts, agents in
  * mixed health, identities, vulnerabilities incl. CISA-KEV CVEs) and a threat-intel feed — then
  * pushes realistic canonical telemetry THROUGH THE REAL INGEST API. Alerts, incidents,
@@ -551,14 +551,16 @@ async function main(): Promise<void> {
     // 1. Bootstrap the tenant and its first administrator (the only privileged writes).
     const hash = await hashPassword(password);
     const tenantId = await db.withPrivileged(async (tx) => {
+      // Installs seeded before the rename keep their data: the old account is renamed in place.
+      await tx.query("UPDATE accounts SET name = 'SCIAT AFRICA', slug = 'sciat-africa' WHERE slug = 'dorisec-africa' AND NOT EXISTS (SELECT 1 FROM accounts WHERE slug = 'sciat-africa')");
       const acc = await tx.query<{ id: string }>(
-        `INSERT INTO accounts (name, slug, kind, plan, data_region) VALUES ('Dorisec Africa', 'dorisec-africa', 'mssp', 'mssp', 'af-south')
+        `INSERT INTO accounts (name, slug, kind, plan, data_region) VALUES ('SCIAT AFRICA', 'sciat-africa', 'mssp', 'mssp', 'af-south')
          ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, kind = 'mssp', plan = 'mssp' RETURNING id`,
       );
       const id = acc.rows[0]!.id;
       const user = await tx.query<{ id: string }>(
-        `INSERT INTO users (tenant_id, email, display_name, title, status) VALUES ($1, 'admin@bloody.local', 'Dorisec Platform Admin', 'MSSP Administrator', 'active')
-         ON CONFLICT (tenant_id, email) DO UPDATE SET status = 'active' RETURNING id`,
+        `INSERT INTO users (tenant_id, email, display_name, title, status) VALUES ($1, 'admin@bloody.local', 'SCIAT AFRICA Platform Admin', 'MSSP Administrator', 'active')
+         ON CONFLICT (tenant_id, email) DO UPDATE SET status = 'active', display_name = EXCLUDED.display_name RETURNING id`,
         [id],
       );
       const uid = user.rows[0]!.id;
@@ -826,7 +828,7 @@ async function main(): Promise<void> {
     console.log("");
     console.log("Bloody development seed complete");
     console.log("────────────────────────────────");
-    console.log(`Tenant              Dorisec Africa (mssp)  ${tenantId}`);
+    console.log(`Tenant              SCIAT AFRICA (mssp)  ${tenantId}`);
     for (const o of ORGS) console.log(`Organization        ${o.name.padEnd(22)} ${orgIds.get(o.slug)}`);
     console.log(`Scenario anchor     ${anchor}${refresh ? " (refreshed)" : ""}`);
     console.log(`Events ingested     ${accepted} new, ${duplicates} already present`);

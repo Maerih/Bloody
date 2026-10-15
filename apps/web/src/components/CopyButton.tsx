@@ -1,26 +1,24 @@
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { copyText } from "../lib/clipboard";
 import { IconButton } from "./Button";
 
-/** Copy text to the clipboard with a transient confirmation. */
+/** Copy text to the clipboard with a transient confirmation (works on plain-HTTP installs too). */
 export function CopyButton({ value, label = "Copy", className }: { value: string; label?: string; className?: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
+    if (state === "idle") return;
+    const t = setTimeout(() => setState("idle"), state === "failed" ? 3000 : 1500);
     return () => clearTimeout(t);
-  }, [copied]);
+  }, [state]);
   return (
     <IconButton
-      icon={copied ? Check : Copy}
-      label={copied ? "Copied" : label}
+      icon={state === "copied" ? Check : state === "failed" ? X : Copy}
+      label={state === "copied" ? "Copied" : state === "failed" ? "Copy blocked by the browser — select the text and press Ctrl+C" : label}
       size={13}
       className={className}
       onClick={() => {
-        void navigator.clipboard?.writeText(value).then(
-          () => setCopied(true),
-          () => setCopied(false),
-        );
+        void copyText(value).then((ok) => setState(ok ? "copied" : "failed"));
       }}
     />
   );

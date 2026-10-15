@@ -2,6 +2,7 @@ import { MODULES, type ModuleKey, type ModuleState } from "@bloody/contracts";
 import { clsx } from "clsx";
 import { CirclePlay, Copy, Mail } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { copyText } from "../lib/clipboard";
 import { useSearchParams } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import { useEntitlements, useStartTrial } from "../api/hooks";
@@ -106,7 +107,7 @@ export default function TrialManagerPage() {
                   className="ml-1 inline-flex align-middle text-healthy"
                   aria-label="Copy email address"
                   onClick={() => {
-                    void navigator.clipboard?.writeText(team.email).then(() => setCopied(true));
+                    void copyText(team.email).then(setCopied);
                   }}
                 >
                   <Copy size={14} aria-hidden />

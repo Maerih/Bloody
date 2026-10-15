@@ -53,8 +53,12 @@ export function toSubgraph(raw: unknown): Subgraph {
   const src = isRecord(raw) && isRecord(raw.graph) ? raw.graph : isRecord(raw) && isRecord(raw.subgraph) ? raw.subgraph : raw;
   const nodes = new Map<string, GraphNode>();
   for (const n of pickArray(src, ["nodes"])) if (isGraphNode(n)) nodes.set(n.id, cleanNode(n));
-  // A neighbors response may carry the centre node separately.
-  if (isRecord(src) && isGraphNode(src.node) && !nodes.has(src.node.id)) nodes.set(src.node.id, cleanNode(src.node));
+  // A neighbors response carries the centre node separately (`root` from /graph/node/:id/neighbors,
+  // `node` in older shapes). Without it every edge to the centre would be dropped as dangling.
+  for (const key of ["root", "node"] as const) {
+    const centre = isRecord(src) ? src[key] : undefined;
+    if (isGraphNode(centre) && !nodes.has(centre.id)) nodes.set(centre.id, cleanNode(centre));
+  }
   const edges = new Map<string, GraphEdge>();
   for (const e of pickArray(src, ["edges"])) {
     if (isGraphEdge(e) && nodes.has(e.from) && nodes.has(e.to)) edges.set(e.id, { ...e, props: isRecord(e.props) ? e.props : {} });
