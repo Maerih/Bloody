@@ -31,6 +31,9 @@ data:
   # reserved: event fabric transport (memory today) and its endpoints.
   BLOODY_EVENT_BUS: memory
   KAFKA_BROKERS: kafka-bootstrap.bloody-data.svc:9093
+  # Event search engine: set to "opensearch" once the cluster is up (OPENSEARCH_USERNAME /
+  # OPENSEARCH_PASSWORD come from the bloody-api secret), then run `pnpm --filter @bloody/api search:backfill`.
+  BLOODY_EVENT_SEARCH: postgres
   OPENSEARCH_URL: https://opensearch.bloody-data.svc:9200
   SMTP_HOST: smtp.example.com
   SMTP_PORT: "587"

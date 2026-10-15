@@ -68,6 +68,12 @@ const RawEnv = z.object({
   BLOODY_EVENT_BUS: z.enum(["memory", "kafka"]).default("memory"),
   KAFKA_BROKERS: z.string().max(2000).optional(),
   KAFKA_CONSUMER_GROUP: z.string().min(1).max(200).default("bloody-pipeline"),
+  /** Event search engine: postgres (default) or opensearch (OPENSEARCH_URL; Postgres stays the system of record). */
+  BLOODY_EVENT_SEARCH: z.enum(["postgres", "opensearch"]).default("postgres"),
+  OPENSEARCH_URL: z.string().url().optional(),
+  OPENSEARCH_USERNAME: z.string().max(200).optional(),
+  OPENSEARCH_PASSWORD: z.string().max(1000).optional(),
+  OPENSEARCH_INDEX_PREFIX: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,60}$/).default("bloody-events"),
   /** OpenTelemetry: OTLP/HTTP endpoint of the collector (traces). Unset = tracing off. */
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
   OTEL_SERVICE_NAME: z.string().min(1).max(100).default("bloody-api"),
@@ -185,6 +191,7 @@ export interface AppConfig {
   };
   telemetry: { otlpEndpoint: string | null; serviceName: string; resourceAttributes: string | undefined };
   bus: { kind: "memory" | "kafka"; brokers: string[]; consumerGroup: string };
+  search: { engine: "postgres" | "opensearch"; opensearch: { url: string; username: string | undefined; password: string | undefined; indexPrefix: string } | null };
   ingest: { maxBatch: number; bodyLimitBytes: number; maxEventAgeDays: number; pipelineEnabled: boolean };
   scheduler: { enabled: boolean; intervalSeconds: number };
   features: FeatureConfig;
@@ -253,6 +260,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const e = parsed.data;
   if (e.BLOODY_EVENT_BUS === "kafka" && !(e.KAFKA_BROKERS ?? "").trim()) throw new ConfigError("BLOODY_EVENT_BUS=kafka requires KAFKA_BROKERS (host:port,host:port)");
+  if (e.BLOODY_EVENT_SEARCH === "opensearch" && !e.OPENSEARCH_URL) throw new ConfigError("BLOODY_EVENT_SEARCH=opensearch requires OPENSEARCH_URL");
   const production = e.NODE_ENV === "production";
   const warnings: string[] = [];
 
@@ -355,6 +363,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     features: { vulnEnrichment: e.FEATURE_VULN_ENRICHMENT },
     enrichment: { allowedHosts: e.ENRICHMENT_ALLOWED_HOSTS.map((h) => h.toLowerCase()), kevFeedUrl: e.KEV_FEED_URL, epssApiUrl: e.EPSS_API_URL },
     reports: { maxStoredBytes: e.REPORT_MAX_STORED_BYTES },
+    search: {
+      engine: e.BLOODY_EVENT_SEARCH,
+      opensearch: e.OPENSEARCH_URL ? { url: e.OPENSEARCH_URL, username: e.OPENSEARCH_USERNAME, password: e.OPENSEARCH_PASSWORD, indexPrefix: e.OPENSEARCH_INDEX_PREFIX } : null,
+    },
     bus: { kind: e.BLOODY_EVENT_BUS, brokers: (e.KAFKA_BROKERS ?? "").split(",").map((b) => b.trim()).filter(Boolean), consumerGroup: e.KAFKA_CONSUMER_GROUP },
     telemetry: { otlpEndpoint: e.OTEL_EXPORTER_OTLP_ENDPOINT ?? null, serviceName: e.OTEL_SERVICE_NAME, resourceAttributes: e.OTEL_RESOURCE_ATTRIBUTES },
     ai: { allowPrivateEndpoints: e.AI_ALLOW_PRIVATE_ENDPOINTS },

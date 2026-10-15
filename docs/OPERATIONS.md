@@ -240,8 +240,10 @@ organization in the SLA report (`ReportType = "sla"`).
   - Playbook runs keyed per `(tenant, idempotency key)`.
   - Response executors send an `idempotency-key` header (the action id).
 - **Graceful degradation.**
-  - Event search: served from Postgres today. Once `OPENSEARCH_URL` is wired, an OpenSearch
-    outage degrades search to Postgres; it does not fail it.
+  - Event search: with `BLOODY_EVENT_SEARCH=opensearch`, an OpenSearch outage degrades search
+    to Postgres (`bloody_event_search_fallbacks_total{reason="error"}`); it does not fail it.
+    Indexing failures are retried by the event bus (Kafka: dead-lettered after max attempts);
+    `pnpm --filter @bloody/api search:backfill [--since <date>]` rebuilds the index from Postgres.
   - AI provider down: configured fallback provider, otherwise AI features are visibly
     unavailable.
   - Engine down: the integration is marked unhealthy and its actions fail visibly (never

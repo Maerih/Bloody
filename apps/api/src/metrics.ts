@@ -13,6 +13,9 @@ export class Metrics {
   readonly pipelineBatchDuration: Histogram;
   readonly queueLag: Gauge;
   readonly queueDepth: Gauge;
+  readonly searchQueries: Counter<"engine">;
+  readonly searchFallbacks: Counter<"reason">;
+  readonly searchIndexed: Counter<"result">;
 
   constructor(options: { defaultMetrics?: boolean } = {}) {
     this.registry.setDefaultLabels({ service: "bloody-api" });
@@ -37,6 +40,9 @@ export class Metrics {
       registers: [this.registry],
     });
     this.queueLag = new Gauge({ name: "bloody_pipeline_queue_lag_seconds", help: "Age of the oldest unprocessed ingest batch", registers: [this.registry] });
+    this.searchQueries = new Counter({ name: "bloody_event_search_queries_total", help: "Event searches by the engine that answered", labelNames: ["engine"], registers: [this.registry] });
+    this.searchFallbacks = new Counter({ name: "bloody_event_search_fallbacks_total", help: "Searches answered by Postgres instead of the search engine", labelNames: ["reason"], registers: [this.registry] });
+    this.searchIndexed = new Counter({ name: "bloody_event_search_indexed_total", help: "Events mirrored into the search engine", labelNames: ["result"], registers: [this.registry] });
     this.queueDepth = new Gauge({ name: "bloody_pipeline_queue_depth", help: "Ingest batches waiting for the pipeline", registers: [this.registry] });
   }
 }

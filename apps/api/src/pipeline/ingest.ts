@@ -3,6 +3,7 @@ import { BCE_SCHEMA_VERSION, CanonicalEvent, IngestEvent, type CanonicalEvent as
 import type { Database, Queryable } from "../db/pool.js";
 import type { Metrics } from "../metrics.js";
 import { TOPICS, type EventBus } from "./event-bus.js";
+import { eventColumns, type EventColumns } from "./event-columns.js";
 
 /**
  * Ingest service: validation → server-side tenancy → durable storage → data fabric.
@@ -122,7 +123,9 @@ export class IngestService {
   private async store(tx: Queryable, tenantId: string, organizationId: string, events: CanonicalEventT[]): Promise<Set<string>> {
     const months = new Set(events.map((e) => e.timestamp.slice(0, 7)));
     for (const m of months) await tx.query("SELECT ensure_events_partition($1::timestamptz)", [`${m}-01T00:00:00Z`]);
+    const derived = new Map(events.map((e) => [e, eventColumns(e)]));
     const col = <T>(f: (e: CanonicalEventT) => T) => events.map(f);
+    const dc = <T>(f: (c: EventColumns) => T) => events.map((e) => f(derived.get(e)!));
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO events (tenant_id, organization_id, id, occurred_at, received_at, category, event_type, action, outcome, severity, risk,
                            source_kind, source_product, sensor_id, integration_id, asset_hostname, user_name, identity_principal,
@@ -148,7 +151,7 @@ export class IngestService {
         col((e) => e.category),
         col((e) => e.eventType),
         col((e) => e.action ?? null),
-        col((e) => e.outcome ?? e.identity?.outcome ?? null),
+        dc((c) => c.outcome),
         col((e) => e.severity),
         col((e) => e.risk ?? null),
         col((e) => e.source.kind),
@@ -156,15 +159,15 @@ export class IngestService {
         col((e) => e.source.sensorId ?? null),
         col((e) => e.source.integrationId ?? null),
         col((e) => e.asset?.hostname ?? null),
-        col((e) => (e.user?.name ? (e.user.domain ? `${e.user.domain}\\${e.user.name}` : e.user.name) : (e.user?.email ?? null))),
+        dc((c) => c.userName),
         col((e) => e.identity?.principal ?? null),
-        col((e) => e.network?.srcIp ?? e.identity?.sourceIp ?? null),
-        col((e) => e.network?.dstIp ?? null),
+        dc((c) => c.srcIp),
+        dc((c) => c.dstIp),
         col((e) => e.network?.dnsQuery ?? null),
-        col((e) => e.process?.name ?? (e.process?.path ? e.process.path.split(/[\\/]/).pop() ?? null : null)),
-        col((e) => e.file?.sha256 ?? e.process?.hashSha256 ?? null),
-        col((e) => e.detection?.ruleName ?? e.detection?.ruleId ?? null),
-        col((e) => e.attack.map((t) => t.id).join(",")),
+        dc((c) => c.processName),
+        dc((c) => c.fileSha256),
+        dc((c) => c.detectionRule),
+        dc((c) => c.attackIds.join(",")),
         col((e) => JSON.stringify(e)),
       ],
     );

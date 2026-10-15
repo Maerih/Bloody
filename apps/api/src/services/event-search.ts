@@ -27,13 +27,13 @@ export const EventFilter = z.object({
 });
 export type EventFilter = z.infer<typeof EventFilter>;
 
-type FieldType = "text" | "uuid" | "time" | "number" | "ip" | "severity";
-interface FieldDef {
+export type FieldType = "text" | "uuid" | "time" | "number" | "ip" | "severity";
+export interface FieldDef {
   sql: string;
   type: FieldType;
 }
 
-const COLUMN_FIELDS: Record<string, FieldDef> = {
+export const COLUMN_FIELDS: Record<string, FieldDef> = {
   id: { sql: "e.id", type: "uuid" },
   organizationId: { sql: "e.organization_id", type: "uuid" },
   timestamp: { sql: "e.occurred_at", type: "time" },
@@ -62,7 +62,7 @@ const COLUMN_FIELDS: Record<string, FieldDef> = {
 };
 
 /** Short names accepted by the query language. */
-const ALIASES: Record<string, string> = {
+export const ALIASES: Record<string, string> = {
   host: "asset.hostname",
   hostname: "asset.hostname",
   user: "user.name",
@@ -91,11 +91,11 @@ const ALIASES: Record<string, string> = {
 };
 
 const SEVERITY_SQL = (expr: string) => `(CASE ${expr} WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END)`;
-const SEVERITY_RANK: Record<string, number> = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
-const PATH_SEGMENT = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
-const LABEL_KEY = /^[A-Za-z0-9_.:-]{1,100}$/;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_IN = 200;
+export const SEVERITY_RANK: Record<string, number> = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
+export const PATH_SEGMENT = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+export const LABEL_KEY = /^[A-Za-z0-9_.:-]{1,100}$/;
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const MAX_IN = 200;
 
 export class QuerySyntaxError extends HttpError {
   constructor(message: string, details?: unknown) {
@@ -314,13 +314,13 @@ function resolveField(field: string, p: Params): FieldDef | { sql: string; type:
   return { sql: `(e.doc #>> ${p.add(segments)}::text[])`, type: "text" };
 }
 
-const asString = (v: unknown, field: string): string => {
+export const asString = (v: unknown, field: string): string => {
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   throw new QuerySyntaxError(`A scalar value is required for ${field}`);
 };
 
-const asList = (v: unknown, field: string): string[] => {
+export const asList = (v: unknown, field: string): string[] => {
   const list = Array.isArray(v) ? v : typeof v === "string" ? v.split(",") : [v];
   const out = list.map((x) => asString(x, field).trim()).filter((x) => x.length > 0);
   if (out.length === 0 || out.length > MAX_IN) throw new QuerySyntaxError(`${field}: 1-${MAX_IN} values are required`);
@@ -331,7 +331,7 @@ function wildcardPattern(v: string): string {
   return v.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, "%").replace(/\?/g, "_");
 }
 
-function parseCidr(v: string, field: string): string {
+export function parseCidr(v: string, field: string): string {
   const idx = v.lastIndexOf("/");
   const addr = idx > 0 ? v.slice(0, idx) : v;
   const version = isIP(addr);
@@ -340,14 +340,14 @@ function parseCidr(v: string, field: string): string {
   return `${addr}/${bits}`;
 }
 
-function parseTime(v: unknown, field: string): string {
+export function parseTime(v: unknown, field: string): string {
   const s = asString(v, field);
   const ms = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T00:00:00Z` : s);
   if (Number.isNaN(ms)) throw new QuerySyntaxError(`${field}: invalid timestamp "${s}"`);
   return new Date(ms).toISOString();
 }
 
-function parseNumber(v: unknown, field: string): number {
+export function parseNumber(v: unknown, field: string): number {
   const n = typeof v === "number" ? v : Number(asString(v, field));
   if (!Number.isFinite(n)) throw new QuerySyntaxError(`${field}: "${String(v)}" is not a number`);
   return n;
@@ -565,11 +565,46 @@ export function resolveRange(input: { from?: string | undefined; to?: string | u
   return { from: new Date(from).toISOString(), to: new Date(to).toISOString() };
 }
 
+/** A search engine answering the same queries (OpenSearch). Throws to hand a query back to Postgres. */
+export interface EventSearchBackend {
+  readonly name: string;
+  search(tenantId: string, orgs: string[] | null, input: EventSearchInput, opts: { count?: boolean }, started: number): Promise<EventSearchResult>;
+  aggregate(tenantId: string, orgs: string[] | null, input: Omit<EventSearchInput, "limit" | "cursor">, fields: string[], top: number): Promise<Record<string, Array<{ key: string; count: number }>>>;
+}
+
+export interface EventSearchHooks {
+  /** A backend query was answered by Postgres instead (unsupported operator or backend error). */
+  onFallback?: (reason: "unsupported" | "error", err: unknown) => void;
+  /** The query was answered by the backend. */
+  onServed?: (backend: string) => void;
+}
+
 export class EventSearchService {
   constructor(
     private readonly db: Database,
     private readonly now: () => number,
+    private readonly backend: EventSearchBackend | null = null,
+    private readonly hooks: EventSearchHooks = {},
   ) {}
+
+  /** Which store answers searches ("postgres" or the backend's name). */
+  get engine(): string {
+    return this.backend?.name ?? "postgres";
+  }
+
+  /** Run on the backend; query errors (HttpError) propagate, anything else falls back to Postgres. */
+  private async viaBackend<T>(run: (b: EventSearchBackend) => Promise<T>): Promise<T | undefined> {
+    if (!this.backend) return undefined;
+    try {
+      const out = await run(this.backend);
+      this.hooks.onServed?.(this.backend.name);
+      return out;
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      this.hooks.onFallback?.((err as { unsupported?: boolean } | null)?.unsupported ? "unsupported" : "error", err);
+      return undefined;
+    }
+  }
 
   /** Compile the WHERE clause (tenant via RLS; organization scope + time range + query). */
   compile(orgs: string[] | null, input: Omit<EventSearchInput, "limit" | "cursor">): { where: string[]; params: Params } {
@@ -588,6 +623,8 @@ export class EventSearchService {
 
   async search(tenantId: string, orgs: string[] | null, input: EventSearchInput, opts: { count?: boolean } = {}): Promise<EventSearchResult> {
     const started = this.now();
+    const fromBackend = await this.viaBackend((b) => b.search(tenantId, orgs, input, opts, started));
+    if (fromBackend) return { ...fromBackend, took: this.now() - started };
     const { where, params } = this.compile(orgs, input);
     const desc = (input.order ?? "desc") === "desc";
     const cursor = decodeCursor(input.cursor);
@@ -630,6 +667,8 @@ export class EventSearchService {
   async aggregate(tenantId: string, orgs: string[] | null, input: Omit<EventSearchInput, "limit" | "cursor">, fields: string[], top = 10): Promise<Record<string, Array<{ key: string; count: number }>>> {
     const out: Record<string, Array<{ key: string; count: number }>> = {};
     if (fields.length > 8) throw badRequest("At most 8 aggregation fields");
+    const fromBackend = await this.viaBackend((b) => b.aggregate(tenantId, orgs, input, fields, top));
+    if (fromBackend) return fromBackend;
     return this.db.withTenant(tenantId, async (tx) => {
       for (const field of fields) {
         const { where, params } = this.compile(orgs, input);

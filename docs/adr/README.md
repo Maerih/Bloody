@@ -17,6 +17,7 @@ one's status line only.
 | [0008](0008-soar-approval-gates.md) | SOAR approval gates for dangerous actions | Accepted |
 | [0009](0009-mssp-tenancy-and-customer-portal.md) | MSSP tenancy model and customer portal | Accepted |
 | [0010](0010-reporting-and-notifications.md) | Reporting and notifications | Accepted |
+| [0011](0011-opensearch-event-search.md) | OpenSearch as the event search index (Postgres stays the system of record) | Accepted |
 
 ## Template
 

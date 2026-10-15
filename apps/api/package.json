@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "migrate": "tsx src/db/migrate.ts",
-    "seed:dev": "tsx src/db/seed-dev.ts"
+    "seed:dev": "tsx src/db/seed-dev.ts",
+    "search:backfill": "tsx src/db/search-backfill.ts"
   },
   "dependencies": {
     "@bloody/adapters": "workspace:*",

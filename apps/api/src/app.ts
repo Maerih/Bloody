@@ -38,6 +38,8 @@ import { DetectionService } from "./services/detections.js";
 import { DomainEventBus } from "./services/domain-events.js";
 import { EnrichmentService } from "./services/enrichment.js";
 import { EventSearchService } from "./services/event-search.js";
+import { OpenSearchEventIndex } from "./services/opensearch-events.js";
+import { SearchIndexer } from "./pipeline/search-indexer.js";
 import { GraphQueries } from "./services/graph-queries.js";
 import { IntegrationService } from "./services/integrations.js";
 import { IntelService } from "./services/intel.js";
@@ -62,6 +64,8 @@ export interface AppDeps {
   now?: () => number;
   /** Fastify logger option (default: config.logLevel, silent in tests). */
   logger?: FastifyServerOptions["logger"];
+  /** Search engine index (default: built from config.search when BLOODY_EVENT_SEARCH=opensearch). */
+  searchIndex?: OpenSearchEventIndex | null;
   /** Start the in-process analytics consumer (default: config.ingest.pipelineEnabled). */
   startPipeline?: boolean;
   /** Start the background scheduler (default: config.scheduler.enabled). */
@@ -190,7 +194,21 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   responses.attachPlaybookEngine(playbookEngine);
   const graph = new GraphQueries(db, attackPaths);
   const detections = new DetectionService(db, now);
-  const eventSearch = new EventSearchService(db, now);
+  const searchIndex =
+    deps.searchIndex !== undefined
+      ? deps.searchIndex
+      : config.search.engine === "opensearch" && config.search.opensearch
+        ? new OpenSearchEventIndex(config.search.opensearch)
+        : null;
+  const eventSearch = new EventSearchService(db, now, searchIndex, {
+    onServed: (engine) => metrics.searchQueries.inc({ engine }),
+    onFallback: (reason, err) => {
+      metrics.searchQueries.inc({ engine: "postgres" });
+      metrics.searchFallbacks.inc({ reason });
+      if (reason === "error") log.warn({ err: err instanceof Error ? err.message : String(err) }, "search engine unavailable — answered from Postgres");
+    },
+  });
+  const searchIndexer = searchIndex ? new SearchIndexer({ bus, index: searchIndex, metrics, log }) : null;
   const reports = new ReportService({ db, risk, attackPaths, notifications, events: domainEvents, log, publicUrl: config.http.publicUrl, maxStoredBytes: config.reports.maxStoredBytes, now });
   const port = new PgSocDataPort({ db, graph, attackPaths, eventSearch, detections, responses, notifications, reports, now });
   const ai = new AiService({
@@ -389,11 +407,15 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   await app.register(async (api) => registerRoutes(api, services), { prefix: `/api/${API_VERSION}` });
 
   const shouldStart = deps.startPipeline ?? config.ingest.pipelineEnabled;
-  if (shouldStart) pipeline.start();
+  if (shouldStart) {
+    pipeline.start();
+    searchIndexer?.start();
+  }
   if (deps.startScheduler ?? config.scheduler.enabled) scheduler.start();
   app.addHook("onClose", async () => {
     pipeline.stop();
     await bus.drain();
+    searchIndexer?.stop();
     await domainEvents.drain();
     domainEvents.close();
     await scheduler.stop();
