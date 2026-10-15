@@ -203,6 +203,16 @@ export async function incidentRoutes(app: FastifyInstance, s: AppServices): Prom
       const row = await loadOne(tx, "incidents", view.id, "Incident");
       return incidentDetail(tx, auth.principal, row);
     });
+    // After commit: drive automation rules (email/webhook/chat), in-app notices and playbook triggers.
+    s.domainEvents.publish({
+      tenantId: auth.tenantId,
+      organizationId: body.organizationId,
+      event: "incident.created",
+      occurredAt: new Date().toISOString(),
+      severity: detail.severity,
+      subject: { kind: "incident", id: detail.id, label: detail.title },
+      data: { number: detail.number, riskScore: detail.riskScore, summary: detail.summary, source: "manual" },
+    });
     return reply.status(201).send(detail);
   });
 
