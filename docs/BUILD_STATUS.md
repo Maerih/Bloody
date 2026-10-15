@@ -49,7 +49,7 @@ At pause time `pnpm -r typecheck` passed and all ~870 tests passed. The app runs
 Total: about 4–5 hours of agent work.
 
 Known follow-ups from the infra report:
-- gzip request decoding for collectors;
+- ~~gzip request decoding for collectors~~ (DONE: gzip/deflate/br with zip-bomb guard; Vector and OTel now send gzip);
 - OTLP log envelope unwrapping on `/ingest/:adapter`;
 - Kafka `EventBus` transport;
 - OpenSearch `EventStore`;

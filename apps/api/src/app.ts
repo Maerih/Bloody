@@ -1,3 +1,4 @@
+import { registerRequestDecompression } from "./http/content-encoding.js";
 import { randomUUID } from "node:crypto";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -266,6 +267,9 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     keyGenerator: (req) => req.ip,
     errorResponseBuilder: (_req, ctx) => new HttpError(429, "rate_limited", `Too many requests — retry in ${Math.ceil(ctx.ttl / 1000)} s`, undefined, { "retry-after": String(Math.ceil(ctx.ttl / 1000)) }),
   });
+
+  // Compressed collector traffic (Content-Encoding: gzip/deflate/br) is decoded before parsing.
+  registerRequestDecompression(app);
 
   // Raw engine payloads (adapter ingest) arrive as NDJSON / plain text as well as JSON.
   app.addContentTypeParser(["application/x-ndjson", "text/plain"], { parseAs: "string" }, (_req, body, done) => done(null, body));

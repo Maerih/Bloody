@@ -11,9 +11,8 @@
 #   one raw syslog line per line).
 #   BLOODY_INGEST_QUERY (optional) appends query parameters, e.g. "&integrationId=<uuid>" so the
 #   integration's last-event timestamp is tracked.
-# Compression is OFF: the API does not decode Content-Encoding on requests (a gzip body is
-# rejected with 400). TLS to the ingress protects the payload; enable compression only once the
-# API accepts compressed requests.
+# Compression: gzip. The API decodes Content-Encoding gzip/deflate/br and enforces its body
+# limit on the decoded size.
 # Retries with backoff on 429/5xx/timeouts; disk buffers absorb API maintenance windows. Ingest is
 # idempotent (adapters derive deterministic event ids per tenant), so retried batches do not
 # duplicate events.
@@ -28,7 +27,7 @@ sinks:
     inputs: [zeek]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/zeek?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: none
+    compression: gzip
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -66,7 +65,7 @@ sinks:
     inputs: [suricata]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/suricata?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: none
+    compression: gzip
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -104,7 +103,7 @@ sinks:
     inputs: [wazuh]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/wazuh?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: none
+    compression: gzip
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -142,7 +141,7 @@ sinks:
     inputs: [osquery]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/osquery?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: none
+    compression: gzip
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -180,7 +179,7 @@ sinks:
     inputs: [opencanary]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/opencanary?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: none
+    compression: gzip
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -218,7 +217,7 @@ sinks:
     inputs: [nuclei]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/nuclei?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: none
+    compression: gzip
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
@@ -256,7 +255,7 @@ sinks:
     inputs: [syslog]
     uri: "${BLOODY_INGEST_URL:-http://api:4000/api/v1/ingest}/syslog?sensorId=${BLOODY_SENSOR_ID:-vector}${BLOODY_INGEST_QUERY:-}"
     method: post
-    compression: none
+    compression: gzip
     auth:
       strategy: bearer
       token: "${BLOODY_INGEST_API_KEY:-}"
