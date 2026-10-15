@@ -18,9 +18,15 @@ _Paused on 2026-10-09 at the owner's request. Branch: `maerih/bloody`._
 
 At pause time `pnpm -r typecheck` passed and all ~870 tests passed. The app runs end to end with the dev seed; screenshots are in `docs/screenshots/`.
 
+## Progress since the pause (one feature at a time, each tested)
+
+- API tests added for: SOAR response approvals; AI SOC (write-only keys, connection test, chat, tool-tier enforcement); reports (all types, PDF/CSV/JSON, white-label, schedules) and entitlements (402, usage); CoPilot sync (idempotent); notification channels, automation rules and playbooks; MSSP customer provisioning. The API suite is at 156+ tests.
+- Bugs fixed: manually created incidents never fired automations or playbooks; the AI provider connection test ignored the host-resolver setting.
+- New web pages: Simulate an incident (runs the real pipeline), Download agent, Demo sandbox, Support, Feedback. No hamburger-menu link is a placeholder any more.
+
 ## Remaining (in order)
 
-1. **API part B: prove and close gaps** (`apps/api`), about 1 h.
+1. ~~**API part B: prove and close gaps**~~ (DONE) (`apps/api`), about 1 h.
    1. Compare the registered routes with `docs/ARCHITECTURE.md` §5.
    2. Add integration tests for:
       - response approval: no self-approval, high-risk actions always pending;
@@ -32,7 +38,7 @@ At pause time `pnpm -r typecheck` passed and all ~870 tests passed. The app runs
       - a notification channel test;
       - tenant isolation on part-B endpoints.
    3. Make the scheduler honour `BLOODY_SCHEDULER_ENABLED`.
-2. **Web finish** (`apps/web`), about 45 min.
+2. ~~**Web finish**~~ (DONE, except endpoints.ts, which is folded into step 3) (`apps/web`), about 45 min.
    1. Audit each module page for real hooks plus loading, empty and error states.
    2. Remove any remaining `ModulePlaceholderPage` routes.
    3. List every called endpoint in `apps/web/src/api/endpoints.ts`.

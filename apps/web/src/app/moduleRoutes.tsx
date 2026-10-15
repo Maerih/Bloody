@@ -67,7 +67,19 @@ function workspace(base: string, element: ReactNode): AppRoute[] {
   return [{ path: `${base}/*`, element }];
 }
 
+const SimulateIncidentPage = lazy(() => import("../pages/SimulateIncidentPage"));
+const DownloadAgentPage = lazy(() => import("../pages/HelpPages").then((m) => ({ default: m.DownloadAgentPage })));
+const DemoSandboxPage = lazy(() => import("../pages/HelpPages").then((m) => ({ default: m.DemoSandboxPage })));
+const SupportPage = lazy(() => import("../pages/HelpPages").then((m) => ({ default: m.SupportPage })));
+const FeedbackPage = lazy(() => import("../pages/HelpPages").then((m) => ({ default: m.FeedbackPage })));
+
 export const MODULE_ROUTES: AppRoute[] = [
+  // Help & onboarding (hamburger menu)
+  { path: "/simulate", element: <SimulateIncidentPage /> },
+  { path: "/agents/download", element: <DownloadAgentPage /> },
+  { path: "/sandbox", element: <DemoSandboxPage /> },
+  { path: "/support", element: <SupportPage /> },
+  { path: "/feedback", element: <FeedbackPage /> },
   // Investigations & pivots
   { path: "/investigations", element: <InvestigationsPage /> },
   { path: "/investigations/:id", element: <InvestigationWorkspacePage /> },
