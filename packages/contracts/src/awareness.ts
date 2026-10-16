@@ -303,6 +303,8 @@ export const AwarenessAssignmentInput = z
     title: z.string().trim().min(3).max(200),
     lessons: z.array(z.string()).min(1).max(20).refine((ks) => ks.every((k) => lessonByKey(k)), "Unknown lesson"),
     dueAt: z.string().datetime().optional(),
+    /** Email reminders when the training is due within 3 days or overdue (needs SMTP). */
+    reminders: z.boolean().optional(),
     /** Learner ids; omitted = every active learner of the organization. */
     learnerIds: z.array(z.string().uuid()).max(5000).optional(),
   })
@@ -327,6 +329,7 @@ export interface AwarenessEnrolment {
   learnerName: string;
   learnerEmail: string;
   invitedAt: string | null;
+  remindedAt: string | null;
   completedAt: string | null;
   lessonsPassed: number;
   averageScore: number | null;
@@ -337,6 +340,7 @@ export interface AwarenessAssignment {
   title: string;
   lessons: string[];
   dueAt: string | null;
+  reminders: boolean;
   createdAt: string;
   enrolments: AwarenessEnrolment[];
 }

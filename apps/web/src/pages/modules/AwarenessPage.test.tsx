@@ -18,6 +18,7 @@ const overview = {
       title: "Q4 phishing & fraud",
       lessons: ["phishing", "payment_fraud"],
       dueAt: null,
+      reminders: true,
       createdAt: NOW,
       enrolments: [
         { id: "e1", learnerId: "l1", learnerName: "Amina Mushi", learnerEmail: "amina@kb.example", invitedAt: NOW, completedAt: NOW, lessonsPassed: 2, averageScore: 88 },
@@ -43,7 +44,7 @@ describe("Security Awareness Training (admin)", () => {
     fireEvent.change(within(dialog).getByLabelText("Title"), { target: { value: "SIM swap awareness" } });
     fireEvent.click(await within(dialog).findByLabelText("SIM-swap and mobile-money fraud"));
     fireEvent.click(within(dialog).getByRole("button", { name: /^Assign/ }));
-    await waitFor(() => expect(calls.find((c) => c.method === "POST")?.body).toEqual({ organizationId: ORG_A, title: "SIM swap awareness", lessons: ["sim_swap"] }));
+    await waitFor(() => expect(calls.find((c) => c.method === "POST")?.body).toEqual({ organizationId: ORG_A, title: "SIM swap awareness", lessons: ["sim_swap"], reminders: true }));
     expect(await screen.findByText("https://sciat.example/learn/l_abc")).toBeInTheDocument();
   });
 });
@@ -141,5 +142,17 @@ describe("human risk", () => {
     const drawer = await screen.findByRole("dialog");
     expect(within(drawer).getByText("Clicked 1 phishing simulation")).toBeInTheDocument();
     expect(within(drawer).getByText("+25")).toBeInTheDocument();
+  });
+});
+
+describe("training reminders", () => {
+  it("shows and toggles reminders on an assignment", async () => {
+    const { calls } = mockApi({ "/awareness/overview": overview, [`PATCH /awareness/assignments/${overview.assignments[0]!.id}`]: { reminders: false } });
+    renderWithSession(<AwarenessOverviewSection />);
+    fireEvent.click(await screen.findByText("Q4 phishing & fraud"));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).getByText("on (no due date, so none are sent)")).toBeInTheDocument();
+    fireEvent.click(within(drawer).getByRole("button", { name: "Turn reminders off" }));
+    await waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ reminders: false }));
   });
 });

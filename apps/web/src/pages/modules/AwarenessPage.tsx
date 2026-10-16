@@ -14,6 +14,7 @@ import {
   useLearnerLink,
   useRemoveLearner,
   useSendInvitations,
+  useSetReminders,
   type AwarenessOverview,
 } from "../../api/hooks";
 import { useSession } from "../../app/session";
@@ -74,6 +75,7 @@ function NewAssignmentDialog({ organizationId, learners, onClose, onCreated }: {
   const [title, setTitle] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [due, setDue] = useState("");
+  const [reminders, setReminders] = useState(true);
   const minutes = (lessons.data?.items ?? []).filter((l) => picked.includes(l.key)).reduce((n, l) => n + l.minutes, 0);
   return (
     <Dialog
@@ -98,7 +100,7 @@ function NewAssignmentDialog({ organizationId, learners, onClose, onCreated }: {
             disabled={title.trim().length < 3 || picked.length === 0}
             onClick={() =>
               create.mutate(
-                { organizationId, title: title.trim(), lessons: picked, ...(due ? { dueAt: new Date(`${due}T23:59:59Z`).toISOString() } : {}) },
+                { organizationId, title: title.trim(), lessons: picked, reminders, ...(due ? { dueAt: new Date(`${due}T23:59:59Z`).toISOString() } : {}) },
                 { onSuccess: (r) => onCreated(r.links) },
               )
             }
@@ -127,6 +129,7 @@ function NewAssignmentDialog({ organizationId, learners, onClose, onCreated }: {
             ))}
           </div>
         </fieldset>
+        <Checkbox checked={reminders} onChange={(e) => setReminders(e.target.checked)} label="Email reminders 3 days before the due date and weekly while overdue (up to 3, needs a due date and email)" />
       </div>
     </Dialog>
   );
@@ -134,6 +137,7 @@ function NewAssignmentDialog({ organizationId, learners, onClose, onCreated }: {
 
 function AssignmentDrawer({ assignment, canWrite, onClose }: { assignment: AwarenessAssignment; canWrite: boolean; onClose: () => void }) {
   const link = useLearnerLink();
+  const reminders = useSetReminders();
   const [shown, setShown] = useState<Record<string, string>>({});
   const columns: DataTableColumn<AwarenessEnrolment>[] = [
     { id: "name", header: "Learner", accessor: (e) => e.learnerName, hideable: false, cell: (e) => <div><div className="font-medium">{e.learnerName}</div><div className="text-xs text-fg-muted">{e.learnerEmail}</div></div> },
@@ -145,6 +149,7 @@ function AssignmentDrawer({ assignment, canWrite, onClose }: { assignment: Aware
     },
     { id: "score", header: "Score", align: "right", accessor: (e) => e.averageScore, cell: (e) => (e.averageScore === null ? "—" : `${e.averageScore}%`) },
     { id: "invited", header: "Invited", accessor: (e) => (e.invitedAt ? new Date(e.invitedAt) : null), cell: (e) => (e.invitedAt ? <RelativeTime value={e.invitedAt} /> : "—") },
+    { id: "reminded", header: "Reminded", accessor: (e) => (e.remindedAt ? new Date(e.remindedAt) : null), cell: (e) => (e.remindedAt ? <RelativeTime value={e.remindedAt} /> : "—") },
     {
       id: "link",
       header: "",
@@ -163,6 +168,16 @@ function AssignmentDrawer({ assignment, canWrite, onClose }: { assignment: Aware
   return (
     <Drawer open onClose={onClose} title={assignment.title} subtitle={`${assignment.lessons.length} lessons${assignment.dueAt ? ` · due ${new Date(assignment.dueAt).toLocaleDateString()}` : ""}`}>
       <div className="space-y-2 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span>
+            Email reminders: <span className="font-medium">{assignment.reminders ? (assignment.dueAt ? "on" : "on (no due date, so none are sent)") : "off"}</span>
+          </span>
+          {canWrite ? (
+            <Button size="xs" variant="secondary" loading={reminders.isPending} onClick={() => reminders.mutate({ id: assignment.id, reminders: !assignment.reminders })}>
+              {assignment.reminders ? "Turn reminders off" : "Turn reminders on"}
+            </Button>
+          ) : null}
+        </div>
         <p className="text-xs text-fg-muted">A new link replaces the learner's previous one.</p>
         <DataTable caption="Learners in this assignment" columns={columns} rows={assignment.enrolments} getRowId={(e) => e.id} searchable exportFileName="awareness-assignment" />
       </div>

@@ -956,6 +956,8 @@ export const useRemoveLearner = () => useAwarenessMutation((id: string) => api.d
 export const useCreateAssignment = () =>
   useAwarenessMutation((body: AwarenessAssignmentInput) => api.post<{ id: string; links: Array<{ enrolmentId: string; name: string; email: string; url: string }> }>("/awareness/assignments", body));
 export const useSendInvitations = () => useAwarenessMutation((assignmentId: string) => api.post<{ sent: number; failed: number }>(`/awareness/assignments/${encodeURIComponent(assignmentId)}/invite`, {}));
+export const useSetReminders = () =>
+  useAwarenessMutation(({ id, reminders }: { id: string; reminders: boolean }) => api.patch<{ reminders: boolean }>(`/awareness/assignments/${encodeURIComponent(id)}`, { reminders }));
 export const useLearnerLink = () => useAwarenessMutation((enrolmentId: string) => api.post<{ url: string }>(`/awareness/enrolments/${encodeURIComponent(enrolmentId)}/link`, {}));
 
 export interface LearnerLessonView extends LessonForLearner {

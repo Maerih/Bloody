@@ -268,7 +268,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
   const awareness = new AwarenessService({ db, mailer: new AwarenessMailer(config.smtp, deps.emailTransport ?? null), publicUrl: config.http.publicUrl, now });
   const exposure = new ExposureService({ db, events: domainEvents, probe: deps.portProbe ?? tcpProbe, now });
-  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, exposure, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, exposure, awareness, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
   const services: AppServices = {
     config,

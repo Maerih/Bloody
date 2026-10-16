@@ -194,6 +194,7 @@ export class AwarenessService {
       title: String(a.title),
       lessons: a.lessons as string[],
       dueAt: iso(a.due_at),
+      reminders: Boolean(a.reminders),
       createdAt: iso(a.created_at)!,
       enrolments: en
         .filter((e) => e.assignment_id === a.id)
@@ -203,6 +204,7 @@ export class AwarenessService {
           learnerName: String(e.name),
           learnerEmail: String(e.email),
           invitedAt: iso(e.invited_at),
+          remindedAt: iso(e.reminded_at),
           completedAt: iso(e.completed_at),
           lessonsPassed: Number(e.passed),
           averageScore: e.avg_score === null ? null : Number(e.avg_score),
@@ -220,8 +222,8 @@ export class AwarenessService {
     ).rows;
     if (!learners.length) throw new HttpError(400, "no_learners", "Add learners to the organization (or import them from the directory) first");
     const { rows } = await tx.query<Row>(
-      "INSERT INTO sat_assignments (tenant_id, organization_id, title, lessons, due_at, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-      [tenantId, input.organizationId, input.title, [...new Set(input.lessons)], input.dueAt ?? null, actor],
+      "INSERT INTO sat_assignments (tenant_id, organization_id, title, lessons, due_at, created_by, reminders) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+      [tenantId, input.organizationId, input.title, [...new Set(input.lessons)], input.dueAt ?? null, actor, input.reminders ?? true],
     );
     const assignmentId = String(rows[0]!.id);
     const links = [];
@@ -294,14 +296,9 @@ export class AwarenessService {
     let sent = 0;
     let failed = 0;
     for (const r of todo) {
-      const lessons = (r.lessons as string[]).map((k) => lessonByKey(k)!);
-      const minutes = lessons.reduce((n, l) => n + l.minutes, 0);
-      const due = r.due_at ? ` by ${new Date(String(r.due_at)).toDateString()}` : "";
-      const subject = `Security awareness training: ${String(r.title)}`;
-      const text = `Hello ${String(r.name)},\n\n${String(r.org)} has asked you to complete a short security awareness training${due} (about ${minutes} minutes, ${lessons.length} lesson${lessons.length === 1 ? "" : "s"}):\n\n${lessons.map((l) => `- ${l.title}`).join("\n")}\n\nOpen your personal link (no password needed):\n${r.url}\n\nThis link is personal: please do not forward it.\n`;
-      const html = `<p>Hello ${esc(String(r.name))},</p><p>${esc(String(r.org))} has asked you to complete a short security awareness training${esc(due)} (about ${minutes} minutes):</p><ul>${lessons.map((l) => `<li>${esc(l.title)}</li>`).join("")}</ul><p><a href="${esc(r.url)}">Start the training</a></p><p style="color:#666">This link is personal: please do not forward it.</p>`;
+      const mail = this.trainingEmail(r, false);
       try {
-        await this.deps.mailer.send({ name: String(r.name), email: String(r.email) }, subject, text, html);
+        await this.deps.mailer.send({ name: String(r.name), email: String(r.email) }, mail.subject, mail.text, mail.html);
         sent++;
         await this.deps.db.withTenant(tenantId, (tx) => tx.query("UPDATE sat_enrolments SET invited_at = now(), invite_error = NULL WHERE id = $1", [r.id]));
       } catch (err) {
@@ -311,6 +308,66 @@ export class AwarenessService {
       }
     }
     return { sent, failed };
+  }
+
+  /** Invitation or reminder for one enrolment row (name, email, title, lessons, due_at, org, url). */
+  private trainingEmail(r: Row & { url: string }, reminder: boolean): { subject: string; text: string; html: string } {
+    const lessons = (r.lessons as string[]).map((k) => lessonByKey(k)!).filter(Boolean);
+    const minutes = lessons.reduce((n, l) => n + l.minutes, 0);
+    const dueDate = r.due_at ? new Date(String(r.due_at)) : null;
+    const overdue = dueDate !== null && dueDate.getTime() < this.deps.now();
+    const due = dueDate ? ` by ${dueDate.toDateString()}` : "";
+    const name = String(r.name);
+    const org = String(r.org);
+    const subject = reminder ? `${overdue ? "Overdue" : "Reminder"}: security awareness training "${String(r.title)}"` : `Security awareness training: ${String(r.title)}`;
+    const intro = reminder
+      ? overdue
+        ? `your security awareness training for ${org} was due on ${dueDate!.toDateString()} and is not finished yet. It takes about ${minutes} minutes.`
+        : `a reminder that your security awareness training for ${org} is due${due}. It takes about ${minutes} minutes.`
+      : `${org} has asked you to complete a short security awareness training${due} (about ${minutes} minutes, ${lessons.length} lesson${lessons.length === 1 ? "" : "s"}):`;
+    const text = `Hello ${name},\n\n${reminder ? `This is ${intro}` : intro}\n\n${lessons.map((l) => `- ${l.title}`).join("\n")}\n\nOpen your personal link (no password needed):\n${r.url}\n\nThis link is personal: please do not forward it.${reminder ? " It replaces the link in earlier emails." : ""}\n`;
+    const html = `<p>Hello ${esc(name)},</p><p>${esc(reminder ? `This is ${intro}` : intro)}</p><ul>${lessons.map((l) => `<li>${esc(l.title)}</li>`).join("")}</ul><p><a href="${esc(r.url)}">${reminder ? "Continue the training" : "Start the training"}</a></p><p style="color:#666">This link is personal: please do not forward it.${reminder ? " It replaces the link in earlier emails." : ""}</p>`;
+    return { subject, text, html };
+  }
+
+  /**
+   * Scheduler: remind people whose training is due within 3 days or overdue, at most once a week
+   * and three times per assignment, for assignments that have reminders on. Needs SMTP.
+   */
+  async remindDue(tenantId: string): Promise<number> {
+    if (!this.deps.mailer.configured) return 0;
+    const due = await this.deps.db.withTenant(tenantId, async (tx) => {
+      const { rows } = await tx.query<Row>(
+        `SELECT e.id, l.name, l.email, a.title, a.lessons, a.due_at, o.name AS org
+           FROM sat_enrolments e JOIN sat_learners l ON l.id = e.learner_id JOIN sat_assignments a ON a.id = e.assignment_id JOIN organizations o ON o.id = e.organization_id
+          WHERE a.reminders AND a.due_at IS NOT NULL AND a.due_at < now() + interval '3 days' AND e.completed_at IS NULL AND l.active
+            AND e.reminder_count < 3 AND (e.reminded_at IS NULL OR e.reminded_at < now() - interval '7 days')
+            -- Freshly invited people are not reminded the same week.
+            AND (e.invited_at IS NULL OR e.invited_at < now() - interval '2 days')
+          ORDER BY a.due_at LIMIT 200`,
+      );
+      const out: Array<Row & { url: string }> = [];
+      for (const r of rows) out.push({ ...r, url: await this.newLink(tx, tenantId, String(r.id)) });
+      return out;
+    });
+    let sent = 0;
+    for (const r of due) {
+      const mail = this.trainingEmail(r, true);
+      try {
+        await this.deps.mailer.send({ name: String(r.name), email: String(r.email) }, mail.subject, mail.text, mail.html);
+        sent++;
+        await this.deps.db.withTenant(tenantId, (tx) => tx.query("UPDATE sat_enrolments SET reminded_at = now(), reminder_count = reminder_count + 1, invite_error = NULL WHERE id = $1", [r.id]));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        // Count the attempt so a broken address is not retried every tick.
+        await this.deps.db.withTenant(tenantId, (tx) => tx.query("UPDATE sat_enrolments SET reminded_at = now(), reminder_count = reminder_count + 1, invite_error = $2 WHERE id = $1", [r.id, message.slice(0, 500)]));
+      }
+    }
+    return sent;
+  }
+
+  async setReminders(tx: Queryable, assignmentId: string, on: boolean): Promise<void> {
+    await tx.query("UPDATE sat_assignments SET reminders = $2 WHERE id = $1", [assignmentId, on]);
   }
 
   /** Organization summary for the dashboard tiles. */

@@ -130,3 +130,34 @@ describe("Security Awareness Training", () => {
     ]);
   });
 });
+
+describe("training reminders", () => {
+  it("reminds unfinished people when training is due soon or overdue, at most weekly, and can be turned off", async () => {
+    const created = await admin.post("/awareness/assignments", { organizationId: org, title: "Due soon", lessons: ["sim_swap"], dueAt: new Date(Date.now() + 2 * 86_400_000).toISOString() });
+    expect(created.status).toBe(201);
+    const id = created.body.id;
+    const before = mails.length;
+    expect(await t.services.awareness.remindDue(tenant.tenantId)).toBe(2);
+    const sent = mails.slice(before);
+    expect(sent.map((m) => m.subject)).toEqual(['Reminder: security awareness training "Due soon"', 'Reminder: security awareness training "Due soon"']);
+    expect(sent[0]!.text).toContain("It replaces the link in earlier emails.");
+    // The link in the reminder works.
+    const token = sent[0]!.text.match(/\/learn\/(l_[A-Za-z0-9_-]+)/)![1]!;
+    expect((await learn("GET", `/learn/${token}`)).statusCode).toBe(200);
+    // Not again within a week.
+    expect(await t.services.awareness.remindDue(tenant.tenantId)).toBe(0);
+    // A week later, overdue: reminded again with an "Overdue" subject.
+    await t.privileged.query("UPDATE sat_enrolments SET reminded_at = now() - interval '8 days' WHERE assignment_id = $1", [id]);
+    await t.privileged.query("UPDATE sat_assignments SET due_at = now() - interval '1 day' WHERE id = $1", [id]);
+    const b2 = mails.length;
+    expect(await t.services.awareness.remindDue(tenant.tenantId)).toBe(2);
+    expect(mails[b2]!.subject).toBe('Overdue: security awareness training "Due soon"');
+    // Turned off by an administrator: no more reminders.
+    await t.privileged.query("UPDATE sat_enrolments SET reminded_at = now() - interval '8 days' WHERE assignment_id = $1", [id]);
+    expect((await analyst.patch(`/awareness/assignments/${id}`, { reminders: false })).status).toBe(403);
+    expect((await admin.patch(`/awareness/assignments/${id}`, { reminders: false })).body).toEqual({ reminders: false });
+    expect(await t.services.awareness.remindDue(tenant.tenantId)).toBe(0);
+    const o = (await admin.get(`/awareness/overview?organizationId=${org}`)).body;
+    expect(o.assignments.find((a: { id: string }) => a.id === id)).toMatchObject({ reminders: false, enrolments: [expect.objectContaining({ remindedAt: expect.any(String) }), expect.anything()] });
+  });
+});

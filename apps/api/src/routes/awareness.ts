@@ -103,6 +103,19 @@ export async function awarenessRoutes(app: FastifyInstance, s: AppServices): Pro
     return result;
   });
 
+  app.patch("/awareness/assignments/:id", { config: { ...sat, audit: false } }, async (request) => {
+    const { id } = parse(IdParam, request.params);
+    const { reminders } = parse(z.object({ reminders: z.boolean() }).strict(), request.body);
+    const auth = requireAuth(request);
+    return s.db.withTenant(auth.tenantId, async (tx) => {
+      const org = await s.awareness.assignmentOrg(tx, id);
+      requirePermission(request, "org:write", org);
+      await s.awareness.setReminders(tx, id, reminders);
+      await recordAudit(tx, request, { action: "awareness.reminders_changed", organizationId: org, targetKind: "assignment", targetId: id, details: { reminders } });
+      return { reminders };
+    });
+  });
+
   // A new personal link for one learner (to copy into a chat or email by hand). The old one stops working.
   app.post("/awareness/enrolments/:id/link", { config: { ...sat, audit: false } }, async (request) => {
     const { id } = parse(IdParam, request.params);
