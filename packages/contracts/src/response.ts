@@ -5,6 +5,7 @@ import { IsoDateTime, Uuid } from "./common.js";
 export const RESPONSE_ACTIONS = [
   { key: "isolate_endpoint", label: "Isolate endpoint", risk: "high", target: "asset" },
   { key: "release_endpoint", label: "Release endpoint from isolation", risk: "medium", target: "asset" },
+  { key: "harden_endpoint", label: "Apply hardening fix", risk: "high", target: "asset" },
   { key: "kill_process", label: "Kill process", risk: "medium", target: "asset" },
   { key: "quarantine_file", label: "Quarantine file", risk: "medium", target: "asset" },
   { key: "block_ip", label: "Block IP", risk: "high", target: "indicator" },

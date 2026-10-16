@@ -80,6 +80,8 @@ export interface RequestActionDialogProps {
   /** Prefill for indicator actions (block IP / domain). */
   indicatorValue?: string;
   description?: string;
+  /** Parameters chosen by the caller (e.g. the Attack Reduction check for harden_endpoint). */
+  fixedParameters?: Record<string, unknown>;
   onSubmitted?: () => void;
 }
 
@@ -88,7 +90,7 @@ export interface RequestActionDialogProps {
  * (isolate, block, disable identity, revoke) always wait in the approval queue for a second
  * person holding `response:approve`.
  */
-export function RequestActionDialog({ open, onClose, organizationId, incidentId, targets = {}, actions, defaultAction, indicatorValue = "", description, onSubmitted }: RequestActionDialogProps) {
+export function RequestActionDialog({ open, onClose, organizationId, incidentId, targets = {}, actions, defaultAction, indicatorValue = "", description, fixedParameters, onSubmitted }: RequestActionDialogProps) {
   const session = useSession();
   const request = useRequestResponseAction();
   const offered = useMemo(() => RESPONSE_ACTIONS.filter((a) => !actions || actions.includes(a.key)), [actions]);
@@ -117,7 +119,7 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
     organizationId,
     ...(incidentId ? { incidentId } : {}),
     target: { kind: def.target, id: effectiveTarget, ...(targetLabel ? { label: targetLabel } : {}) },
-    parameters: action === "isolate_endpoint" ? { mode: isolationMode } : buildParameters(action, params),
+    parameters: { ...(action === "isolate_endpoint" ? { mode: isolationMode } : buildParameters(action, params)), ...fixedParameters },
     reason: reason.trim(),
     ...(isEmergency ? { emergency: true } : {}),
   };

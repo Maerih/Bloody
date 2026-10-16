@@ -111,6 +111,28 @@ checkin() {
 
 # Commands from the platform arrive as plain lines "<id> <args…>" (commandLines). Only
 # isolate / release are accepted, and only with address-like arguments.
+# Attack Reduction fixes the platform may ask for (Response action "harden_endpoint", approved by a
+# person). Only these built-in routines run; the platform never sends script text.
+harden_fix() {
+  case "$1" in
+    linux_aslr)
+      [ "$(uname -s)" = Linux ] || { echo "not a Linux endpoint"; return 3; }
+      printf 'kernel.randomize_va_space = 2\n' > /etc/sysctl.d/60-sciat-aslr.conf && sysctl -q -w kernel.randomize_va_space=2 && echo "ASLR set to full (2)" ;;
+    mac_gatekeeper)
+      [ "$(uname -s)" = Darwin ] || { echo "not a macOS endpoint"; return 3; }
+      { spctl --master-enable 2>/dev/null || spctl --global-enable; } && echo "Gatekeeper enabled" ;;
+    mac_guest)
+      [ "$(uname -s)" = Darwin ] || { echo "not a macOS endpoint"; return 3; }
+      defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -bool false && echo "Guest user disabled" ;;
+    mac_auto_updates)
+      [ "$(uname -s)" = Darwin ] || { echo "not a macOS endpoint"; return 3; }
+      defaults write /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall -bool true \
+        && defaults write /Library/Preferences/com.apple.SoftwareUpdate ConfigDataInstall -bool true \
+        && echo "Security responses and system data files install automatically" ;;
+    *) echo "no built-in fix for $1"; return 3 ;;
+  esac
+}
+
 run_commands() {
   local block line id rest out rc status ran=1
   block="$(printf '%s' "$1" | grep -o '"commandLines":\[[^]]*\]' | sed -e 's/^"commandLines":\[//' -e 's/\]$//')"
@@ -120,8 +142,15 @@ run_commands() {
     id="${line%% *}"; rest="${line#* }"
     [[ "$id" =~ ^[0-9a-f-]{36}$ ]] || continue
     local args=(); read -r -a args <<< "$rest"
-    if [[ ! "${args[0]:-}" =~ ^(isolate|release)$ ]] || [[ ! "$rest" =~ ^[A-Za-z0-9.,:=/_\ -]+$ ]]; then
+    if [[ ! "${args[0]:-}" =~ ^(isolate|release|harden)$ ]] || [[ ! "$rest" =~ ^[A-Za-z0-9.,:=/_\ -]+$ ]]; then
       out="refused: unexpected command"; rc=2
+    elif [ "${args[0]}" = harden ]; then
+      if [ "${#args[@]}" -ne 2 ] || [[ ! "${args[1]}" =~ ^[a-z0-9_]{1,40}$ ]]; then out="refused: unexpected command"; rc=2
+      else
+        out="$(harden_fix "${args[1]}" 2>&1 </dev/null)"; rc=$?
+        # Re-report straight away so the platform re-grades the computer.
+        [ $rc -eq 0 ] && { send_inventory >/dev/null 2>&1 || log "inventory upload failed"; }
+      fi
     elif [ "$(uname -s)" = Darwin ] || [ ! -x "$ISOLATE" ]; then
       out="isolation is not available on this endpoint"; rc=3
     else

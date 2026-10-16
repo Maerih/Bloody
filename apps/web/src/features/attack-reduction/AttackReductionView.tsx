@@ -1,9 +1,10 @@
-import type { AttackReductionEndpoint, HardeningCheckInfo, HardeningStatus } from "@bloody/contracts";
-import { CheckCircle2, CircleHelp, ShieldAlert, XCircle } from "lucide-react";
+import { agentCanFix, type AttackReductionEndpoint, type HardeningCheckInfo, type HardeningStatus } from "@bloody/contracts";
+import { CheckCircle2, CircleHelp, ShieldAlert, Wrench, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { errorMessage } from "../../api/client";
 import { useAttackReductionOverview, useRemoveHardeningException, useSetHardeningException, type AttackReductionOverview } from "../../api/hooks";
 import { useSession } from "../../app/session";
+import { RequestActionDialog } from "../response/RequestActionDialog";
 import { Badge, Button, Card, CopyButton, DataTable, Drawer, EmptyState, ErrorState, Field, OrganizationSelect, RelativeTime, SeverityBadge, StatTile, Textarea, useDefaultOrganization, type DataTableColumn } from "../../components";
 
 const PLATFORM: Record<string, string> = { windows: "Windows", macos: "macOS", linux: "Linux" };
@@ -22,10 +23,13 @@ const scoreTone = (s: number | null) => (s === null ? "default" : s >= 85 ? "hea
 function CheckDrawer({ organizationId, check, endpoints, canWrite, onClose }: { organizationId: string; check: CheckRow; endpoints: AttackReductionEndpoint[]; canWrite: boolean; onClose: () => void }) {
   const set = useSetHardeningException();
   const remove = useRemoveHardeningException();
+  const session = useSession();
   const [reason, setReason] = useState("");
+  const [fixing, setFixing] = useState<{ assetId: string; hostname: string } | null>(null);
+  const canRequest = session.can("response:request", organizationId);
   const failing = endpoints.flatMap((e) => {
     const r = e.results.find((x) => x.key === check.key);
-    return r?.status === "fail" ? [{ hostname: e.hostname, detail: r.detail }] : [];
+    return r?.status === "fail" ? [{ hostname: e.hostname, detail: r.detail, assetId: e.assetId, fixable: !!e.assetId && agentCanFix(check.key, e.platform) }] : [];
   });
   const error = set.error ?? remove.error;
   return (
@@ -62,9 +66,16 @@ function CheckDrawer({ organizationId, check, endpoints, canWrite, onClose }: { 
           {failing.length ? (
             <ul className="mt-1 space-y-0.5">
               {failing.map((f) => (
-                <li key={f.hostname}>
-                  <span className="font-medium">{f.hostname}</span>
-                  {f.detail ? <span className="text-fg-muted"> — {f.detail}</span> : null}
+                <li key={f.hostname} className="flex flex-wrap items-center gap-2 py-0.5">
+                  <span>
+                    <span className="font-medium">{f.hostname}</span>
+                    {f.detail ? <span className="text-fg-muted"> — {f.detail}</span> : null}
+                  </span>
+                  {f.fixable && canRequest ? (
+                    <Button size="xs" icon={Wrench} className="ml-auto" aria-label={`Fix on ${f.hostname}`} onClick={() => setFixing({ assetId: f.assetId!, hostname: f.hostname })}>
+                      Fix with SCIAT Agent
+                    </Button>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -104,6 +115,17 @@ function CheckDrawer({ organizationId, check, endpoints, canWrite, onClose }: { 
           ) : null}
         </section>
       </div>
+      {fixing ? (
+        <RequestActionDialog
+          open
+          onClose={() => setFixing(null)}
+          organizationId={organizationId}
+          actions={["harden_endpoint"]}
+          targets={{ asset: [{ id: fixing.assetId, label: fixing.hostname }] }}
+          fixedParameters={{ check: check.key }}
+          description={`The SCIAT Agent on ${fixing.hostname} applies its built-in fix for "${check.title}". A second person approves it first; the next inventory re-grades the computer.`}
+        />
+      ) : null}
     </Drawer>
   );
 }

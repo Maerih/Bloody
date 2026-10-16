@@ -548,6 +548,32 @@ export const HARDENING_CHECKS: HardeningCheck[] = [
   },
 ];
 
+/**
+ * Fixes the SCIAT Agent can apply itself (Response action "harden_endpoint", approval required).
+ * Only changes that cannot lock people out or break sign-in: no firewall, SSH, BitLocker, LSA
+ * protection, NTLM or ASR changes, which stay manual. The agent runs its own built-in routine for
+ * the check; the platform never sends script text to an endpoint.
+ */
+export const AGENT_FIXABLE: ReadonlySet<string> = new Set([
+  "win_smb1",
+  "win_llmnr",
+  "win_netbios",
+  "win_wdigest",
+  "win_powershell_v2",
+  "win_ps_logging",
+  "win_autorun",
+  "win_guest",
+  "mac_gatekeeper",
+  "mac_guest",
+  "mac_auto_updates",
+  "linux_aslr",
+]);
+
+export function agentCanFix(key: string, platform: string): boolean {
+  const c = HARDENING_CHECKS.find((x) => x.key === key);
+  return !!c && AGENT_FIXABLE.has(key) && c.platforms.includes(platform as HardeningPlatform);
+}
+
 export function hardeningCheck(key: string): HardeningCheck | undefined {
   return HARDENING_CHECKS.find((c) => c.key === key);
 }
@@ -590,6 +616,8 @@ export const hardeningCatalog = (): HardeningCheckInfo[] => HARDENING_CHECKS.map
 
 export interface AttackReductionEndpoint {
   agentId: string;
+  /** Asset the agent runs on (target of the "harden_endpoint" response action). */
+  assetId: string | null;
   hostname: string;
   platform: string;
   collectedAt: string;

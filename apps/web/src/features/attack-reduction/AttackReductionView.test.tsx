@@ -18,6 +18,7 @@ const overview = (exception: boolean) => ({
   endpoints: [
     {
       agentId: "a1",
+      assetId: "00000000-0000-4000-8000-0000000000a1",
       hostname: "kb-ws-07",
       platform: "windows",
       collectedAt: NOW,
@@ -30,6 +31,7 @@ const overview = (exception: boolean) => ({
     },
     {
       agentId: "a2",
+      assetId: "00000000-0000-4000-8000-0000000000a2",
       hostname: "kb-ws-08",
       platform: "windows",
       collectedAt: NOW,
@@ -70,5 +72,25 @@ describe("Attack Reduction", () => {
     const drawer = await screen.findByRole("dialog");
     expect(within(drawer).getByText("SMBv1 is enabled")).toBeInTheDocument();
     expect(within(drawer).getAllByText("Fail")).toHaveLength(2);
+  });
+
+  it("asks the SCIAT Agent to apply a supported fix, through a response action", async () => {
+    const { calls } = mockApi({
+      "/attack-reduction/overview": overview(false),
+      "/response/catalog": { items: [] },
+      "POST /response/actions": { id: "00000000-0000-4000-8000-0000000000f1", action: "harden_endpoint", status: "pending_approval" },
+    });
+    renderWithSession(<AttackReductionView />);
+    fireEvent.click(await screen.findByText("SMBv1 is disabled"));
+    const drawer = await screen.findByRole("dialog");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Fix on kb-ws-07" }));
+    const dialogs = await screen.findAllByRole("dialog");
+    const dialog = dialogs[dialogs.length - 1]!;
+    expect(within(dialog).getByText(/built-in fix for "SMBv1 is disabled"/)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: "Close the SMBv1 gap on kb-ws-07" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Request|Submit/ }));
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "POST")?.body).toMatchObject({ action: "harden_endpoint", target: { kind: "asset", id: "00000000-0000-4000-8000-0000000000a1" }, parameters: { check: "win_smb1" } }),
+    );
   });
 });

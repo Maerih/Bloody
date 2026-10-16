@@ -67,3 +67,14 @@ describe("attack reduction", () => {
     expect(HostInventoryReport.safeParse({ hardening: { x: { nested: true } } }).success).toBe(false);
   });
 });
+
+describe("agent fixes", () => {
+  it("only offers fixes for known checks on the right platform", async () => {
+    const { AGENT_FIXABLE, agentCanFix, hardeningCheck } = await import("./attack-reduction.js");
+    for (const k of AGENT_FIXABLE) expect(hardeningCheck(k), k).toBeTruthy();
+    expect(agentCanFix("win_smb1", "windows")).toBe(true);
+    expect(agentCanFix("win_smb1", "linux")).toBe(false);
+    expect(agentCanFix("win_bitlocker", "windows")).toBe(false);
+    expect(agentCanFix("linux_ssh_root", "linux")).toBe(false);
+  });
+});

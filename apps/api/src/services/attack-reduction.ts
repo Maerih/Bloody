@@ -44,14 +44,14 @@ export class AttackReductionService {
 
   async endpoints(tx: Queryable, organizationId: string, accepted: ReadonlySet<string>): Promise<AttackReductionEndpoint[]> {
     const { rows } = await tx.query<Row>(
-      `SELECT a.id, a.hostname, a.platform, i.collected_at, i.hardening, i.users, i.firewall
+      `SELECT a.id, a.asset_id, a.hostname, a.platform, i.collected_at, i.hardening, i.users, i.firewall
          FROM agent_inventory i JOIN agents a ON a.id = i.agent_id
         WHERE i.organization_id = $1 ORDER BY a.hostname`,
       [organizationId],
     );
     return rows.map((r) => {
       const results = evaluateHardening(String(r.platform), contextOf({ hardening: (r.hardening as Record<string, unknown>) ?? {}, users: arr(r.users), firewall: (r.firewall as { enabled: boolean } | null) ?? null }));
-      return { agentId: String(r.id), hostname: String(r.hostname), platform: String(r.platform), collectedAt: iso(r.collected_at), score: hardeningScore(results, accepted), results };
+      return { agentId: String(r.id), assetId: r.asset_id ? String(r.asset_id) : null, hostname: String(r.hostname), platform: String(r.platform), collectedAt: iso(r.collected_at), score: hardeningScore(results, accepted), results };
     });
   }
 

@@ -58,14 +58,62 @@ function Invoke-Api([string]$Path, $Body) {
 }
 
 # Commands from the platform: only isolate / release, only with address-like arguments.
+# Attack Reduction fixes the platform may ask for (Response action "harden_endpoint", approved by a
+# person). Only these built-in routines run; the platform never sends script text.
+function Set-PolicyDword([string]$Path, [string]$Name, [int]$Value) {
+  if (-not (Test-Path $Path)) { New-Item -Path $Path -Force | Out-Null }
+  Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type DWord
+}
+function Invoke-HardeningFix([string]$Check) {
+  switch ($Check) {
+    'win_smb1' {
+      Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force -Confirm:$false
+      try { Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -NoRestart -ErrorAction Stop | Out-Null } catch { }
+      'SMBv1 server disabled (feature removal completes at the next restart)'
+    }
+    'win_llmnr' { Set-PolicyDword 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMulticast' 0; 'LLMNR turned off' }
+    'win_netbios' {
+      $n = 0
+      foreach ($a in @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=true')) {
+        $r = Invoke-CimMethod -InputObject $a -MethodName SetTcpipNetbios -Arguments @{ TcpipNetbiosOptions = [uint32]2 }
+        if ($r.ReturnValue -in 0, 1) { $n++ }
+      }
+      "NetBIOS over TCP/IP disabled on $n adapter(s)"
+    }
+    'win_wdigest' { Set-PolicyDword 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' 'UseLogonCredential' 0; 'WDigest no longer keeps clear-text passwords' }
+    'win_powershell_v2' {
+      foreach ($f in 'MicrosoftWindowsPowerShellV2Root', 'MicrosoftWindowsPowerShellV2') {
+        try { Disable-WindowsOptionalFeature -Online -FeatureName $f -NoRestart -ErrorAction Stop | Out-Null } catch { }
+      }
+      'PowerShell 2.0 engine removed'
+    }
+    'win_ps_logging' { Set-PolicyDword 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging' 'EnableScriptBlockLogging' 1; 'Script-block logging turned on' }
+    'win_autorun' { Set-PolicyDword 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' 'NoDriveTypeAutoRun' 255; 'AutoRun disabled for all drives' }
+    'win_guest' {
+      # The built-in Guest account (RID 501), whatever it has been renamed to.
+      $g = @(Get-LocalUser | Where-Object { "$($_.SID)" -like '*-501' })
+      $g | Disable-LocalUser
+      "Guest account disabled ($(@($g | ForEach-Object { $_.Name }) -join ', '))"
+    }
+    default { throw "no built-in fix for $Check" }
+  }
+}
+
 function Invoke-Commands($Response) {
   $ran = $false
   foreach ($c in @($Response.commands)) {
     if (-not $c -or "$($c.id)" -notmatch '^[0-9a-f-]{36}$') { continue }
     $words = @($c.args | ForEach-Object { "$_" })
     $iso = Join-Path $Home_ 'bloody-isolate.ps1'
-    if ($words.Count -eq 0 -or $words[0] -notin @('isolate', 'release') -or ($words | Where-Object { $_ -notmatch '^[A-Za-z0-9.,:=/_-]+$' })) {
+    if ($words.Count -eq 0 -or $words[0] -notin @('isolate', 'release', 'harden') -or ($words | Where-Object { $_ -notmatch '^[A-Za-z0-9.,:=/_-]+$' })) {
       $ok = $false; $out = 'refused: unexpected command'
+    } elseif ($words[0] -eq 'harden') {
+      try {
+        if ($words.Count -ne 2 -or $words[1] -notmatch '^[a-z0-9_]{1,40}$') { throw 'refused: unexpected command' }
+        $out = "$(Invoke-HardeningFix $words[1])"; $ok = $true
+        # Re-report straight away so the platform re-grades the computer.
+        try { Send-Inventory | Out-Null } catch { Write-AgentLog "inventory upload failed: $($_.Exception.Message)" 'Warning' }
+      } catch { $ok = $false; $out = "$($_.Exception.Message)" }
     } elseif (-not (Test-Path $iso)) {
       $ok = $false; $out = 'bloody-isolate.ps1 is missing - reinstall the SCIAT Agent'
     } else {

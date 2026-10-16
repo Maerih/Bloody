@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import {
   RESPONSE_ACTIONS,
   ROLE_PERMISSIONS,
+  agentCanFix,
+  hardeningCheck,
   actionRisk,
   type RoleKey,
   type ActionRisk,
@@ -222,7 +224,7 @@ export class ResponseService {
     const connectors = await this.deps.integrations.availableActions(tx, organizationId);
     return RESPONSE_ACTIONS.map((a) => {
       const req = this.deps.gate.requirement(a.key);
-      const internal = INTERNAL_ACTIONS.has(a.key);
+      const internal = INTERNAL_ACTIONS.has(a.key) || a.key === "harden_endpoint";
       const via = connectors.get(a.key) ?? [];
       return {
         key: a.key,
@@ -279,6 +281,16 @@ export class ResponseService {
     }
   }
 
+  /** harden_endpoint: one Attack Reduction check the target's SCIAT Agent can fix itself. */
+  private async validateHardening(tx: Queryable, target: ResponseTargetInput, parameters: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const check = typeof parameters.check === "string" ? parameters.check : "";
+    if (!hardeningCheck(check)) throw badRequest("parameters.check must be an Attack Reduction check");
+    const { rows } = await tx.query<Row>("SELECT platform FROM agents WHERE asset_id = $1 AND engine = 'sciat' AND agent_token_hash IS NOT NULL ORDER BY last_checkin_at DESC NULLS LAST LIMIT 1", [target.id]);
+    if (!rows[0]) throw badRequest("The asset has no SCIAT Agent to apply the fix");
+    if (!agentCanFix(check, String(rows[0].platform))) throw badRequest(`The SCIAT Agent cannot apply "${hardeningCheck(check)!.title}" on this computer — apply it by hand or by policy`);
+    return { check };
+  }
+
   /** Create a response action; gate it or execute it immediately. Returns the stored record. */
   async request(input: ResponseRequestInput, actor: AuditActor): Promise<ResponseActionView> {
     const risk = actionRisk(input.action);
@@ -299,6 +311,7 @@ export class ResponseService {
         if (!rows[0] || rows[0].organization_id !== input.organizationId) throw badRequest("incidentId must reference an incident of the organization");
       }
       const target = await this.validateTarget(tx, input.organizationId, input.action, input.target, input.incidentId ?? null);
+      const parameters = input.action === "harden_endpoint" ? await this.validateHardening(tx, target, input.parameters) : input.parameters;
       const status: ResponseActionStatus = needsApproval ? "pending_approval" : "approved";
       const { rows } = await tx.query<Row>(
         `INSERT INTO response_actions (tenant_id, organization_id, incident_id, action, target, parameters, reason, status, risk, requested_by, requested_via,
@@ -311,7 +324,7 @@ export class ResponseService {
           input.incidentId ?? null,
           input.action,
           JSON.stringify(target),
-          JSON.stringify(input.parameters),
+          JSON.stringify(parameters),
           input.reason.slice(0, 2000),
           status,
           risk,
@@ -667,9 +680,10 @@ export class ResponseService {
    * reachable, so the endpoint can be released later. Null when the target has no SCIAT Agent.
    */
   private async dispatchToAgent(tenantId: string, row: Row, action: ResponseActionKey): Promise<ExecutionOutcome | null> {
-    if (action !== "isolate_endpoint" && action !== "release_endpoint") return null;
+    if (action !== "isolate_endpoint" && action !== "release_endpoint" && action !== "harden_endpoint") return null;
     const target = row.target as ResponseTargetInput;
     if (target.kind !== "asset") return null;
+    if (action === "harden_endpoint") return this.dispatchHardening(tenantId, row, target);
     return this.deps.db.withTenant(tenantId, async (tx) => {
       const { rows } = await tx.query<Row>(
         "SELECT id, organization_id, hostname, platform, host_info FROM agents WHERE asset_id = $1 AND engine = 'sciat' AND agent_token_hash IS NOT NULL ORDER BY last_checkin_at DESC NULLS LAST LIMIT 1",
@@ -710,12 +724,44 @@ export class ResponseService {
     });
   }
 
+  /** Queue a built-in hardening fix for the target's SCIAT Agent (checked again at dispatch). */
+  private async dispatchHardening(tenantId: string, row: Row, target: ResponseTargetInput): Promise<ExecutionOutcome> {
+    const fail = (code: string, message: string): ExecutionOutcome => ({ status: "failed", executor: "sciat:agent", integrationId: null, result: {}, error: { code, message, retryable: false } });
+    const check = String(((row.parameters ?? {}) as Record<string, unknown>).check ?? "");
+    return this.deps.db.withTenant(tenantId, async (tx) => {
+      const { rows } = await tx.query<Row>(
+        "SELECT id, organization_id, hostname, platform FROM agents WHERE asset_id = $1 AND engine = 'sciat' AND agent_token_hash IS NOT NULL ORDER BY last_checkin_at DESC NULLS LAST LIMIT 1",
+        [target.id],
+      );
+      const agent = rows[0];
+      if (!agent) return fail("no_agent", "The asset has no SCIAT Agent to apply the fix");
+      if (!agentCanFix(check, String(agent.platform))) return fail("not_fixable", `The SCIAT Agent cannot apply ${check} on ${String(agent.platform)}`);
+      const { rows: cmd } = await tx.query<Row>(
+        `INSERT INTO agent_commands (tenant_id, organization_id, agent_id, response_action_id, kind, args, expires_at)
+         VALUES ($1, $2, $3, $4, 'harden', $5, now() + interval '30 minutes') RETURNING id`,
+        [tenantId, agent.organization_id, agent.id, row.id, ["harden", check]],
+      );
+      return {
+        status: "dispatched",
+        executor: "sciat:agent",
+        integrationId: null,
+        result: { summary: `Sent "${hardeningCheck(check)?.title ?? check}" to the SCIAT Agent on ${String(agent.hostname)}; it runs at the next check-in (within a minute)`, commandId: String(cmd[0]!.id) },
+        error: null,
+      };
+    });
+  }
+
   /** A SCIAT Agent reported the result of a dispatched command. */
   async completeFromAgent(tenantId: string, actionId: string, ok: boolean, output: string): Promise<void> {
     const row = await this.deps.db.withTenant(tenantId, async (tx) => (await tx.query<Row>("SELECT * FROM response_actions WHERE id = $1 AND status = 'running'", [actionId])).rows[0] ?? null);
     if (!row) return;
     const verb = row.action === "release_endpoint" ? "released" : "isolated";
-    const summary = ok ? `Endpoint ${verb} by the SCIAT Agent` : `The SCIAT Agent could not apply the change`;
+    const check = hardeningCheck(String(((row.parameters ?? {}) as Record<string, unknown>).check ?? ""));
+    const summary = !ok
+      ? `The SCIAT Agent could not apply the change`
+      : row.action === "harden_endpoint"
+        ? `Hardening applied by the SCIAT Agent: ${check?.title ?? "fix"} (the next inventory re-grades it)`
+        : `Endpoint ${verb} by the SCIAT Agent`;
     await this.finish(
       tenantId,
       actionId,
