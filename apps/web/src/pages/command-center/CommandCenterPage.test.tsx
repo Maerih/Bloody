@@ -70,7 +70,7 @@ describe("CommandCenterPage", () => {
 
     expect(screen.getByText("Triage Feed")).toBeInTheDocument();
     expect(screen.getByText("All caught up, no active incidents!")).toBeInTheDocument();
-    expect(screen.queryByText("Explore Your Bloody Trial")).not.toBeInTheDocument();
+    expect(screen.queryByText("Explore Your SCIAT Trial")).not.toBeInTheDocument();
 
     const summaryCall = calls.find((c) => c.path === "/command-center/summary")!;
     expect(summaryCall.url.searchParams.get("windowDays")).toBe("90");
@@ -87,7 +87,7 @@ describe("CommandCenterPage", () => {
   it("shows the trial banner only on the trial plan", async () => {
     api({ "/auth/me": makeMe({ plan: "trial", entitlements: [{ module: "edr", state: "trial", trialEndsAt: "2099-01-01T00:00:00.000Z" }] }) });
     renderApp("/");
-    expect(await screen.findByText("Explore Your Bloody Trial")).toBeInTheDocument();
+    expect(await screen.findByText("Explore Your SCIAT Trial")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Launch Demo Sandbox/ })).toHaveAttribute("href", "/sandbox");
     expect(screen.getByText("Endpoint Detection & Response", { selector: "span" })).toBeInTheDocument();
   });

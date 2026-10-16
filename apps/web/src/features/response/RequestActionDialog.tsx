@@ -252,7 +252,7 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
                 </span>
               </label>
             ))}
-            <p className="text-xs text-fg-muted">Either way the endpoint keeps reaching Bloody and its engine manager, so you can release it from here at any time.</p>
+            <p className="text-xs text-fg-muted">Either way the endpoint keeps reaching SCIAT and its engine manager, so you can release it from here at any time.</p>
           </fieldset>
         ) : null}
         {canEmergency ? (

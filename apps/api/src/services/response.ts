@@ -54,7 +54,7 @@ export const ACTION_TARGET: Record<ResponseActionKey, "asset" | "identity" | "in
   RESPONSE_ACTIONS.map((a) => [a.key, a.target]),
 ) as Record<ResponseActionKey, "asset" | "identity" | "indicator" | "incident">;
 
-/** Actions Bloody executes itself (no engine connector needed). */
+/** Actions SCIAT executes itself (no engine connector needed). */
 export const INTERNAL_ACTIONS: ReadonlySet<ResponseActionKey> = new Set(["create_case", "notify_analyst", "launch_investigation", "send_email"]);
 /** Actions that need an engine response connector (integration). */
 export const CONNECTOR_ACTIONS: ReadonlySet<ResponseActionKey> = new Set(RESPONSE_ACTIONS.map((a) => a.key).filter((k) => !INTERNAL_ACTIONS.has(k)));
@@ -978,7 +978,7 @@ export class ResponseService {
       case "send_email": {
         const channelIds = Array.isArray(p.channelIds) ? (p.channelIds as unknown[]).filter((x): x is string => typeof x === "string" && /^[0-9a-f-]{36}$/i.test(x)) : [];
         if (channelIds.length === 0) return fail("invalid_parameters", "parameters.channelIds (notification channel ids) is required");
-        const subject = (str("subject") ?? `[Bloody] ${target.label ?? "Security notification"}`).replace(/[\r\n]+/g, " ").slice(0, 200);
+        const subject = (str("subject") ?? `[SCIAT] ${target.label ?? "Security notification"}`).replace(/[\r\n]+/g, " ").slice(0, 200);
         const outcomes = await this.deps.notifications.engine.deliver(
           {
             id: randomUUID(),

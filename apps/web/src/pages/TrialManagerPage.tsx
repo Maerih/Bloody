@@ -117,7 +117,7 @@ export default function TrialManagerPage() {
             </>
           ) : (
             <>
-              <div className="text-xl font-semibold text-fg">Bloody sales team</div>
+              <div className="text-xl font-semibold text-fg">SCIAT sales team</div>
               <p className="text-md text-fg-muted">Talk to us about demos, pricing and how to make the most of your trial.</p>
               <div className="mt-2">
                 <ContactSalesButton size="sm" />
@@ -222,7 +222,7 @@ function ModuleAction({ module, state, canManage, pending, onStart, openPath }: 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <ContactSalesButton />
-      {!APP_CONFIG.salesContactUrl ? <Badge tone="outline">Contact your Bloody representative</Badge> : null}
+      {!APP_CONFIG.salesContactUrl ? <Badge tone="outline">Contact your SCIAT representative</Badge> : null}
     </div>
   );
 }

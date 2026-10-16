@@ -26,7 +26,7 @@ export const COMMON_VARIABLES: TemplateVariable[] = [
   { name: "subject.id", description: "Entity id" },
   { name: "subject.label", description: "Entity display label" },
   { name: "link.url", description: "Deep link into the Command Center" },
-  { name: "brand.name", description: "Sender brand (MSSP white label or Bloody)" },
+  { name: "brand.name", description: "Sender brand (MSSP white label or SCIAT AFRICA)" },
 ];
 
 /** Per-event payload variables (used until the server presets load, or if they are unavailable). */

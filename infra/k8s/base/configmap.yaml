@@ -39,7 +39,7 @@ data:
   SMTP_PORT: "587"
   SMTP_SECURE: "false"
   SMTP_FROM: notifications@bloody.example.com
-  SMTP_FROM_NAME: Bloody Security Operations
+  SMTP_FROM_NAME: SCIAT AFRICA Security Operations
   # reserved: local/private AI endpoints (Ollama, vLLM) must be allow-listed explicitly per deployment.
   BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS: "false"
   OIDC_ISSUER_URL: ""

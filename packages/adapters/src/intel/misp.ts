@@ -8,7 +8,7 @@ import { buildIndicatorRecord, clampConfidence, parseTlp, strictestTlp, type Ind
 
 /**
  * MISP connector — pulls attributes through the REST API (`POST /attributes/restSearch`,
- * `returnFormat: json`) and maps them to Bloody indicator records. MISP runs as a separate,
+ * `returnFormat: json`) and maps them to SCIAT indicator records. MISP runs as a separate,
  * unmodified service (AGPL); only its documented HTTP API is used.
  *
  * Confidence model (explained per record in `scoring`):
@@ -16,7 +16,7 @@ import { buildIndicatorRecord, clampConfidence, parseTlp, strictestTlp, type Ind
  *   medium +5 / low −5 · an explicit `misp:confidence-level` tag overrides the base.
  */
 
-/** MISP attribute type → Bloody indicator type (+ which half of a composite value to keep). */
+/** MISP attribute type → SCIAT indicator type (+ which half of a composite value to keep). */
 export const MISP_TYPE_MAP: Record<string, { type: IndicatorType; part?: 0 | 1 }> = {
   "ip-src": { type: "ip" },
   "ip-dst": { type: "ip" },
@@ -116,7 +116,7 @@ export interface MispParseOptions {
 export function mispAttributeToIndicator(attr: JsonRecord, opts: MispParseOptions): IndicatorRecord | string {
   const mispType = str(attr["type"]) ?? "";
   const mapping = MISP_TYPE_MAP[mispType];
-  if (!mapping) return `MISP type "${mispType}" has no Bloody indicator mapping`;
+  if (!mapping) return `MISP type "${mispType}" has no SCIAT indicator mapping`;
   const rawValue = str(attr["value"]);
   if (!rawValue) return "empty value";
   const value = mapping.part !== undefined ? rawValue.split("|")[mapping.part] ?? "" : rawValue;

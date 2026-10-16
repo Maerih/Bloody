@@ -42,7 +42,7 @@ import type { SecretStore } from "./secret-store.js";
  */
 
 export const EXTRA_INTEGRATION_KINDS = [
-  { key: "webhook_block", name: "Firewall / DNS block relay (signed webhook)", layer: "response", role: "Blocks IPs and domains through a customer-operated relay that verifies Bloody's HMAC signature", license: "Proprietary relay contract", licenseRisk: "low", mode: "network_api", powers: ["soar"], core: false, homepage: "" },
+  { key: "webhook_block", name: "Firewall / DNS block relay (signed webhook)", layer: "response", role: "Blocks IPs and domains through a customer-operated relay that verifies SCIAT's HMAC signature", license: "Proprietary relay contract", licenseRisk: "low", mode: "network_api", powers: ["soar"], core: false, homepage: "" },
 ] as const;
 
 export const INTEGRATION_KINDS: string[] = [...ENGINES.map((e) => e.key), ...EXTRA_INTEGRATION_KINDS.map((e) => e.key)];
@@ -74,7 +74,7 @@ const CONFIG_SCHEMAS: Record<string, z.ZodTypeAny> = {
         releaseCommand: z.string().max(64).optional(),
         killProcessCommand: z.string().max(64).optional(),
         quarantineFileCommand: z.string().max(64).optional(),
-        /** Addresses isolated endpoints keep reaching (Wazuh manager, Bloody platform) — enables bloody-isolate. */
+        /** Addresses isolated endpoints keep reaching (Wazuh manager, SCIAT platform) — enables bloody-isolate. */
         isolationAllow: z.array(z.string().trim().refine(isIpOrCidr, "must be an IP address or CIDR")).max(32).optional(),
         allowAllAgents: z.boolean().optional(),
       })
@@ -88,9 +88,9 @@ const CONFIG_SCHEMAS: Record<string, z.ZodTypeAny> = {
         quarantineFileArtifact: z.string().max(200).optional(),
         evidenceArtifactAllowList: z.array(z.string().max(200)).max(50).optional(),
         yaraArtifact: z.string().max(200).optional(),
-        /** Bloody isolation artifact (Custom.Bloody.Isolate) — enables LAN isolation via Velociraptor. */
+        /** SCIAT isolation artifact (Custom.Bloody.Isolate) — enables LAN isolation via Velociraptor. */
         bloodyIsolateArtifact: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/).max(200).optional(),
-        /** Addresses isolated endpoints keep reaching (Velociraptor server, Bloody platform). */
+        /** Addresses isolated endpoints keep reaching (Velociraptor server, SCIAT platform). */
         isolationAllow: z.array(z.string().trim().refine(isIpOrCidr, "must be an IP address or CIDR")).max(32).optional(),
       })
       .strict()

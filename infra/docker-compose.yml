@@ -232,7 +232,7 @@ services:
       SMTP_USER: ${SMTP_USER:-bloody}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-mailpit-accepts-any}
       SMTP_FROM: ${SMTP_FROM:-notifications@bloody.local}
-      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Bloody Security Operations}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-SCIAT AFRICA Security Operations}
       NODE_EXTRA_CA_CERTS: /certs/ca.crt
       BLOODY_SCHEDULER_ENABLED: "true"
       BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS: ${BLOODY_AI_ALLOW_PRIVATE_ENDPOINTS:-false}

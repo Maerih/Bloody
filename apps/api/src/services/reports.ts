@@ -160,7 +160,7 @@ export class ReportService {
     }));
   }
 
-  /** White-label branding: explicit request > organization > account settings > Bloody default. */
+  /** White-label branding: explicit request > organization > account settings > SCIAT default. */
   async branding(tx: Queryable, tenantId: string, organizationId: string | null): Promise<Partial<BrandingInput> | null> {
     const org = organizationId ? (await tx.query<{ b: unknown }>("SELECT settings->'branding' AS b FROM organizations WHERE id = $1", [organizationId])).rows[0]?.b : null;
     const acc = (await tx.query<{ b: unknown }>("SELECT settings->'branding' AS b FROM accounts WHERE id = $1", [tenantId])).rows[0]?.b;
@@ -248,7 +248,7 @@ export class ReportService {
       title: res.report.title,
       summary: res.report.summary.headline,
       highlights: res.report.summary.kpis.slice(0, 6).map((k) => ({ label: k.label, value: formatValue(k.value, k.unit, k.currency ? { currency: k.currency } : {}) })),
-      ...(res.stored ? { link: { url: `${this.deps.publicUrl.replace(/\/+$/, "")}/reports?run=${res.runId}`, label: "Open in Bloody" } } : {}),
+      ...(res.stored ? { link: { url: `${this.deps.publicUrl.replace(/\/+$/, "")}/reports?run=${res.runId}`, label: "Open in SCIAT" } } : {}),
       ...(res.report.scope.organizationName ? { organizationName: res.report.scope.organizationName } : {}),
     };
   }

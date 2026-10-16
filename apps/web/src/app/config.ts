@@ -9,7 +9,7 @@ function env(name: string): string | null {
 }
 
 export const APP_CONFIG = {
-  productName: "Bloody",
+  productName: "SCIAT",
   /** External sales contact (URL or mailto:). Falls back to the in-app Trial Manager. */
   salesContactUrl: env("VITE_SALES_CONTACT_URL"),
   /** External support / FAQ portal. */

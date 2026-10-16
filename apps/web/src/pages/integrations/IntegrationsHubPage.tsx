@@ -164,7 +164,7 @@ export default function IntegrationsHubPage() {
     <div>
       <PageHeader
         title={location.pathname === "/integrations" ? "Integrations" : "Hub & Marketplace"}
-        subtitle="Connect open-source engines as separate, unmodified services. Bloody drives them over their APIs, event streams or file drops and normalizes everything into one data model."
+        subtitle="Connect open-source engines as separate, unmodified services. SCIAT drives them over their APIs, event streams or file drops and normalizes everything into one data model."
       >
         <Tabs<HubTab>
           ariaLabel="Hub sections"
@@ -217,10 +217,10 @@ export default function IntegrationsHubPage() {
       {tab === "engines" ? (
         <div className="space-y-4">
           {copilot ? (
-            <Card title="SOCFortress CoPilot integration" subtitle="Bring an existing CoPilot SOC hub into Bloody" actions={<Badge tone="warning">AGPL-3.0 · separate service</Badge>}>
+            <Card title="SOCFortress CoPilot integration" subtitle="Bring an existing CoPilot SOC hub into SCIAT" actions={<Badge tone="warning">AGPL-3.0 · separate service</Badge>}>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_280px]">
                 <div className="space-y-2 text-sm text-fg-muted">
-                  <p>Bloody syncs CoPilot customers → organizations, agents, alerts and cases → incidents over CoPilot's REST API, so MSSPs can migrate or run both side by side. No CoPilot code is copied or linked.</p>
+                  <p>SCIAT syncs CoPilot customers → organizations, agents, alerts and cases → incidents over CoPilot's REST API, so MSSPs can migrate or run both side by side. No CoPilot code is copied or linked.</p>
                   <p className="text-xs">{copilot.licenseNotes}</p>
                 </div>
                 <div className="space-y-2">

@@ -81,7 +81,7 @@ describe("HTML renderer", () => {
     expect(html).toContain("Mean detection-to-closure time over 4 incidents closed in the period.");
     // brand colour token
     expect(html).toContain("--brand:#B4232C");
-    expect(html).toContain('<span class="wordmark">Bloody</span>');
+    expect(html).toContain('<span class="wordmark">SCIAT AFRICA</span>');
   });
 
   it("escapes all report text (no markup injection)", async () => {
@@ -92,14 +92,14 @@ describe("HTML renderer", () => {
     expect(html).not.toContain("<script>");
   });
 
-  it("white-labels for MSSPs: logo, colour, name and no Bloody wordmark", async () => {
+  it("white-labels for MSSPs: logo, colour, name and no SCIAT AFRICA wordmark", async () => {
     const r = await report("customer_monthly", { organizationIds: [ORG_A], branding: { name: "Acme MSSP", primaryColor: "#0055AA", logoDataUrl: LOGO, footerText: "Acme MSSP · 24/7 SOC" } });
     const html = renderHtml(r);
     expect(html).toContain("--brand:#0055AA");
     expect(html).toContain(`<img class="logo" src="${LOGO}" alt="Acme MSSP">`);
     expect(html).toContain("Acme MSSP · 24/7 SOC");
     expect(html).toContain('<meta name="generator" content="Acme MSSP Reporting">');
-    expect(html).not.toContain("Bloody");
+    expect(html).not.toContain("SCIAT AFRICA");
   });
 
   it("renders the customer review's action list and empty states", async () => {
@@ -181,7 +181,7 @@ describe("PDF renderer", () => {
     expect(body.startsWith("%PDF")).toBe(true);
     expect(body).toContain("/Subtype /Image");
     expect(pdfStrings(body)).toEqual(expect.arrayContaining(["Acme MSSP", "Acme MSSP Reporting"]));
-    expect(pdfStrings(body).some((s) => s.includes("Bloody"))).toBe(false);
+    expect(pdfStrings(body).some((s) => s.includes("SCIAT AFRICA"))).toBe(false);
   });
 
   it("renders every report type, including hostile text", async () => {

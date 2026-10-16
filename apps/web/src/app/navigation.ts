@@ -522,7 +522,7 @@ export const RAIL_MODULES: RailModule[] = [
     description: "Integrations, detection content and playbook library.",
     items: [
       { label: "Hub", path: "/hub", icon: Blocks },
-      { label: "Engine Catalog", path: "/hub/engines", icon: Puzzle, description: "Open-source engines Bloody can drive" },
+      { label: "Engine Catalog", path: "/hub/engines", icon: Puzzle, description: "Open-source engines SCIAT can drive" },
       { label: "Detection Content", path: "/hub/content", icon: Sigma },
       { label: "Playbook Library", path: "/hub/playbooks", icon: Workflow },
     ],

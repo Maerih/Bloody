@@ -115,7 +115,7 @@ const RawEnv = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM: z.string().default("notifications@bloody.local"),
-  SMTP_FROM_NAME: z.string().default("Bloody Security Operations"),
+  SMTP_FROM_NAME: z.string().default("SCIAT AFRICA Security Operations"),
 
   OIDC_ISSUER_URL: z.string().url().optional(),
   OIDC_CLIENT_ID: z.string().optional(),

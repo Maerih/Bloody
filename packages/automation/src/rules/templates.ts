@@ -31,7 +31,7 @@ export const COMMON_TEMPLATE_VARIABLES: { path: string; description: string }[] 
   { path: "subject.id", description: "Entity id" },
   { path: "subject.label", description: "Entity display label" },
   { path: "link.url", description: "Deep link into the Command Center" },
-  { path: "brand.name", description: "Sender brand (MSSP white label or Bloody)" },
+  { path: "brand.name", description: "Sender brand (MSSP white label or SCIAT AFRICA)" },
 ];
 
 export const DEFAULT_RULE_TEMPLATES: Record<AutomationEvent, RuleTemplatePreset> = {

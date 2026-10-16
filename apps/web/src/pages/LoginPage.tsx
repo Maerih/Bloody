@@ -97,7 +97,7 @@ export default function LoginPage() {
             <Logo />
           </div>
           <h2 className="font-display text-2xl font-bold text-fg">Sign in</h2>
-          <p className="mt-1 text-base text-fg-muted">Access your Bloody Command Center.</p>
+          <p className="mt-1 text-base text-fg-muted">Access your SCIAT Command Center.</p>
           <form className="mt-6 space-y-3" onSubmit={submit} noValidate>
             <Field label="Work email" required>
               {(p) => <Input {...p} type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} disabled={mfaRequired} autoFocus required />}

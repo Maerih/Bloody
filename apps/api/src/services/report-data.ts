@@ -526,7 +526,7 @@ export class SqlReportDataSource implements ReportDataSource {
     const at = q.to.toISOString();
     for (const [orgId, p] of map) {
       const ctl = (controlId: string, title: string, severity: Severity, ok: boolean | null, partial: boolean, evidence: string) =>
-        out.push({ organizationId: orgId, framework: "Bloody baseline", controlId, title, status: ok === null ? "not_applicable" : ok ? "pass" : partial ? "partial" : "fail", severity, evidence, lastEvaluatedAt: at, owner: null });
+        out.push({ organizationId: orgId, framework: "SCIAT baseline", controlId, title, status: ok === null ? "not_applicable" : ok ? "pass" : partial ? "partial" : "fail", severity, evidence, lastEvaluatedAt: at, owner: null });
       const endpoints = p.assets.endpoints;
       const cover = endpoints > 0 ? p.agents.edrCoveredAssets / endpoints : null;
       ctl("BL-EDR-01", "EDR deployed and healthy on every endpoint and server", "high", cover === null ? null : cover >= 0.95, cover !== null && cover >= 0.8, cover === null ? "No endpoints in inventory" : `${p.agents.edrCoveredAssets} of ${endpoints} endpoints covered (${Math.round(cover * 100)}%)`);

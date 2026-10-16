@@ -23,7 +23,7 @@ import type { CoPilotClient, CoPilotSnapshot, SnapshotOptions } from "./client.j
 import type { CoPilotAgent, CoPilotAlert, CoPilotCase, CoPilotCustomer } from "./schemas.js";
 
 /**
- * CoPilot → Bloody synchronisation planner.
+ * CoPilot → SCIAT synchronisation planner.
  *
  * Pure function of a {@link CoPilotSnapshot}: it never writes anywhere. It returns a typed
  * {@link CoPilotSyncPlan} that the control plane persists inside one tenant transaction,
@@ -60,7 +60,7 @@ type RiskFactorT = z.infer<typeof RiskFactor>;
 
 export interface OrganizationUpsert {
   externalRef: string;
-  /** Map onto an existing Bloody organization instead of creating one (customer-side). */
+  /** Map onto an existing SCIAT organization instead of creating one (customer-side). */
   organizationId: string | null;
   parentExternalRef: string | null;
   data: Omit<OrgInput, "parentOrganizationId">;
@@ -215,7 +215,7 @@ export interface CoPilotSyncPlan {
 export interface CoPilotSyncOptions {
   tenantId: string;
   integrationId?: string;
-  /** customer_code → existing Bloody organization id (customer-side or pre-provisioned orgs). */
+  /** customer_code → existing SCIAT organization id (customer-side or pre-provisioned orgs). */
   organizationOverrides?: Record<string, string>;
   /** Criticality for CoPilot "critical assets". Default "crown_jewel". */
   criticalAssetCriticality?: "crown_jewel" | "high";
@@ -714,7 +714,7 @@ export function planCoPilotSync(snapshot: CoPilotSnapshot, options: CoPilotSyncO
       });
     }
   }
-  if (staffSkipped > 0) warnings.push({ code: "staff_users_not_mapped", message: `${staffSkipped} CoPilot staff account(s) not mapped: Bloody roles for analysts/admins are granted in Bloody only` });
+  if (staffSkipped > 0) warnings.push({ code: "staff_users_not_mapped", message: `${staffSkipped} CoPilot staff account(s) not mapped: SCIAT roles for analysts/admins are granted in SCIAT only` });
 
   const report = buildReport(snapshot.fetchedAt, organizations, assets, agents, alerts, incidents, escalations, roleBindings, warnings.length);
   return {

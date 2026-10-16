@@ -17,7 +17,7 @@ describe("Wazuh integration — isolation allow-list", () => {
     fireEvent.change(screen.getByLabelText(/^Credential/), { target: { value: "wazuh-api-password" } });
     fireEvent.change(within(section).getByLabelText(/Isolation allow-list/), { target: { value: "wazuh.local" } });
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
-    expect(await within(section).findByText("Enter the Wazuh API user Bloody signs in as")).toBeInTheDocument();
+    expect(await within(section).findByText("Enter the Wazuh API user SCIAT signs in as")).toBeInTheDocument();
     expect(within(section).getByText("Not an IP address or CIDR: wazuh.local")).toBeInTheDocument();
     expect(calls.some((c) => c.method === "POST")).toBe(false);
 
@@ -31,14 +31,14 @@ describe("Wazuh integration — isolation allow-list", () => {
     });
   });
 
-  it("Velociraptor: sends the Bloody isolation artifact and allow-list", async () => {
+  it("Velociraptor: sends the SCIAT isolation artifact and allow-list", async () => {
     const { calls } = mockApi({ "POST /integrations": ({ body }: { body: unknown }) => ({ ...(body as object), id: "00000000-0000-4000-8000-000000000098", hasCredential: true, status: "pending" }) });
     const onClose = vi.fn();
     renderWithSession(<IntegrationDialog engine={velociraptor} onClose={onClose} />);
     const section = await screen.findByTestId("velociraptor-isolation");
     fireEvent.change(screen.getByLabelText(/Endpoint/), { target: { value: "https://velo.mssp.example:8001" } });
     fireEvent.change(screen.getByLabelText(/^Credential/), { target: { value: "velo-token" } });
-    fireEvent.change(within(section).getByLabelText(/Bloody isolation artifact/), { target: { value: "Custom.Bloody.Isolate" } });
+    fireEvent.change(within(section).getByLabelText(/SCIAT isolation artifact/), { target: { value: "Custom.Bloody.Isolate" } });
     fireEvent.change(within(section).getByLabelText(/Isolation allow-list/), { target: { value: "192.168.1.3" } });
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());

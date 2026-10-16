@@ -5,21 +5,21 @@ import { useSession } from "../../app/session";
 import { ButtonLink } from "../../components/Button";
 import { daysUntil, formatDate } from "../../lib/format";
 
-/** "Explore Your Bloody Trial" card — only rendered for accounts on the trial plan. */
+/** "Explore Your SCIAT Trial" card — only rendered for accounts on the trial plan. */
 export function TrialBanner() {
   const session = useSession();
   const trials = session.entitlements.filter((e) => e.state === "trial");
   return (
     <section className="mb-3 rounded border border-line bg-surface p-4 shadow-card" aria-labelledby="trial-banner-title">
       <h2 id="trial-banner-title" className="mb-3 text-base text-fg">
-        Explore Your Bloody Trial
+        Explore Your SCIAT Trial
       </h2>
       <div className="grid gap-3 lg:grid-cols-[minmax(0,600px)_minmax(0,1fr)]">
         <div className="rounded border border-line p-4">
-          <div className="text-2xs font-bold uppercase tracking-wide text-fg">Learn Bloody</div>
+          <div className="text-2xs font-bold uppercase tracking-wide text-fg">Learn SCIAT</div>
           <div className="mt-1 text-md text-fg">Explore the Demo Sandbox</div>
           <p className="mt-1 text-sm text-fg-muted">
-            Perfect for learning about features and capabilities without installing anything — freely explore a fully configured Bloody account.
+            Perfect for learning about features and capabilities without installing anything — freely explore a fully configured SCIAT account.
           </p>
           <ButtonLink to="/sandbox" variant="success" size="sm" icon={FlaskConical} className="mt-3">
             Launch Demo Sandbox

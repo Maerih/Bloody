@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Sigma rule drafting for the AI SOC. The model supplies structured fields; Bloody renders the
+ * Sigma rule drafting for the AI SOC. The model supplies structured fields; SCIAT renders the
  * YAML itself (so the model cannot inject arbitrary YAML), checks the structure locally and the
  * API validates it with the proprietary Detection Engine compiler. Drafts are never deployed.
  */
@@ -84,7 +84,7 @@ export function renderSigmaYaml(args: DraftSigmaArgs, meta: { id: string; date: 
   lines.push(`id: ${meta.id}`);
   lines.push("status: experimental");
   lines.push(`description: ${yamlString(args.description)}`);
-  lines.push(`author: ${yamlString("Bloody AI SOC (draft - requires analyst review)")}`);
+  lines.push(`author: ${yamlString("SCIAT AI SOC (draft - requires analyst review)")}`);
   lines.push(`date: ${meta.date}`);
   const tags = [...args.tactics.map((t) => `attack.${t.replace(/-/g, "_")}`), ...args.attack.map((t) => `attack.${t.toLowerCase()}`)];
   if (tags.length) {

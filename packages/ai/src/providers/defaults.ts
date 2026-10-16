@@ -65,7 +65,7 @@ const ENTRIES: ProviderCatalogEntry[] = [
       { id: "llama3.3:70b", note: "Deep investigations (large GPU)" },
       { id: "mistral-small", note: "Good JSON / tool discipline" },
     ],
-    docsHint: "Pull the model first (`ollama pull <tag>`); Bloody sets num_ctx from the context size.",
+    docsHint: "Pull the model first (`ollama pull <tag>`); SCIAT sets num_ctx from the context size.",
   },
   {
     kind: "vllm",

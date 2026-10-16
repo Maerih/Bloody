@@ -54,7 +54,7 @@ function topN(values: Iterable<string | null | undefined>, n: number): Array<{ k
     .slice(0, n);
 }
 
-/** Deterministic alert statistics for `summarize_alerts` (the model narrates, Bloody counts). */
+/** Deterministic alert statistics for `summarize_alerts` (the model narrates, SCIAT counts). */
 export function summarizeAlertSet(alerts: readonly Alert[]): Record<string, unknown> {
   const bySeverity: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   const byStatus: Record<string, number> = {};
@@ -224,7 +224,7 @@ export function createStandardSocTools(port: SocDataPort): AnyToolDefinition[] {
     defineTool({
       name: "search_events",
       description:
-        "Search normalized security events (SIEM) with Bloody query syntax, e.g. `process.name:powershell.exe AND network.dstPort:443`. Returns compact events; narrow the window/filters for large result sets.",
+        "Search normalized security events (SIEM) with SCIAT query syntax, e.g. `process.name:powershell.exe AND network.dstPort:443`. Returns compact events; narrow the window/filters for large result sets.",
       tier: "investigate",
       permission: "event:read",
       parameters: z
@@ -396,7 +396,7 @@ export function createStandardSocTools(port: SocDataPort): AnyToolDefinition[] {
     defineTool({
       name: "hunt",
       description:
-        "Run a threat-hunting query over historical telemetry for a stated hypothesis (Bloody query syntax or a Sigma detection expression). Returns hits plus aggregations by host/user/process.",
+        "Run a threat-hunting query over historical telemetry for a stated hypothesis (SCIAT query syntax or a Sigma detection expression). Returns hits plus aggregations by host/user/process.",
       tier: "investigate",
       permission: "event:read",
       parameters: z
@@ -461,7 +461,7 @@ export function createStandardSocTools(port: SocDataPort): AnyToolDefinition[] {
     defineTool({
       name: "draft_sigma_rule",
       description:
-        "Draft a Sigma detection rule from structured fields. Bloody renders the YAML and validates it with the Detection Engine. The rule is NOT deployed; an engineer must review and deploy it.",
+        "Draft a Sigma detection rule from structured fields. SCIAT renders the YAML and validates it with the Detection Engine. The rule is NOT deployed; an engineer must review and deploy it.",
       tier: "recommend",
       permission: "detection:read",
       parameters: DraftSigmaArgs,

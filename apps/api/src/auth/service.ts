@@ -381,7 +381,7 @@ export class AuthService {
        ON CONFLICT (user_id) DO UPDATE SET secret_enc = EXCLUDED.secret_enc, confirmed_at = NULL, last_used_step = 0`,
       [userId, auth.tenantId, enc],
     );
-    return { secret, otpauthUri: otpauthUri({ secret, account: auth.principal.email ?? userId, issuer: "Bloody" }) };
+    return { secret, otpauthUri: otpauthUri({ secret, account: auth.principal.email ?? userId, issuer: "SCIAT" }) };
   }
 
   async confirmTotpEnrollment(tx: Queryable, auth: AuthContext, code: string): Promise<void> {
@@ -441,10 +441,10 @@ export class AuthService {
 
   async loginWithOidc(identity: { email: string; subject: string; issuer: string }, client: ClientInfo): Promise<LoginSuccess> {
     const found = await this.lookupEmail(identity.email);
-    if (!found) throw new HttpError(403, "sso_user_not_provisioned", "No Bloody account is provisioned for this identity");
+    if (!found) throw new HttpError(403, "sso_user_not_provisioned", "No SCIAT account is provisioned for this identity");
     return this.db.withTenant(found.tenantId, async (tx) => {
       const user = await this.activeUser(tx, found.userId);
-      if (!user) throw new HttpError(403, "sso_user_not_provisioned", "No active Bloody account is provisioned for this identity");
+      if (!user) throw new HttpError(403, "sso_user_not_provisioned", "No active SCIAT account is provisioned for this identity");
       const subject = `${identity.issuer}|${identity.subject}`;
       if (user.oidc_subject && user.oidc_subject !== subject) throw new HttpError(403, "sso_subject_mismatch", "This account is linked to a different SSO identity");
       if (!user.oidc_subject) await tx.query("UPDATE users SET oidc_subject = $2 WHERE id = $1", [user.id, subject]);

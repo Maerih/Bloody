@@ -1,6 +1,6 @@
 import { clsx } from "clsx";
 
-/** Bloody brand mark: crimson drop with a highlight. Brand colour is used sparingly — here. */
+/** SCIAT brand mark: crimson drop with a highlight. Brand colour is used sparingly — here. */
 export function LogoMark({ size = 26, className }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden className={className}>
@@ -20,7 +20,7 @@ export function Logo({ className, inverse = false }: { className?: string; inver
   return (
     <span className={clsx("inline-flex items-center gap-2", className)}>
       <LogoMark />
-      <span className={clsx("font-display text-lg font-bold tracking-tight", inverse ? "text-white" : "text-fg")}>Bloody</span>
+      <span className={clsx("font-display text-lg font-bold tracking-tight", inverse ? "text-white" : "text-fg")}>SCIAT</span>
     </span>
   );
 }

@@ -11,7 +11,7 @@ import { graphFor, type InventoryService } from "./inventory.js";
  * Persists a SOCFortress CoPilot synchronisation plan (`@bloody/adapters` CoPilotSync) inside
  * ONE tenant transaction. Every record is upserted idempotently on
  * `(tenant_id, external_source = "copilot:<integrationId>", external_ref)`, so re-running a sync
- * with the same snapshot changes nothing; existing Bloody records for the same host (discovered
+ * with the same snapshot changes nothing; existing SCIAT records for the same host (discovered
  * from telemetry) are adopted instead of duplicated. References between records are resolved
  * in plan order (organizations → assets → agents → alerts → incidents → escalations → bindings);
  * a record whose organization is not mapped is skipped with a warning, never attached to a
@@ -225,7 +225,7 @@ export async function persistCoPilotPlan(tx: Queryable, input: PersistCoPilotInp
         asset_id: assetId ?? cur.asset_id ?? null,
         platform: d.platform,
         version: d.version,
-        // A Bloody isolation stays authoritative until released from the platform.
+        // A SCIAT isolation stays authoritative until released from the platform.
         status: cur.isolation ? "isolated" : d.status,
         last_checkin_at: d.lastCheckinAt ?? cur.last_checkin_at ?? null,
         antivirus_status: d.antivirusStatus ?? cur.antivirus_status,
@@ -434,7 +434,7 @@ export async function persistCoPilotPlan(tx: Queryable, input: PersistCoPilotInp
     if (!userId) {
       if (!email || !/^[^@\s]+@[^@\s]+$/.test(email)) {
         skipped.roleBindings++;
-        warnings.push({ code: "user_without_email", message: `Portal user ${b.user.username} has no e-mail address; no Bloody account was invited`, ref: b.externalRef });
+        warnings.push({ code: "user_without_email", message: `Portal user ${b.user.username} has no e-mail address; no SCIAT account was invited`, ref: b.externalRef });
         continue;
       }
       await input.assertCapacity?.(tx, "users", 1);

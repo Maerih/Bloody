@@ -197,7 +197,7 @@ class PdfReport {
     const bw = this.textWidth(badge, 7.5, BOLD) + 16;
     d.roundedRect(ML, PAGE_H - 58, bw, 16, 8).lineWidth(0.8).stroke(this.brand);
     this.text(badge, ML + 8, PAGE_H - 53.5, { size: 7.5, font: BOLD, color: this.brandText, width: bw });
-    const foot = `${this.r.branding.footerText ?? `${this.r.branding.name} Security Operations`}${this.r.branding.poweredBy && this.r.branding.name !== "Bloody" ? " · Powered by Bloody" : ""}`;
+    const foot = `${this.r.branding.footerText ?? `${this.r.branding.name} Security Operations`}${this.r.branding.poweredBy && this.r.branding.name !== "SCIAT AFRICA" ? " · Powered by SCIAT AFRICA" : ""}`;
     this.text(foot, ML, PAGE_H - 53, { size: 8, color: INK.muted, width: CW, align: "right" });
   }
 

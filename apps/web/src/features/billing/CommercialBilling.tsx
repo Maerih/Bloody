@@ -275,7 +275,7 @@ function PaymentMethods({ o, canWrite }: { o: Overview; canWrite: boolean }) {
       )}
       <p className="mt-2 flex items-start gap-1.5 text-xs text-fg-muted">
         <ShieldCheck size={13} className="mt-0.5 shrink-0 text-healthy" aria-hidden />
-        Card details are entered on the payment provider's secure page. Bloody never sees or stores card numbers — only the brand, last 4 digits and expiry.
+        Card details are entered on the payment provider's secure page. SCIAT never sees or stores card numbers — only the brand, last 4 digits and expiry.
       </p>
       {adding ? <AddPaymentMethod o={o} onClose={() => setAdding(false)} /> : null}
     </Card>

@@ -82,7 +82,7 @@ export function validateIntegrationForm(
     }
   }
   if (engine.key === "copilot" && !v.credential.trim() && !v.hasStoredCredential) e.credential = "CoPilot requires an API token";
-  if (engine.key === "wazuh" && !v.wazuhUser?.trim()) e.wazuhUser = "Enter the Wazuh API user Bloody signs in as";
+  if (engine.key === "wazuh" && !v.wazuhUser?.trim()) e.wazuhUser = "Enter the Wazuh API user SCIAT signs in as";
   if (engine.key === "wazuh" || engine.key === "velociraptor") {
     const allow = lines(v.isolationAllow ?? "");
     const bad = allow.find((a) => !IP_OR_CIDR_RE.test(a));
@@ -222,7 +222,7 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
         </div>
         <p className="flex items-start gap-2 rounded border border-line bg-surface-2 p-2 text-xs text-fg-muted">
           <ShieldCheck size={13} className="mt-0.5 shrink-0 text-healthy" aria-hidden />
-          {engine.licenseNotes} Bloody connects to the engine as a separate, unmodified service.
+          {engine.licenseNotes} SCIAT connects to the engine as a separate, unmodified service.
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Name" required error={submitted ? errors.name : null}>
@@ -241,7 +241,7 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
             label="Endpoint"
             required={engine.mode === "network_api"}
             error={submitted ? errors.endpoint : null}
-            hint={engine.mode === "network_api" ? "Base URL of the engine's API, reachable from the Bloody control plane." : "Optional: events arrive via the event stream or POST /api/v1/ingest/<adapter> with an ingestion API key."}
+            hint={engine.mode === "network_api" ? "Base URL of the engine's API, reachable from the SCIAT control plane." : "Optional: events arrive via the event stream or POST /api/v1/ingest/<adapter> with an ingestion API key."}
             className="sm:col-span-2"
           >
             {(p) => <Input {...p} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://engine.internal:55000" />}
@@ -270,7 +270,7 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
         {engine.key === "copilot" ? (
           <fieldset className="rounded border border-line p-3">
             <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">CoPilot sync</legend>
-            <p className="mb-2 text-xs text-fg-muted">Import SOC hub records into Bloody's canonical model (customers → organizations, agents, alerts, cases → incidents).</p>
+            <p className="mb-2 text-xs text-fg-muted">Import SOC hub records into SCIAT's canonical model (customers → organizations, agents, alerts, cases → incidents).</p>
             <div className="grid grid-cols-2 gap-1.5">
               {(["customers", "agents", "alerts", "cases"] as const).map((k) => (
                 <Checkbox key={k} label={`Sync ${k}`} checked={sync[k] !== false} onChange={(e) => setSync((s) => ({ ...s, [k]: e.target.checked }))} />
@@ -288,7 +288,7 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
             <Field
               label="Isolation allow-list"
               error={submitted ? errors.isolationAllow : null}
-              hint="IPs/CIDRs an isolated endpoint can always reach — the Wazuh manager and the Bloody platform — so it can be released from Bloody. Required for LAN or full isolation (bloody-isolate script)."
+              hint="IPs/CIDRs an isolated endpoint can always reach — the Wazuh manager and the SCIAT platform — so it can be released from SCIAT. Required for LAN or full isolation (bloody-isolate script)."
             >
               {(p) => <Textarea {...p} rows={3} value={isolationAllow} onChange={(e) => setIsolationAllow(e.target.value)} placeholder={"10.0.0.5\n203.0.113.10"} />}
             </Field>
@@ -298,10 +298,10 @@ export function IntegrationDialog({ engine, existing, onClose }: { engine: Engin
         {engine.key === "velociraptor" ? (
           <fieldset className="space-y-2 rounded border border-line p-3" data-testid="velociraptor-isolation">
             <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">Endpoint isolation</legend>
-            <Field label="Bloody isolation artifact" hint="Custom.Bloody.Isolate (infra/agent/velociraptor). Enables LAN isolation that keeps internet; without it only full quarantine is available.">
+            <Field label="SCIAT isolation artifact" hint="Custom.Bloody.Isolate (infra/agent/velociraptor). Enables LAN isolation that keeps internet; without it only full quarantine is available.">
               {(p) => <Input {...p} value={isolateArtifact} onChange={(e) => setIsolateArtifact(e.target.value)} placeholder="Custom.Bloody.Isolate" />}
             </Field>
-            <Field label="Isolation allow-list" error={submitted ? errors.isolationAllow : null} hint="IPs/CIDRs an isolated endpoint always reaches — the Velociraptor server and the Bloody platform — so it can be released from Bloody.">
+            <Field label="Isolation allow-list" error={submitted ? errors.isolationAllow : null} hint="IPs/CIDRs an isolated endpoint always reaches — the Velociraptor server and the SCIAT platform — so it can be released from SCIAT.">
               {(p) => <Textarea {...p} rows={3} value={isolationAllow} onChange={(e) => setIsolationAllow(e.target.value)} placeholder={"10.0.0.7\n203.0.113.10"} />}
             </Field>
           </fieldset>

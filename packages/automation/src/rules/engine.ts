@@ -139,7 +139,7 @@ export class AutomationRuleEngine {
       organization: { id: envelope.organizationId, name: envelope.organizationName ?? null },
       subject: envelope.subject,
       link: envelope.link ?? null,
-      brand: { name: brandName ?? "Bloody" },
+      brand: { name: brandName ?? "SCIAT AFRICA" },
     };
   }
 

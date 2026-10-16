@@ -110,7 +110,7 @@ export function EventSearchView({ suggestions = [], savedSearchesPanel = true, d
         <Card
           title="Results"
           subtitle={status ?? undefined}
-          info="Events are normalized to the Bloody Canonical Event schema; click a row for the parsed fields, pivots and raw JSON."
+          info="Events are normalized to the SCIAT Canonical Event schema; click a row for the parsed fields, pivots and raw JSON."
           padded={false}
           bodyClassName="space-y-2"
         >

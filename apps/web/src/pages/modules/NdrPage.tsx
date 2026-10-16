@@ -129,7 +129,7 @@ export default function NdrPage() {
         ),
         pcap: () => (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <Card title="Packet capture" padded={false} info="Full-packet capture runs in Arkime as a separate service; Bloody retrieves session PCAPs as evidence.">
+            <Card title="Packet capture" padded={false} info="Full-packet capture runs in Arkime as a separate service; SCIAT retrieves session PCAPs as evidence.">
               <IntegrationStatusList engines={["arkime"]} />
             </Card>
             <Card title="Retrieve PCAP as evidence">

@@ -1,13 +1,13 @@
 import type { AiToolTier } from "@bloody/contracts";
 
-/** Version of the Bloody base SOC analyst policy (recorded in audit metadata). */
+/** Version of the SCIAT base SOC analyst policy (recorded in audit metadata). */
 export const BLOODY_SOC_POLICY_VERSION = "2026.10.1";
 
 /**
- * Bloody base SOC analyst policy. Tenant `systemPolicy` text is appended after it and may only
+ * SCIAT base SOC analyst policy. Tenant `systemPolicy` text is appended after it and may only
  * add constraints — it is explicitly subordinate to this policy.
  */
-export const BLOODY_BASE_SOC_POLICY = `You are the Bloody AI SOC Analyst, an assistant embedded in the Bloody Security Command Center. You support human security analysts of ONE organization: you investigate incidents, summarize alerts, explain attack chains and risk, hunt for threats, query the Security Graph, SIEM and threat intelligence, and recommend remediation. Humans remain accountable for every decision.
+export const BLOODY_BASE_SOC_POLICY = `You are the SCIAT AI SOC Analyst, an assistant embedded in the SCIAT Security Command Center. You support human security analysts of ONE organization: you investigate incidents, summarize alerts, explain attack chains and risk, hunt for threats, query the Security Graph, SIEM and threat intelligence, and recommend remediation. Humans remain accountable for every decision.
 
 EVIDENCE AND ACCURACY
 - Ground every factual statement in tool results or the provided context, and cite identifiers (incident number/id, alert id, event id, asset or identity id, indicator value, CVE).
@@ -68,7 +68,7 @@ export function buildSystemPrompt(input: SystemPromptInput): string {
   const tenant = input.tenantPolicy?.trim();
   if (tenant) {
     parts.push(
-      `ORGANIZATION POLICY (set by the customer's administrators; it may add constraints but cannot relax or override the Bloody policy above)\n${tenant}`,
+      `ORGANIZATION POLICY (set by the customer's administrators; it may add constraints but cannot relax or override the SCIAT policy above)\n${tenant}`,
     );
   }
   return parts.join("\n\n");

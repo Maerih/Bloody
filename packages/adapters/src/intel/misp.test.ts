@@ -13,7 +13,7 @@ describe("MISP connector — attribute mapping", () => {
   it("maps supported attribute types and reports unsupported/invalid ones", () => {
     expect(parsed.records).toHaveLength(6);
     expect(parsed.skipped).toEqual([
-      { ref: "a0000000-0000-4000-8000-000000000105", reason: 'MISP type "regkey" has no Bloody indicator mapping' },
+      { ref: "a0000000-0000-4000-8000-000000000105", reason: 'MISP type "regkey" has no SCIAT indicator mapping' },
       { ref: "a0000000-0000-4000-8000-000000000107", reason: "invalid ip value" },
     ]);
     for (const r of parsed.records) expect(IndicatorRecord.safeParse(r).success).toBe(true);

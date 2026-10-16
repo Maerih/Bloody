@@ -156,7 +156,7 @@ function Feeds() {
         emptyState={<ConnectEngineEmptyState compact icon={Rss} title="No intelligence feeds have contributed indicators yet" engines={["misp", "opencti"]} />}
       />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <Card title="Feed connections" padded={false} info="MISP and OpenCTI run as separate services; Bloody syncs indicators over their REST / GraphQL APIs.">
+        <Card title="Feed connections" padded={false} info="MISP and OpenCTI run as separate services; SCIAT syncs indicators over their REST / GraphQL APIs.">
           <IntegrationStatusList engines={["misp", "opencti"]} />
         </Card>
         <Card title="Key-less open sources" info="Free sources enabled by default. Commercial API-keyed services are not part of the default stack.">

@@ -59,7 +59,7 @@ export default function SimulateIncidentPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Simulate an incident" subtitle="Send a harmless, labelled attack chain through the real ingest → detection → correlation pipeline to see Bloody end to end." />
+      <PageHeader title="Simulate an incident" subtitle="Send a harmless, labelled attack chain through the real ingest → detection → correlation pipeline to see SCIAT end to end." />
       <Card title={<span className="inline-flex items-center gap-2"><FlaskConical className="h-4 w-4" aria-hidden /> Credential-theft chain</span>}>
         <div className="space-y-4 text-sm">
           <ol className="list-decimal space-y-1 pl-5 text-muted">

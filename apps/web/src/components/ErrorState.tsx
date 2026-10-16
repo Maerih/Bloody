@@ -22,7 +22,7 @@ export function ErrorState({ error, title, onRetry, compact = false, className }
       : api?.isNotFound
         ? "Not found"
         : api?.isNetworkError
-          ? "Can't reach Bloody"
+          ? "Can't reach SCIAT"
           : "Couldn't load this data");
   const message = api ? api.message : error instanceof Error ? error.message : "An unexpected error occurred.";
   return (

@@ -32,12 +32,12 @@ export interface VelociraptorResponseOptions {
   /** Parameter that removes the quarantine policy (Windows.Remediation.Quarantine: RemovePolicy=Y). */
   releaseParameter?: { key: string; value: string };
   /**
-   * Bloody isolation artifact (infra/agent/velociraptor/Custom.Bloody.Isolate.yaml). When set,
+   * SCIAT isolation artifact (infra/agent/velociraptor/Custom.Bloody.Isolate.yaml). When set,
    * isolate/release use it for every platform and both modes (LAN keeps internet; full blocks all
    * but the management path). Without it only full quarantine via the stock artifacts is available.
    */
   bloodyIsolateArtifact?: string;
-  /** Addresses an isolated endpoint always keeps reaching (Velociraptor server, Bloody platform). */
+  /** Addresses an isolated endpoint always keeps reaching (Velociraptor server, SCIAT platform). */
   isolationAllow?: string[];
   /** Customer-approved artifact killing a process (receives `Pid`). Enables `kill_process`. */
   killProcessArtifact?: string;
@@ -99,7 +99,7 @@ export function createVelociraptorResponse(opts: VelociraptorResponseOptions = {
           break;
         }
         if (req.action === "isolate_endpoint" && req.parameters["mode"] === "lan") {
-          throw new ResponseGuardError("invalid_parameters", "LAN isolation through Velociraptor needs the Bloody isolation artifact (integration response.bloodyIsolateArtifact); the stock quarantine only supports full isolation");
+          throw new ResponseGuardError("invalid_parameters", "LAN isolation through Velociraptor needs the SCIAT isolation artifact (integration response.bloodyIsolateArtifact); the stock quarantine only supports full isolation");
         }
         const platform = paramString(req, "platform") as "windows" | "linux" | "macos" | undefined;
         const artifact = platform ? isolate[platform] : undefined;

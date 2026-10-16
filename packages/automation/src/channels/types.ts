@@ -18,7 +18,7 @@ export interface Branding {
 }
 
 export const DEFAULT_BRANDING: Branding = {
-  name: "Bloody",
+  name: "SCIAT AFRICA",
   primaryColor: "#B4232C",
   logoDataUrl: null,
   footerText: null,

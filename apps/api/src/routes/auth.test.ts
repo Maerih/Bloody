@@ -176,7 +176,7 @@ describe("TOTP multi-factor authentication", () => {
     const enroll = await client.post("/auth/mfa/totp/enroll");
     expect(enroll.status).toBe(200);
     // Key URI format: label "issuer:account" with the colon URL-encoded.
-    expect(enroll.body.otpauthUri).toMatch(/^otpauth:\/\/totp\/Bloody%3A.+\?secret=[A-Z2-7]+&issuer=Bloody/);
+    expect(enroll.body.otpauthUri).toMatch(/^otpauth:\/\/totp\/SCIAT%3A.+\?secret=[A-Z2-7]+&issuer=SCIAT/);
     const secret: string = enroll.body.secret;
     const stored = await t.privileged.query<{ secret_enc: string }>("SELECT secret_enc FROM mfa_totp WHERE user_id = $1", [user.id]);
     expect(stored.rows[0]!.secret_enc).toMatch(/^v1\./);

@@ -61,7 +61,7 @@ import { toChannel } from "./notifications.js";
 import { toPlaybook } from "./soar.js";
 
 /**
- * The AI SOC's data port (`@bloody/ai` SocDataPort) on Bloody's repositories. Every method is
+ * The AI SOC's data port (`@bloody/ai` SocDataPort) on SCIAT's repositories. Every method is
  * bound to `scope.tenantId` (RLS transaction) AND `scope.organizationId`: anything outside the
  * conversation's organization is reported as not found / empty, never leaked. The scope always
  * comes from the authenticated principal — never from model output.
@@ -437,7 +437,7 @@ export class PgSocDataPort implements SocDataPort {
         event: "ai.notification",
         severity: "info",
         subject: input.subject.replace(/[\r\n]+/g, " ").slice(0, 200),
-        text: `${input.body}\n\n(Drafted by the Bloody AI SOC analyst${scope.approvedBy ? `, approved by ${scope.approvedBy}` : ""}.)`,
+        text: `${input.body}\n\n(Drafted by the SCIAT AI SOC analyst${scope.approvedBy ? `, approved by ${scope.approvedBy}` : ""}.)`,
         facts: [],
         ...(input.incidentId ? { link: this.deps.notifications.link(`/incidents/${input.incidentId}`)! } : {}),
         occurredAt: new Date(this.deps.now()).toISOString(),

@@ -299,7 +299,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
     <dl class="meta">${meta.filter(([, v]) => v).map(([k, v]) => `<div><dt>${e(k)}</dt><dd>${e(v)}</dd></div>`).join("")}</dl>
     ${coverKpis.length > 0 ? `<div class="kpis">${coverKpis.map((k) => kpiCard(k, ctx.termIndex)).join("")}</div>` : ""}
   </div>
-  <div class="cover-foot"><span class="badge">${e(report.classification)}</span><span>${e(report.branding.footerText ?? `${report.branding.name} Security Operations`)}${report.branding.poweredBy && report.branding.name !== "Bloody" ? " · Powered by Bloody" : ""}</span></div>
+  <div class="cover-foot"><span class="badge">${e(report.classification)}</span><span>${e(report.branding.footerText ?? `${report.branding.name} Security Operations`)}${report.branding.poweredBy && report.branding.name !== "SCIAT AFRICA" ? " · Powered by SCIAT AFRICA" : ""}</span></div>
 </section>
 <nav class="toc" aria-label="Contents">
   <h2>Contents</h2>

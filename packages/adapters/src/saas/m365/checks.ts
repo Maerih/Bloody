@@ -23,7 +23,7 @@ const HIGH_IMPACT_SCOPES = new Set([
   "files.read.all", "files.readwrite.all", "sites.read.all", "sites.readwrite.all", "directory.readwrite.all", "user.readwrite.all", "contacts.readwrite", "calendars.readwrite",
 ]);
 
-const unavailable = (sec: Section<unknown>): Outcome | null => (sec.ok ? null : { status: "unknown", summary: "Bloody could not read this setting.", evidence: [sec.error] });
+const unavailable = (sec: Section<unknown>): Outcome | null => (sec.ok ? null : { status: "unknown", summary: "SCIAT could not read this setting.", evidence: [sec.error] });
 const list = (items: string[], max = 25) => (items.length > max ? [...items.slice(0, max), `…and ${items.length - max} more`] : items);
 
 const enabled = (p: CaPolicy) => p.state === "enabled";

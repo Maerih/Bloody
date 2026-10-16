@@ -4,7 +4,7 @@ import type { ReportBranding } from "./model.js";
 
 /**
  * White-labelling. MSSPs issue customer reports under their own name, colour and logo; the
- * default brand is Bloody. Inputs are validated strictly — the logo must be a base64 raster
+ * default brand is SCIAT AFRICA. Inputs are validated strictly — the logo must be a base64 raster
  * data URL (no SVG: it could carry script), the colour a #RRGGBB hex.
  */
 export const BrandingInput = z.object({
@@ -22,7 +22,7 @@ export const BrandingInput = z.object({
 export type BrandingInput = z.input<typeof BrandingInput>;
 
 export const DEFAULT_REPORT_BRANDING: ReportBranding = {
-  name: "Bloody",
+  name: "SCIAT AFRICA",
   primaryColor: "#B4232C",
   logoDataUrl: null,
   poweredBy: false,

@@ -181,7 +181,7 @@ export function AiProviderForm({
             </Select>
           )}
         </Field>
-        <Field label="System policy" error={err("systemPolicy")} hint="Appended to Bloody's built-in safety policy (it cannot weaken it)." className="md:col-span-2">
+        <Field label="System policy" error={err("systemPolicy")} hint="Appended to SCIAT's built-in safety policy (it cannot weaken it)." className="md:col-span-2">
           {(p) => <Textarea {...p} value={draft.systemPolicy} onChange={(e) => set("systemPolicy", e.target.value)} maxLength={20_000} placeholder="Answer in English. Prefer containment that keeps business-critical services running." />}
         </Field>
       </div>

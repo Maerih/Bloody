@@ -1,7 +1,7 @@
 import { ApiError as ApiErrorEnvelope, API_VERSION } from "@bloody/contracts";
 
 /**
- * Typed fetch client for the Bloody control plane (`/api/v1`).
+ * Typed fetch client for the SCIAT control plane (`/api/v1`).
  *
  * - Cookie session: `credentials: "include"`; the httpOnly session cookie never touches JS.
  * - CSRF: double-submit token. The API sets a readable `bloody_csrf` cookie; every mutating
@@ -173,7 +173,7 @@ function defaultMessage(status: number): string {
     case 429:
       return "Too many requests. Please slow down and retry shortly.";
     default:
-      return status >= 500 ? "The Bloody API is temporarily unavailable." : `Request failed (${status}).`;
+      return status >= 500 ? "The SCIAT API is temporarily unavailable." : `Request failed (${status}).`;
   }
 }
 
@@ -183,7 +183,7 @@ async function send(path: string, opts: RequestOptions): Promise<Response> {
     res = await globalThis.fetch(buildUrl(path, opts.query), buildInit(opts));
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
-    throw new ApiError(0, "network_error", "Unable to reach the Bloody API. Check your connection and try again.");
+    throw new ApiError(0, "network_error", "Unable to reach the SCIAT API. Check your connection and try again.");
   }
   if (!res.ok) {
     const error = await parseError(res);

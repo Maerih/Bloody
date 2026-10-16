@@ -31,7 +31,7 @@ export function TopBar() {
 
   return (
     <header className="fixed inset-x-0 top-0 z-40 flex h-11 items-center bg-topbar text-topbar-fg shadow-[0_1px_0_rgb(0_0_0/0.25)]">
-      <Link to="/" className="flex h-11 w-[60px] shrink-0 items-center justify-center hover:bg-topbar-hover" aria-label="Bloody Command Center home">
+      <Link to="/" className="flex h-11 w-[60px] shrink-0 items-center justify-center hover:bg-topbar-hover" aria-label="SCIAT Command Center home">
         <LogoMark size={26} />
       </Link>
       <AccountSwitcher />

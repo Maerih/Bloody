@@ -287,7 +287,7 @@ class TenantEmailSender implements NotificationSender {
       from = { address: s.fromAddress, ...(s.fromName ? { name: s.fromName } : {}) };
     } else if (this.deps.override) {
       transport = this.deps.override;
-      from = { address: this.deps.platform?.from ?? "notifications@bloody.local", name: this.deps.platform?.fromName ?? "Bloody Security Operations" };
+      from = { address: this.deps.platform?.from ?? "notifications@sciat.local", name: this.deps.platform?.fromName ?? "SCIAT AFRICA Security Operations" };
     } else if (this.deps.platform) {
       const p = this.deps.platform;
       this.platformTransport ??= createSmtpTransport({ host: p.host, port: p.port, secure: p.secure, ...(p.user ? { user: p.user } : {}), ...(p.password ? { password: p.password } : {}), fromAddress: p.from, pool: true });
@@ -435,7 +435,7 @@ export class NotificationService {
 
   link(path: string | null): { url: string; label: string } | undefined {
     if (!path) return undefined;
-    return { url: `${this.deps.publicUrl.replace(/\/+$/, "")}${path}`, label: "Open in Bloody" };
+    return { url: `${this.deps.publicUrl.replace(/\/+$/, "")}${path}`, label: "Open in SCIAT" };
   }
 
   /** Domain event → automation rules (+ built-in in-app notice). */
