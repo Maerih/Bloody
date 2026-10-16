@@ -54,7 +54,7 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     env:
-      # Default used by the API integration tests (see CLAUDE.md): superuser on bloody_test.
+      # Default used by the API integration tests (see docs/CONVENTIONS.md): superuser on bloody_test.
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/bloody_test
       # The API derives its runtime (RLS-enforced) connection as bloody_app with this password;
       # it must match the role created by the init step below.

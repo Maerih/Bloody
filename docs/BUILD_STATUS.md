@@ -66,9 +66,9 @@ Known follow-ups from the infra report:
 
 ## How to resume
 
-Open a Claude Code session on this repository and branch (`maerih/bloody`), then say:
+Open a development session on this repository and branch (`maerih/bloody`), then follow:
 
-> Resume the Bloody build from docs/BUILD_STATUS.md — do the "Remaining" steps in order.
+> Resume the Bloody build from docs/BUILD_STATUS.md — do the "Remaining" steps in order (conventions: docs/CONVENTIONS.md).
 
 ## Run it on a server (one command)
 
