@@ -42,8 +42,9 @@ uptime_seconds() {
   if [ -r /proc/uptime ]; then cut -d. -f1 /proc/uptime
   else local boot; boot="$(sysctl -n kern.boottime 2>/dev/null | sed -nE 's/.*sec = ([0-9]+).*/\1/p')"; [ -n "$boot" ] && echo $(( $(date +%s) - boot )) || echo 0; fi
 }
+AGENT_HOME="${SCIAT_AGENT_HOME:-/opt/sciat-agent}"
 isolation_json() {
-  local iso="/opt/sciat-agent/bloody-isolate"
+  local iso="$AGENT_HOME/bloody-isolate"
   if [ -x "$iso" ]; then
     local out; out="$("$iso" status 2>/dev/null || true)"
     if [ "${out%%$'\n'*}" = isolated ]; then
@@ -63,10 +64,10 @@ engines_json() {
       fi
     done
   fi
-  local IFS=,; printf '{%s}' "${parts[*]}"
+  local IFS=,; printf '{%s}' "${parts[*]+${parts[*]}}"
 }
 
-ISOLATE="/opt/sciat-agent/bloody-isolate"
+ISOLATE="$AGENT_HOME/bloody-isolate"
 IP_RE='^([0-9]{1,3}\.){3}[0-9]{1,3}$|^[0-9A-Fa-f]*:[0-9A-Fa-f:]+$'
 platform_host() { local h="${PLATFORM_URL#*://}"; h="${h%%/*}"; if [[ "$h" == \[* ]]; then h="${h#[}"; h="${h%%]*}"; else h="${h%%:*}"; fi; printf '%s' "$h"; }
 platform_port() { local h="${PLATFORM_URL#*://}"; h="${h%%/*}"; h="${h##*]}"; if [[ "$h" == *:* ]]; then echo "${h##*:}"; elif [[ "$PLATFORM_URL" == https:* ]]; then echo 443; else echo 80; fi; }
@@ -86,7 +87,7 @@ dns_servers() {
     if command -v scutil >/dev/null; then scutil --dns 2>/dev/null | awk '/nameserver\[[0-9]+\]/ {print $3}'; fi
     awk '/^nameserver/ {print $2}' /etc/resolv.conf 2>/dev/null; } | grep -E "$IP_RE" | grep -vE '^(127\.|::1$)' | sort -u | head -8
 }
-json_list() { local out=() v; while IFS= read -r v; do [ -n "$v" ] && out+=("$(js "$v")"); done; local IFS=,; printf '[%s]' "${out[*]}"; }
+json_list() { local out=() v; while IFS= read -r v; do [ -n "$v" ] && out+=("$(js "$v")"); done; local IFS=,; printf '[%s]' "${out[*]+${out[*]}}"; }
 
 # While isolated, reach the platform by its cached address (DNS may be blocked).
 curl_pin() {
@@ -97,7 +98,7 @@ curl_pin() {
 }
 api() { # api <path> <json body>
   local pin=() l; while IFS= read -r l; do pin+=("$l"); done < <(curl_pin)
-  curl -fsS --max-time 20 "${pin[@]}" -X POST "$PLATFORM_URL/api/v1$1" \
+  curl -fsS --max-time 20 ${pin[@]+"${pin[@]}"} -X POST "$PLATFORM_URL/api/v1$1" \
     -H "authorization: Bearer $AGENT_TOKEN" -H "content-type: application/json" --data-binary "$2"
 }
 
@@ -106,7 +107,7 @@ checkin() {
   while IFS= read -r ip; do [ -n "$ip" ] && ips+=("$(js "$ip")"); done < <(ip_list)
   local IFS=,
   local body
-  body="{\"hostname\":$(js "$(hostname)"),\"os\":$(js "$(os_name)"),\"version\":$(js "$AGENT_VERSION"),\"ips\":[${ips[*]}],\"uptimeSeconds\":$(uptime_seconds),\"isolation\":$(isolation_json),\"engines\":$(engines_json),\"platformIps\":$(platform_ips | json_list),\"dnsServers\":$(dns_servers | json_list)}"
+  body="{\"hostname\":$(js "$(hostname)"),\"os\":$(js "$(os_name)"),\"version\":$(js "$AGENT_VERSION"),\"ips\":[${ips[*]+${ips[*]}}],\"uptimeSeconds\":$(uptime_seconds),\"isolation\":$(isolation_json),\"engines\":$(engines_json),\"platformIps\":$(platform_ips | json_list),\"dnsServers\":$(dns_servers | json_list)}"
   api /agent/heartbeat "$body"
 }
 
@@ -162,8 +163,53 @@ run_commands() {
     log "command ${args[0]:-?} ($id): $status"
     api "/agent/commands/$id/result" "{\"status\":\"$status\",\"output\":$(js "${out:0:4000}")}" >/dev/null || log "could not report command $id"
     ran=0
-  done < <(printf '%s\n' "$block" | sed 's/","/\n/g')
+  done < <(printf '%s\n' "$block" | sed 's/","/|/g' | tr '|' '\n')
   return $ran
+}
+
+# ---- Self-update ----------------------------------------------------------------------------
+# The platform offers a newer version as "updateLines": "version <v>" then
+# "file <served name> <target> <sha256>". Every file is downloaded and its SHA-256 checked
+# before anything is replaced; files are swapped with mv (the running script keeps its old
+# inode), then the agent exits and its service (systemd / launchd) starts the new version.
+# A failed attempt is not retried for 6 hours.
+sha256_of() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+self_update() {
+  local block; block="$(printf '%s' "$1" | grep -o '"updateLines":\[[^]]*\]' | sed -e 's/^"updateLines":\[//' -e 's/\]$//')"
+  [ -n "$block" ] || return 1
+  local version="" line kind a b c names=() targets=() sums=()
+  while IFS= read -r line; do
+    line="${line#\"}"; line="${line%\"}"
+    read -r kind a b c <<< "$line"
+    case "$kind" in
+      version) [[ "$a" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] && version="$a" ;;
+      file)
+        [[ "$a" =~ ^[A-Za-z0-9._-]{1,60}$ ]] && [[ "$b" =~ ^(sciat-agent|bloody-isolate)$ ]] && [[ "$c" =~ ^[0-9a-f]{64}$ ]] || { log "update: ignoring malformed offer"; return 1; }
+        names+=("$a"); targets+=("$b"); sums+=("$c") ;;
+    esac
+  done < <(printf '%s\n' "$block" | sed 's/","/|/g' | tr '|' '\n')
+  [ -n "$version" ] && [ "${#names[@]}" -gt 0 ] || return 1
+  local stamp="$STATE_DIR/update-attempt"
+  if [ -r "$stamp" ] && [ "$(head -1 "$stamp")" = "$version" ] && [ $(( $(date +%s) - $(sed -n 2p "$stamp" 2>/dev/null || echo 0) )) -lt 21600 ]; then return 1; fi
+  printf '%s\n%s\n' "$version" "$(date +%s)" > "$stamp" 2>/dev/null || true
+  local dir="$AGENT_HOME/.update" i pin=() l
+  rm -rf "$dir"; mkdir -p "$dir" || return 1
+  while IFS= read -r l; do pin+=("$l"); done < <(curl_pin)
+  for i in "${!names[@]}"; do
+    if ! curl -fsS --max-time 120 ${pin[@]+"${pin[@]}"} "$PLATFORM_URL/api/v1/agent/files/${names[$i]}" -o "$dir/${targets[$i]}"; then
+      log "update to $version: download of ${names[$i]} failed"; rm -rf "$dir"; return 1
+    fi
+    if [ "$(sha256_of "$dir/${targets[$i]}")" != "${sums[$i]}" ]; then
+      log "update to $version: checksum mismatch for ${names[$i]}, nothing replaced"; rm -rf "$dir"; return 1
+    fi
+  done
+  for i in "${!names[@]}"; do
+    if [ "${targets[$i]}" = sciat-agent ]; then chmod 0755 "$dir/${targets[$i]}"; else chmod 0750 "$dir/${targets[$i]}"; fi
+    mv -f "$dir/${targets[$i]}" "$AGENT_HOME/${targets[$i]}"
+  done
+  rm -rf "$dir"
+  log "updated from $AGENT_VERSION to $version; restarting"
+  return 0
 }
 
 # ---- Host inventory (about every 30 minutes) -------------------------------------------------
@@ -341,7 +387,7 @@ inventory_json() {
 send_inventory() {
   local f; f="$(mktemp)"; inventory_json > "$f"
   local pin=() l; while IFS= read -r l; do pin+=("$l"); done < <(curl_pin)
-  curl -fsS --max-time 60 "${pin[@]}" -X POST "$PLATFORM_URL/api/v1/agent/inventory" \
+  curl -fsS --max-time 60 ${pin[@]+"${pin[@]}"} -X POST "$PLATFORM_URL/api/v1/agent/inventory" \
     -H "authorization: Bearer $AGENT_TOKEN" -H "content-type: application/json" --data-binary "@$f"
   local rc=$?; rm -f "$f"; return $rc
 }
@@ -370,7 +416,7 @@ ac_sync() { # ac_sync <heartbeat response>: download the policy when its etag ch
   [ -r "$AC_POLICY" ] && [ "$(head -1 "$AC_POLICY")" = "etag $etag" ] && return 0
   local pin=() l; while IFS= read -r l; do pin+=("$l"); done < <(curl_pin)
   local tmp; tmp="$(mktemp)"
-  if curl -fsS --max-time 20 "${pin[@]}" "$PLATFORM_URL/api/v1/agent/app-control?format=lines" -H "authorization: Bearer $AGENT_TOKEN" -o "$tmp"; then
+  if curl -fsS --max-time 20 ${pin[@]+"${pin[@]}"} "$PLATFORM_URL/api/v1/agent/app-control?format=lines" -H "authorization: Bearer $AGENT_TOKEN" -o "$tmp"; then
     mv "$tmp" "$AC_POLICY"; chmod 600 "$AC_POLICY"; log "app control policy updated ($etag)"
   else rm -f "$tmp"; fi
 }
@@ -407,7 +453,7 @@ ac_sha256() { # sets AC_SHA; cached by path + mtime (kept in this shell, not a s
 ac_decide() {
   local name="${1,,}" path="${2,,}" rawpath="$2" hashed=0 r action kind pat id
   AC_VERDICT="" AC_RULE=""
-  for r in "${AC_RULES[@]}"; do
+  for r in ${AC_RULES[@]+"${AC_RULES[@]}"}; do
     IFS=$'\t' read -r action kind pat id <<< "$r"
     case "$kind" in
       name) [[ "$name" == $pat || "${path##*/}" == $pat ]] || continue ;;
@@ -474,6 +520,8 @@ case "${1:-run}" in
         delay="${poll:-60}"
         # Ran a command: check in again soon so the platform sees the new state.
         if run_commands "$resp"; then delay=5; fi
+        # A newer version is installed: exit so the service starts it.
+        if self_update "$resp"; then exit 0; fi
         ac_sync "$resp"
         if [ $(( $(date +%s) - last_inventory )) -ge "$INVENTORY_EVERY" ]; then
           if send_inventory >/dev/null 2>&1; then last_inventory="$(date +%s)"; else log "inventory upload failed"; last_inventory=$(( $(date +%s) - INVENTORY_EVERY + 300 )); fi

@@ -742,6 +742,29 @@ export function useRegenerateAccountKey() {
   });
 }
 
+export interface AgentAutoUpdate {
+  enabled: boolean;
+  latestVersion: string;
+  versions: Array<{ version: string; agents: number; current: boolean }>;
+}
+
+export function useAgentAutoUpdate(options: { enabled?: boolean } = {}) {
+  return useQuery<AgentAutoUpdate, ApiError>({
+    queryKey: ["agents", "auto-update"],
+    queryFn: ({ signal }) => api.get<AgentAutoUpdate>("/agents/auto-update", { signal }),
+    enabled: options.enabled ?? true,
+    staleTime: 60_000,
+  });
+}
+
+export function useSetAgentAutoUpdate() {
+  const qc = useQueryClient();
+  return useMutation<{ enabled: boolean }, ApiError, boolean>({
+    mutationFn: (enabled) => api.put<{ enabled: boolean }>("/agents/auto-update", { enabled }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["agents", "auto-update"] }),
+  });
+}
+
 /** Whether anyone besides the caller can approve this organization's response actions. */
 export function useApprovers(organizationId: string | null | undefined, options: { enabled?: boolean } = {}) {
   return useQuery<{ others: number; selfApprovalAllowed: boolean; minJustification: number }, ApiError>({

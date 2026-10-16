@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -23,6 +24,28 @@ const AGENT_FILES: Record<string, { file: string; type: string }> = {
   "bloody-isolate-macos": { file: "active-response/bloody-isolate-macos", type: "text/x-shellscript" },
   "bloody-isolate.ps1": { file: "active-response/bloody-isolate.ps1", type: "text/plain" },
 };
+/**
+ * Files an installed agent replaces when it updates itself, per platform: [served name, name on
+ * the endpoint]. The installer-built Windows service wrapper is not updated this way.
+ */
+const UPDATE_FILES: Record<string, Array<[string, string]>> = {
+  linux: [["sciat-agent.sh", "sciat-agent"], ["bloody-isolate", "bloody-isolate"]],
+  macos: [["sciat-agent.sh", "sciat-agent"], ["bloody-isolate-macos", "bloody-isolate"]],
+  windows: [["sciat-agent.ps1", "sciat-agent.ps1"], ["bloody-isolate.ps1", "bloody-isolate.ps1"]],
+};
+
+/** a < b for dotted versions ("1.2.0" < "1.10.0"); anything unparsable is treated as old. */
+export function olderVersion(a: string, b: string): boolean {
+  const pa = /^\d+(\.\d+){0,3}$/.test(a) ? a.split(".").map(Number) : [0];
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
 const INSTALLERS = {
   linux: { file: "sciat/install-unix.sh", name: "install-sciat.sh", type: "text/x-shellscript" },
   macos: { file: "sciat/install-unix.sh", name: "install-sciat.sh", type: "text/x-shellscript" },
@@ -113,6 +136,17 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
   const svc = s.agentEnrollment;
   const filesDir = agentFilesDir(s.config.agent.filesDir);
   const endpointLimit = { max: 60, timeWindow: "1 minute" };
+  // SHA-256 of each served agent file (files only change with a platform release).
+  const hashes = new Map<string, string>();
+  const fileHash = async (name: string): Promise<string> => {
+    const cached = hashes.get(name);
+    if (cached) return cached;
+    const h = createHash("sha256").update(Buffer.from(await readFile(path.join(filesDir, AGENT_FILES[name]!.file), "utf8"), "utf8")).digest("hex");
+    hashes.set(name, h);
+    return h;
+  };
+  const updateFor = async (platform: string) =>
+    Promise.all((UPDATE_FILES[platform] ?? []).map(async ([name, target]) => ({ name, target, sha256: await fileHash(name) })));
 
   app.get("/agents/enrollment", async (request) => {
     const auth = requireAuth(request);
@@ -176,11 +210,20 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
     const token = bearer(request);
     const body = parse(HeartbeatBody, request.body);
     const res = await svc.heartbeat(token, body);
-    const policy = await s.db.withTenant(res.tenantId, async (tx) => {
+    const { policy, platform, autoUpdate } = await s.db.withTenant(res.tenantId, async (tx) => {
       // External Exposure: the address the agent reaches us from is its network's public address.
       await s.exposure.observe(tx, res.tenantId, res.organizationId, res.agentId, request.ip);
-      return s.appControl.policy(tx, res.organizationId);
+      const { rows } = await tx.query<Row>(
+        `SELECT a.platform, coalesce((acc.settings->>'agentAutoUpdate')::boolean, true) AS auto
+           FROM agents a JOIN accounts acc ON acc.id = a.tenant_id WHERE a.id = $1`,
+        [res.agentId],
+      );
+      return { policy: await s.appControl.policy(tx, res.organizationId), platform: String(rows[0]?.platform ?? ""), autoUpdate: rows[0]?.auto !== false };
     });
+    // Self-update: an older agent gets the current version's files with their SHA-256; it
+    // verifies every file before replacing anything, then restarts through its service.
+    const files = autoUpdate && olderVersion(body.version, SCIAT_AGENT_VERSION) ? await updateFor(platform) : [];
+    const update = files.length ? { version: SCIAT_AGENT_VERSION, files } : null;
     return {
       pollSeconds: res.pollSeconds,
       // App Control: the agent downloads the policy again when this changes.
@@ -189,7 +232,32 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
       commands: res.commands,
       // Same commands as plain lines ("<id> <args…>") for agents without a JSON parser.
       commandLines: res.commands.map((c) => [c.id, ...c.args].join(" ")),
+      update,
+      // Same for agents without a JSON parser: "version <v>" then "file <served name> <target> <sha256>".
+      updateLines: update ? [`version ${update.version}`, ...update.files.map((f) => `file ${f.name} ${f.target} ${f.sha256}`)] : [],
     };
+  });
+
+  // Automatic agent updates (account-wide switch, on by default) and the versions in use.
+  app.get("/agents/auto-update", async (request) => {
+    const auth = requireAuth(request);
+    requirePermission(request, "asset:read", null);
+    return s.db.withTenant(auth.tenantId, async (tx) => {
+      const acc = (await tx.query<Row>("SELECT coalesce((settings->>'agentAutoUpdate')::boolean, true) AS auto FROM accounts WHERE id = $1", [auth.tenantId])).rows[0];
+      const { rows } = await tx.query<Row>("SELECT coalesce(version, 'unknown') AS version, count(*)::int AS n FROM agents WHERE engine = 'sciat' AND agent_token_hash IS NOT NULL GROUP BY 1 ORDER BY 2 DESC");
+      const versions = rows.map((r) => ({ version: String(r.version), agents: Number(r.n), current: !olderVersion(String(r.version), SCIAT_AGENT_VERSION) }));
+      return { enabled: acc?.auto !== false, latestVersion: SCIAT_AGENT_VERSION, versions };
+    });
+  });
+
+  app.put("/agents/auto-update", { config: { audit: false } }, async (request) => {
+    const auth = requirePermission(request, "asset:write", null);
+    const { enabled } = parse(z.object({ enabled: z.boolean() }).strict(), request.body);
+    return s.db.withTenant(auth.tenantId, async (tx) => {
+      await tx.query("UPDATE accounts SET settings = settings || jsonb_build_object('agentAutoUpdate', $2::boolean) WHERE id = $1", [auth.tenantId, enabled]);
+      await recordAudit(tx, request, { action: "agents.auto_update_changed", targetKind: "account", targetId: auth.tenantId, details: { enabled } });
+      return { enabled };
+    });
   });
 
   // Host inventory (about every 30 minutes): software, services, users, processes, ports, AV, firewall.

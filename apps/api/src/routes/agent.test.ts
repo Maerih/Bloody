@@ -1,4 +1,7 @@
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SCIAT_AGENT_VERSION } from "../services/agent-enrollment.js";
+import { olderVersion } from "./agent.js";
 import { api, createTenant, createTestApp, createUser, login, type TestApp, type TestTenant } from "../test/harness.js";
 
 let t: TestApp;
@@ -231,5 +234,69 @@ describe("SCIAT Agent isolation (agent-executed)", () => {
     expect(await t.services.responses.expireAgentCommands(tenant.tenantId)).toBe(1);
     expect(await action(res.body.id)).toMatchObject({ status: "failed", error: { code: "agent_unreachable" } });
     expect((await heartbeat(token, beat("ws-iso-01"))).json().commands).toHaveLength(0);
+  });
+});
+
+describe("SCIAT Agent automatic updates", () => {
+  const sha = (body: string) => createHash("sha256").update(body, "utf8").digest("hex");
+  const served = async (name: string) => sha((await t.app.inject({ method: "GET", url: `/api/v1/agent/files/${name}` })).body);
+  let linux: string;
+  let mac: string;
+  let win: string;
+
+  beforeAll(async () => {
+    const key = (await admin.get("/agents/enrollment")).body.accountKey;
+    const enrol = async (h: string, platform: string) => (await enroll({ accountKey: key, organizationKey: "org-1", ...host(h, { platform }) })).json().token as string;
+    linux = await enrol("upd-linux", "linux");
+    mac = await enrol("upd-mac", "macos");
+    win = await enrol("upd-win", "windows");
+  });
+
+  it("compares dotted versions", () => {
+    expect(olderVersion("1.2.0", "1.3.0")).toBe(true);
+    expect(olderVersion("1.9.0", "1.10.0")).toBe(true);
+    expect(olderVersion("1.3", "1.3.0")).toBe(false);
+    expect(olderVersion("1.3.0", "1.3.0")).toBe(false);
+    expect(olderVersion("2.0.0", "1.3.0")).toBe(false);
+    expect(olderVersion("garbage", "1.3.0")).toBe(true);
+  });
+
+  it("offers older agents their platform's files with the SHA-256 of what is served", async () => {
+    const r = (await heartbeat(linux, { hostname: "upd-linux", version: "1.0.0" })).json();
+    expect(r.update).toEqual({
+      version: SCIAT_AGENT_VERSION,
+      files: [
+        { name: "sciat-agent.sh", target: "sciat-agent", sha256: await served("sciat-agent.sh") },
+        { name: "bloody-isolate", target: "bloody-isolate", sha256: await served("bloody-isolate") },
+      ],
+    });
+    expect(r.updateLines).toEqual([`version ${SCIAT_AGENT_VERSION}`, ...r.update.files.map((f: { name: string; target: string; sha256: string }) => `file ${f.name} ${f.target} ${f.sha256}`)]);
+    const m = (await heartbeat(mac, { hostname: "upd-mac", version: "1.0.0" })).json();
+    expect(m.update.files[1]).toEqual({ name: "bloody-isolate-macos", target: "bloody-isolate", sha256: await served("bloody-isolate-macos") });
+    const w = (await heartbeat(win, { hostname: "upd-win", version: "1.2.0" })).json();
+    expect(w.update.files.map((f: { target: string }) => f.target)).toEqual(["sciat-agent.ps1", "bloody-isolate.ps1"]);
+    expect(w.update.files[0].sha256).toBe(await served("sciat-agent.ps1"));
+    // Up-to-date agents get nothing.
+    const cur = (await heartbeat(linux, { hostname: "upd-linux", version: SCIAT_AGENT_VERSION })).json();
+    expect(cur).toMatchObject({ update: null, updateLines: [] });
+  });
+
+  it("lists versions in use and can be turned off per account (asset:write, audited)", async () => {
+    await heartbeat(mac, { hostname: "upd-mac", version: "1.0.0" });
+    const g = (await admin.get("/agents/auto-update")).body;
+    expect(g).toMatchObject({ enabled: true, latestVersion: SCIAT_AGENT_VERSION });
+    expect(g.versions).toContainEqual({ version: "1.0.0", agents: expect.any(Number), current: false });
+    expect(g.versions).toContainEqual({ version: SCIAT_AGENT_VERSION, agents: expect.any(Number), current: true });
+    expect((await analyst.put("/agents/auto-update", { enabled: false })).status).toBe(403);
+    expect((await admin.put("/agents/auto-update", { enabled: "no" })).status).toBe(400);
+    expect((await admin.put("/agents/auto-update", { enabled: false })).body).toEqual({ enabled: false });
+    expect((await admin.get("/agents/auto-update")).body.enabled).toBe(false);
+    expect((await heartbeat(mac, { hostname: "upd-mac", version: "1.0.0" })).json()).toMatchObject({ update: null, updateLines: [] });
+    // Another account is unaffected.
+    expect((await otherAdmin.get("/agents/auto-update")).body.enabled).toBe(true);
+    const audit = await t.privileged.query("SELECT details FROM audit_log WHERE tenant_id = $1 AND action = 'agents.auto_update_changed'", [tenant.tenantId]);
+    expect(audit.rows.map((r) => r.details)).toEqual([{ enabled: false }]);
+    await admin.put("/agents/auto-update", { enabled: true });
+    expect((await heartbeat(mac, { hostname: "upd-mac", version: "1.0.0" })).json().update.version).toBe(SCIAT_AGENT_VERSION);
   });
 });

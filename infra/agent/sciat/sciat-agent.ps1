@@ -130,6 +130,47 @@ function Invoke-Commands($Response) {
   return $ran
 }
 
+# Automatic update offered by the platform in the heartbeat: download every file to a staging
+# folder, check each SHA-256 against the offer, and only then swap them in. Returns $true when the
+# agent was updated; the run loop then exits and the SCIAT Agent service starts the new version.
+function Invoke-SelfUpdate($Response) {
+  $u = $Response.update
+  if (-not $u -or "$($u.version)" -notmatch '^[0-9]+(\.[0-9]+){1,3}$') { return $false }
+  $files = @($u.files)
+  if ($files.Count -eq 0) { return $false }
+  foreach ($f in $files) {
+    if ("$($f.name)" -notmatch '^[A-Za-z0-9._-]{1,60}$' -or "$($f.target)" -notin @('sciat-agent.ps1', 'bloody-isolate.ps1') -or "$($f.sha256)" -notmatch '^[0-9a-f]{64}$') {
+      Write-AgentLog 'update: ignoring malformed offer' 'Warning'; return $false
+    }
+  }
+  # One attempt per version every 6 hours, so a broken download is not retried every minute.
+  $stamp = Join-Path $DataDir 'update-attempt'
+  if (Test-Path $stamp) {
+    $prev = @(Get-Content $stamp)
+    if ($prev.Count -ge 2 -and $prev[0] -eq $u.version -and ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$prev[1]) -lt 21600) { return $false }
+  }
+  @("$($u.version)", "$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())") | Set-Content -Path $stamp -Encoding ascii
+  $dir = Join-Path $Home_ 'update'
+  Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Path $dir -Force | Out-Null
+  try {
+    foreach ($f in $files) {
+      $dest = Join-Path $dir $f.target
+      Invoke-WebRequest -UseBasicParsing -Uri "$($Conf.platformUrl)/api/v1/agent/files/$($f.name)" -OutFile $dest -TimeoutSec 120
+      $hash = (Get-FileHash -Algorithm SHA256 -Path $dest).Hash.ToLowerInvariant()
+      if ($hash -ne $f.sha256) { throw "checksum mismatch for $($f.name), nothing replaced" }
+    }
+    foreach ($f in $files) { Move-Item -Force -Path (Join-Path $dir $f.target) -Destination (Join-Path $Home_ $f.target) }
+  } catch {
+    Write-AgentLog "update to $($u.version) failed: $($_.Exception.Message)" 'Warning'
+    return $false
+  } finally {
+    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  Write-AgentLog "updated from $AgentVersion to $($u.version); restarting"
+  return $true
+}
+
 function Invoke-Checkin {
   $os = Get-CimInstance Win32_OperatingSystem
   $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
@@ -388,6 +429,7 @@ switch ($Command) {
         $delay = if ($resp.pollSeconds) { [int]$resp.pollSeconds } else { 60 }
         # Ran a command: check in again soon so the platform sees the new state.
         if (Invoke-Commands $resp) { $delay = 5 }
+        if (Invoke-SelfUpdate $resp) { exit 0 }
         try { Sync-AppControl $resp } catch { Write-AgentLog "App Control policy download failed: $($_.Exception.Message)" 'Warning' }
         if (((Get-Date) - $lastInventory).TotalSeconds -ge $InventoryEverySeconds) {
           try { Send-Inventory | Out-Null; $lastInventory = Get-Date }

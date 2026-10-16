@@ -66,3 +66,31 @@ describe("Download agent page", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/agents/enrollment/regenerate")).toBe(true));
   });
 });
+
+describe("Automatic agent updates", () => {
+  it("shows versions in use and turns automatic updates off", async () => {
+    const { calls } = mockApi({
+      "/auth/me": makeMe(),
+      "/command-center/summary": makeSummary(),
+      "/agents/enrollment": enrollment,
+      "/agents/auto-update": {
+        enabled: true,
+        latestVersion: "1.3.0",
+        versions: [
+          { version: "1.3.0", agents: 3, current: true },
+          { version: "1.2.0", agents: 1, current: false },
+        ],
+      },
+      "PUT /agents/auto-update": { enabled: false },
+    });
+    renderApp("/agents/download");
+    const versions = await screen.findByRole("list", { name: "Agent versions" });
+    expect(within(versions).getByText("1.2.0")).toBeInTheDocument();
+    expect(within(versions).getByText("3 computers")).toBeInTheDocument();
+    expect(screen.getByText("1 computer runs an older version and will update at the next check-in.")).toBeInTheDocument();
+    const box = screen.getByRole("checkbox", { name: /Keep agents up to date/ });
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(calls.find((c) => c.method === "PUT" && c.path === "/agents/auto-update")?.body).toEqual({ enabled: false }));
+  });
+});

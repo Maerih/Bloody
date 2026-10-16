@@ -1,7 +1,7 @@
-import { Apple, BookOpen, Download, Eye, EyeOff, KeyRound, LifeBuoy, Monitor, Plug, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
+import { Apple, ArrowUpCircle, BookOpen, Download, Eye, EyeOff, KeyRound, LifeBuoy, Monitor, Plug, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { useAgentEnrollment, useRegenerateAccountKey } from "../../api/hooks";
+import { useAgentAutoUpdate, useAgentEnrollment, useRegenerateAccountKey, useSetAgentAutoUpdate } from "../../api/hooks";
 import type { AgentEnrollment } from "../../api/types";
 import { useSession } from "../../app/session";
 import { Button, ButtonLink, Card, CopyButton, Dialog, EmptyState, ErrorState, Input, PageHeader, Select, Skeleton, TabPanel, Tabs } from "../../components";
@@ -309,6 +309,7 @@ function AboutAgent({ version }: { version: string }) {
     ["Linux", <>systemd service sciat-agent in /opt/sciat-agent</>],
     ["Check-in", "Every 60 seconds over HTTPS to this platform; backs off while offline"],
     ["Reports", "Host name, OS, IP addresses, uptime, isolation state and the security engines running beside it"],
+    ["Updates", "Updates itself from this platform when automatic updates are on; every file is checked against its SHA-256 first"],
     ["Response", "Isolates the computer (LAN only or full) and releases it on command from the platform — Windows, macOS and Linux; this platform always stays reachable"],
   ];
   return (
@@ -329,6 +330,51 @@ function AboutAgent({ version }: { version: string }) {
           <div className="font-medium">Uninstall</div>
           <Snippet label="Uninstall commands" code={"# Windows (Administrator)\npowershell -ExecutionPolicy Bypass -File .\\install-sciat.ps1 -Uninstall\n# macOS / Linux\nsudo bash install-sciat.sh --uninstall"} />
         </div>
+      </div>
+    </Card>
+  );
+}
+
+/** Account-wide switch for automatic agent updates, with how many computers run each version. */
+function AutoUpdateCard() {
+  const q = useAgentAutoUpdate();
+  const set = useSetAgentAutoUpdate();
+  if (!q.data) return null;
+  const { enabled, latestVersion, versions } = q.data;
+  const behind = versions.filter((v) => !v.current).reduce((n, v) => n + v.agents, 0);
+  return (
+    <Card title={<span className="inline-flex items-center gap-2"><ArrowUpCircle className="h-4 w-4" aria-hidden /> Automatic updates</span>}>
+      <div className="space-y-3 text-sm">
+        <label className="flex items-start gap-2">
+          <input type="checkbox" className="mt-0.5" checked={enabled} disabled={set.isPending} onChange={(e) => set.mutate(e.target.checked)} />
+          <span>
+            <span className="font-medium">Keep agents up to date</span>
+            <span className="block text-muted">
+              Agents older than {latestVersion} download the new version at their next check-in, verify every file's SHA-256 against the platform and restart themselves.
+            </span>
+          </span>
+        </label>
+        {set.error ? <p className="text-sev-critical">{set.error.message}</p> : null}
+        {versions.length > 0 ? (
+          <ul aria-label="Agent versions" className="space-y-1">
+            {versions.map((v) => (
+              <li key={v.version} className="flex justify-between">
+                <span className="font-mono text-xs">
+                  {v.version}
+                  {v.current ? <span className="ml-2 font-sans text-healthy">latest</span> : null}
+                </span>
+                <span className="text-muted">
+                  {v.agents} {v.agents === 1 ? "computer" : "computers"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {behind > 0 ? (
+          <p className="text-muted">
+            {behind} {behind === 1 ? "computer runs" : "computers run"} an older version{enabled ? " and will update at the next check-in." : ". Turn on automatic updates or reinstall to update."}
+          </p>
+        ) : null}
       </div>
     </Card>
   );
@@ -418,6 +464,7 @@ export function DownloadAgentPage() {
         <div className="space-y-4">
           <KeysPanel data={data} orgKey={orgKey} setOrgKey={setPicked} />
           <AboutAgent version={data.agentVersion} />
+          <AutoUpdateCard />
         </div>
       </div>
     );
