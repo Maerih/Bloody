@@ -2,6 +2,7 @@ import type { AdapterRegistry } from "@bloody/adapters";
 import type { PaymentProviderKey } from "@bloody/contracts";
 import type { BillingService } from "./billing/service.js";
 import type { AgentEnrollmentService } from "./services/agent-enrollment.js";
+import type { AppControlService } from "./services/app-control.js";
 import type { HostInventoryService } from "./services/host-inventory.js";
 import type { PaymentProvider } from "./billing/providers.js";
 import type { AttackPathEngine, RiskEngine } from "@bloody/engines";
@@ -63,6 +64,7 @@ export interface AppServices {
   eventSearch: EventSearchService;
   billing: BillingService;
   agentEnrollment: AgentEnrollmentService;
+  appControl: AppControlService;
   hostInventory: HostInventoryService;
   /** Payment gateways the operator configured (bank transfer when bank details are set). */
   paymentProviders: Map<PaymentProviderKey, PaymentProvider>;

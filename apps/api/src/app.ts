@@ -47,6 +47,7 @@ import { IntegrationService } from "./services/integrations.js";
 import { IntelService } from "./services/intel.js";
 import { InventoryService } from "./services/inventory.js";
 import { AgentEnrollmentService } from "./services/agent-enrollment.js";
+import { AppControlService } from "./services/app-control.js";
 import { HostInventoryService } from "./services/host-inventory.js";
 import { NotificationService, type EmailTransport } from "./services/notifications.js";
 import { playbookTriggerHandler } from "./services/playbook-triggers.js";
@@ -280,6 +281,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     eventSearch,
     billing,
     agentEnrollment: new AgentEnrollmentService({ db, box: secrets, inventory, quota, now }),
+    appControl: new AppControlService(now),
     hostInventory: new HostInventoryService(now),
     paymentProviders,
     intel,
