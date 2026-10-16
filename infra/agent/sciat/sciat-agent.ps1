@@ -4,7 +4,7 @@
 #   sciat-agent.ps1 run | once | status
 param([ValidateSet('run', 'once', 'status', 'inventory')][string]$Command = 'run')
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.3.0'
+$AgentVersion = '1.4.0'
 $Home_ = Join-Path $env:ProgramFiles 'SCIAT\Agent'
 $DataDir = Join-Path $env:ProgramData 'SCIAT\Agent'
 $Conf = Get-Content (Join-Path $DataDir 'agent.json') -Raw | ConvertFrom-Json
@@ -303,11 +303,129 @@ function Get-HardeningFacts {
   $f
 }
 
+# ---- Persistent Footholds (autostart entries) ------------------------------------------------
+# Read-only. Programs outside System32 get an Authenticode check (cached per path).
+function Get-AutorunInventory {
+  $out = New-Object System.Collections.Generic.List[object]
+  $sig = @{}
+  $exePath = {
+    param([string]$Cmd)
+    if (-not $Cmd) { return $null }
+    $c = [Environment]::ExpandEnvironmentVariables($Cmd.Trim())
+    if ($c -match '^"([^"]+)"') { return $Matches[1] }
+    if ($c -match '^(.+?\.(exe|dll|com|scr|bat|cmd|ps1|vbs|js))(\s|,|$)') { return $Matches[1] }
+    return ($c -split '\s+')[0]
+  }
+  $add = {
+    param([string]$Kind, [string]$Location, [string]$Name, [string]$Command, [string]$User)
+    if ($out.Count -ge 5000 -or -not $Name -or -not $Location) { return }
+    $signed = $null; $signer = $null
+    $exe = & $exePath $Command
+    if ($exe -and $exe -notmatch '^[A-Za-z]:\\Windows\\(System32|SysWOW64)\\' -and (Test-Path -LiteralPath $exe -PathType Leaf -ErrorAction SilentlyContinue)) {
+      if (-not $sig.ContainsKey($exe)) {
+        $s = Get-AuthenticodeSignature -LiteralPath $exe -ErrorAction SilentlyContinue
+        $sig[$exe] = @(($s.Status -eq 'Valid'), $(if ($s -and $s.SignerCertificate) { $s.SignerCertificate.GetNameInfo('SimpleName', $false) } else { $null }))
+      }
+      $signed = $sig[$exe][0]; $signer = $sig[$exe][1]
+    }
+    $out.Add(@{ kind = $Kind; location = $Location; name = $Name; command = $Command; user = $User; signed = $signed; signer = $signer })
+  }
+  $values = {
+    param([string]$Path)
+    $p = Get-ItemProperty -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($p) { $p.PSObject.Properties | Where-Object { $_.Name -notmatch '^PS(Path|ParentPath|ChildName|Drive|Provider)$' } }
+  }
+  $sidUser = {
+    param([string]$Sid)
+    try { (New-Object System.Security.Principal.SecurityIdentifier($Sid)).Translate([System.Security.Principal.NTAccount]).Value.Split('\')[-1] } catch { $Sid }
+  }
+
+  # Run / RunOnce: the machine, 32-bit view, policies, and every loaded user hive.
+  try {
+    $hives = @(@{ root = 'HKLM:'; label = 'HKLM'; user = $null })
+    Get-ChildItem Registry::HKEY_USERS -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match '^S-1-5-21-[\d-]+$' } | ForEach-Object {
+      $hives += @{ root = "Registry::HKEY_USERS\$($_.PSChildName)"; label = "HKU\$($_.PSChildName)"; user = (& $sidUser $_.PSChildName) }
+    }
+    foreach ($h in $hives) {
+      foreach ($sub in @('Software\Microsoft\Windows\CurrentVersion\Run', 'Software\Microsoft\Windows\CurrentVersion\RunOnce', 'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run',
+          'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\RunOnce', 'Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run')) {
+        foreach ($v in @(& $values "$($h.root)\$sub")) { & $add 'run_key' "$($h.label)\$sub" $v.Name "$($v.Value)" $h.user }
+      }
+    }
+  } catch { }
+
+  # Startup folders (shortcuts resolved to what they start).
+  try {
+    $shell = New-Object -ComObject WScript.Shell
+    $folders = @(@{ path = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Startup'; user = $null })
+    Get-ChildItem (Join-Path $env:SystemDrive 'Users') -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+      $folders += @{ path = Join-Path $_.FullName 'AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup'; user = $_.Name }
+    }
+    foreach ($f in $folders) {
+      Get-ChildItem -LiteralPath $f.path -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'desktop.ini' } | ForEach-Object {
+        $cmd = $_.FullName
+        if ($_.Extension -eq '.lnk') { try { $l = $shell.CreateShortcut($_.FullName); $cmd = "$($l.TargetPath) $($l.Arguments)".Trim() } catch { } }
+        & $add 'startup_folder' $f.path $_.Name $cmd $f.user
+      }
+    }
+  } catch { }
+
+  # Scheduled tasks. Built-in Microsoft tasks only when they run something unusual.
+  try {
+    $windir = $env:windir.ToLowerInvariant()
+    Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.State -ne 'Disabled' } | ForEach-Object {
+      $t = $_
+      foreach ($a in @($t.Actions | Where-Object { $_.Execute })) {
+        $cmd = "$($a.Execute) $($a.Arguments)".Trim()
+        $exp = [Environment]::ExpandEnvironmentVariables($cmd).ToLowerInvariant()
+        if ($t.TaskPath -like '\Microsoft\*' -and $exp.TrimStart('"').StartsWith($windir) -and $exp -notmatch 'powershell|pwsh|cmd(\.exe)?\s|mshta|wscript|cscript|http|-enc') { continue }
+        & $add 'scheduled_task' "$($t.TaskPath)$($t.TaskName)" $t.TaskName $cmd "$($t.Principal.UserId)"
+      }
+    }
+  } catch { }
+
+  # Automatic services (with the DLL for services hosted by svchost).
+  try {
+    Get-CimInstance Win32_Service -Filter "StartMode='Auto'" -ErrorAction SilentlyContinue | ForEach-Object {
+      $cmd = "$($_.PathName)"
+      if ($cmd -match 'svchost\.exe') {
+        $dll = (Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($_.Name)\Parameters" -Name ServiceDll -ErrorAction SilentlyContinue).ServiceDll
+        if ($dll) { $cmd = "$cmd [$dll]" }
+      }
+      & $add 'service' "HKLM\SYSTEM\CurrentControlSet\Services\$($_.Name)" $_.Name $cmd "$($_.StartName)"
+    }
+  } catch { }
+
+  # WMI event subscriptions that run commands or scripts.
+  try {
+    foreach ($class in @('CommandLineEventConsumer', 'ActiveScriptEventConsumer')) {
+      Get-CimInstance -Namespace root\subscription -ClassName $class -ErrorAction SilentlyContinue | ForEach-Object {
+        $cmd = if ($class -eq 'CommandLineEventConsumer') { "$($_.CommandLineTemplate)" } elseif ($_.ScriptFileName) { "$($_.ScriptingEngine) $($_.ScriptFileName)" } else { "$($_.ScriptingEngine): $("$($_.ScriptText)".Substring(0, [Math]::Min(1500, "$($_.ScriptText)".Length)))" }
+        & $add 'wmi_subscription' "root\subscription\$class" "$($_.Name)" $cmd $null
+      }
+    }
+  } catch { }
+
+  # Winlogon shell / userinit, debugger hijacks and AppInit DLLs.
+  try {
+    $wl = 'HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Winlogon'
+    foreach ($v in @(& $values $wl | Where-Object { $_.Name -in @('Shell', 'Userinit', 'Taskman', 'AppSetup') -and "$($_.Value)" })) { & $add 'winlogon' 'HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon' $v.Name "$($v.Value)" $null }
+    Get-ChildItem 'HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options' -ErrorAction SilentlyContinue | ForEach-Object {
+      $d = (Get-ItemProperty -LiteralPath $_.PSPath -Name Debugger -ErrorAction SilentlyContinue).Debugger
+      if ($d) { & $add 'ifeo' "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$($_.PSChildName)" $_.PSChildName "$d" $null }
+    }
+    $ai = Get-ItemProperty -LiteralPath 'HKLM:\Software\Microsoft\Windows NT\CurrentVersion\Windows' -ErrorAction SilentlyContinue
+    if ($ai -and $ai.LoadAppInit_DLLs -eq 1 -and "$($ai.AppInit_DLLs)".Trim()) { & $add 'preload' 'HKLM\Software\Microsoft\Windows NT\CurrentVersion\Windows' 'AppInit_DLLs' "$($ai.AppInit_DLLs)" $null }
+  } catch { }
+
+  $out.ToArray()
+}
+
 function Send-Inventory {
   $body = @{
     software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory)
     processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory
-    hardening = Get-HardeningFacts
+    hardening = Get-HardeningFacts; autoruns = @(Get-AutorunInventory)
   }
   Invoke-RestMethod -Method Post -Uri "$($Conf.platformUrl)/api/v1/agent/inventory" -TimeoutSec 60 `
     -Headers @{ authorization = "Bearer $($Conf.agentToken)" } -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes(($body | ConvertTo-Json -Depth 5 -Compress)))
@@ -410,7 +528,7 @@ function Invoke-AppControl {
 
 switch ($Command) {
   'once' { $r = Invoke-Checkin; $r | ConvertTo-Json -Compress -Depth 4; Invoke-Commands $r | Out-Null; try { Sync-AppControl $r; Invoke-AppControl } catch { Write-AgentLog "App Control: $($_.Exception.Message)" 'Warning' }; try { Send-Inventory | Out-Null } catch { Write-AgentLog "inventory upload failed: $($_.Exception.Message)" 'Warning' } }
-  'inventory' { @{ software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory); processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory; hardening = Get-HardeningFacts } | ConvertTo-Json -Depth 5 }
+  'inventory' { @{ software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory); processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory; hardening = Get-HardeningFacts; autoruns = @(Get-AutorunInventory) } | ConvertTo-Json -Depth 5 }
   'status' {
     "SCIAT Agent $AgentVersion"
     "platform: $($Conf.platformUrl)"

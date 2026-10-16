@@ -8,6 +8,7 @@ import { Card } from "../../components/Card";
 import { AgentsTable } from "../../features/agents/AgentsTable";
 import { AlertsLens } from "../../features/alerts/AlertsLens";
 import { AssetsTable } from "../../features/assets/AssetsTable";
+import { FootholdsView } from "../../features/footholds/FootholdsView";
 import { EventsLens } from "../../features/events/EventsLens";
 import { ModuleWorkspace } from "../../features/modules/ModuleWorkspace";
 import { SummaryWidgets } from "../../features/modules/SummaryWidgets";
@@ -117,6 +118,7 @@ export default function EdrPage() {
         ),
         persistence: () => (
           <div className="space-y-4">
+            <FootholdsView />
             <AlertsLens title="Persistence detections" predicate={isPersistence} engines={ENDPOINT_ENGINES} emptyTitle="No persistence techniques detected" description="Autoruns, services, scheduled tasks, account creation and other ATT&CK persistence techniques." savedViewsKey="edr-persistence" />
             <EventsLens
               title="Autoruns, services & scheduled tasks"

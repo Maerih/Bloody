@@ -9,7 +9,7 @@
 #   sciat-agent inventory  # print the host inventory (software, services, users, processes, ports, AV)
 set -uo pipefail
 
-AGENT_VERSION="1.3.0"
+AGENT_VERSION="1.4.0"
 CONF="${SCIAT_AGENT_CONF:-/etc/sciat-agent/agent.conf}"
 [ "$(uname -s)" = Darwin ] && CONF="${SCIAT_AGENT_CONF:-/Library/Application Support/SCIAT/agent.conf}"
 STATE_DIR="$(dirname "$CONF")"
@@ -379,9 +379,118 @@ inv_hardening() {
   printf '{%s}' "$out"
 }
 
+# ---- Persistent Footholds (autostart entries) ------------------------------------------------
+# Rows: kind \t location \t name \t command \t user. Read-only; tabs / line breaks are folded.
+ar_row() {
+  local v out="" sep=""
+  for v in "$@"; do v="${v//$'\t'/ }"; v="${v//$'\r'/}"; v="${v//$'\n'/ }"; out="$out$sep$v"; sep=$'\t'; done
+  printf '%s\n' "$out"
+}
+ar_home_user() { case "$1" in /root/*|/var/root/*) echo root ;; /home/*/*|/Users/*/*) local p="${1#/*/}"; echo "${p%%/*}" ;; esac; }
+ar_crontab() { # $1 file, $2 owner (empty: system format with a user column)
+  local file="$1" owner="$2" line sched user cmd
+  local -a f rest
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    [[ "$line" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*= ]] && continue
+    read -r -a f <<< "$line"
+    [ "${#f[@]}" -gt 0 ] || continue
+    if [[ "${f[0]}" == @* ]]; then sched="${f[0]}"; rest=(${f[@]+"${f[@]:1}"}); else sched="${f[*]:0:5}"; rest=(${f[@]+"${f[@]:5}"}); fi
+    if [ -n "$owner" ]; then user="$owner"; else user="${rest[0]:-}"; rest=(${rest[@]+"${rest[@]:1}"}); fi
+    cmd="${rest[*]+${rest[*]}}"
+    [ -n "$cmd" ] && ar_row cron "$file" "$sched" "$cmd" "$user"
+  done < "$file" 2>/dev/null
+}
+ar_ssh_keys() { # $1 authorized_keys file
+  local user line opts re='(^|[[:space:]])((sk-)?(ssh|ecdsa)-[A-Za-z0-9@.-]+)[[:space:]]+([A-Za-z0-9+/=]+)([[:space:]]+(.*))?$'
+  user="$(ar_home_user "$1")"
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    [[ $line =~ $re ]] || continue
+    local type="${BASH_REMATCH[2]}" key="${BASH_REMATCH[5]}" comment="${BASH_REMATCH[7]}"
+    # Options before the key (command=, from=…) matter: they change what the key can do.
+    opts="${line:0:$(( ${#line} - ${#BASH_REMATCH[0]} ))}"
+    ar_row ssh_key "$1" "${comment:-(no comment)}" "${opts:+$opts }$type${comment:+ $comment} …${key: -12}" "$user"
+  done < "$1" 2>/dev/null
+}
+ar_profiles() { # lines in shell start-up files that fetch, decode or background something
+  local f n line re='(curl|wget|/dev/tcp|base64|nohup|python[0-9.]*[[:space:]]+-c|perl[[:space:]]+-e|(^|[[:space:];|])nc[[:space:]]|socat|mkfifo|&[[:space:]]*$)'
+  for f in /etc/profile /etc/bash.bashrc /etc/zshrc /etc/profile.d/*.sh /root/.bashrc /root/.profile /root/.bash_profile /root/.zshrc /var/root/.zshrc \
+           /home/*/.bashrc /home/*/.profile /home/*/.bash_profile /home/*/.zshrc /Users/*/.zshrc /Users/*/.bash_profile /Users/*/.profile; do
+    [ -f "$f" ] || continue
+    n=0
+    while IFS= read -r line || [ -n "$line" ]; do
+      n=$((n + 1))
+      [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+      [[ $line =~ $re ]] && ar_row shell_profile "$f" "line $n" "$line" "$(ar_home_user "$f")"
+    done < "$f" 2>/dev/null
+  done
+}
+ar_plist() { # $1 plist, $2 kind
+  local label prog
+  label="$(/usr/libexec/PlistBuddy -c 'Print :Label' "$1" 2>/dev/null)"
+  prog="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "$1" 2>/dev/null | sed -e '1d' -e '$d' -e 's/^ *//' | paste -sd' ' -)"
+  [ -n "$prog" ] || prog="$(/usr/libexec/PlistBuddy -c 'Print :Program' "$1" 2>/dev/null)"
+  ar_row "$2" "$1" "${label:-$(basename "$1" .plist)}" "$prog" "$(ar_home_user "$1")"
+}
+ar_systemd() {
+  systemctl list-unit-files --type=service,timer --state=enabled --no-legend --no-pager 2>/dev/null | awk '{print $1}' | head -500 | while read -r u; do
+    [ -n "$u" ] || continue
+    local show path exec user
+    show="$(systemctl show -p FragmentPath -p ExecStart -p User -p Unit "$u" 2>/dev/null)"
+    path="$(printf '%s\n' "$show" | sed -n 's/^FragmentPath=//p')"
+    user="$(printf '%s\n' "$show" | sed -n 's/^User=//p')"
+    exec="$(printf '%s\n' "$show" | sed -n 's/^ExecStart=.*argv\[\]=\([^;]*\);.*/\1/p' | head -1 | sed 's/ *$//')"
+    # systemd not answering (degraded / container): read the unit file itself.
+    if [ -z "$path" ]; then
+      local d; for d in /etc/systemd/system /run/systemd/system /usr/lib/systemd/system /lib/systemd/system; do [ -f "$d/$u" ] && { path="$d/$u"; break; }; done
+    fi
+    if [ -z "$exec" ] && [ -f "$path" ]; then
+      exec="$(sed -n 's/^ExecStart=[-@+!:]*//p' "$path" | head -1)"
+      [ -n "$user" ] || user="$(sed -n 's/^User=//p' "$path" | head -1)"
+    fi
+    if [[ "$u" == *.timer ]]; then
+      local target; target="$(printf '%s\n' "$show" | sed -n 's/^Unit=//p')"
+      [ -n "$target" ] || { [ -f "$path" ] && target="$(sed -n 's/^Unit=//p' "$path" | head -1)"; }
+      exec="starts ${target:-${u%.timer}.service}"
+    fi
+    ar_row systemd "${path:-$u}" "$u" "$exec" "$user"
+  done
+}
+inv_autoruns() {
+  local f
+  {
+    if [ "$(uname -s)" = Darwin ]; then
+      for f in /Library/LaunchDaemons/*.plist; do [ -f "$f" ] && ar_plist "$f" launch_daemon; done
+      for f in /Library/LaunchAgents/*.plist /Users/*/Library/LaunchAgents/*.plist; do [ -f "$f" ] && ar_plist "$f" launch_agent; done
+      [ -f /etc/crontab ] && ar_crontab /etc/crontab ""
+      for f in /usr/lib/cron/tabs/*; do [ -f "$f" ] && ar_crontab "$f" "$(basename "$f")"; done
+      for f in /var/root/.ssh/authorized_keys /Users/*/.ssh/authorized_keys; do [ -f "$f" ] && ar_ssh_keys "$f"; done
+    else
+      [ -f /etc/crontab ] && ar_crontab /etc/crontab ""
+      for f in /etc/cron.d/*; do [ -f "$f" ] && ar_crontab "$f" ""; done
+      for f in /var/spool/cron/crontabs/* /var/spool/cron/*; do [ -f "$f" ] && ar_crontab "$f" "$(basename "$f")"; done
+      for f in /etc/cron.hourly/* /etc/cron.daily/* /etc/cron.weekly/* /etc/cron.monthly/*; do [ -f "$f" ] && ar_row cron "$(dirname "$f")" "$(basename "$f")" "$f" root; done
+      command -v systemctl >/dev/null 2>&1 && ar_systemd
+      for f in /home/*/.config/systemd/user/*.service /root/.config/systemd/user/*.service; do
+        [ -f "$f" ] && ar_row systemd "$f" "$(basename "$f")" "$(sed -n 's/^ExecStart=//p' "$f" | head -1)" "$(ar_home_user "$f")"
+      done
+      if [ -f /etc/rc.local ]; then
+        local rc; rc="$(grep -v '^[[:space:]]*\(#\|$\|exit 0\)' /etc/rc.local 2>/dev/null | paste -sd';' - | cut -c1-1900)"
+        [ -n "$rc" ] && ar_row init_script /etc/rc.local rc.local "$rc" root
+      fi
+      if [ -s /etc/ld.so.preload ]; then
+        grep -v '^[[:space:]]*\(#\|$\)' /etc/ld.so.preload | while IFS= read -r f; do ar_row preload /etc/ld.so.preload "$(basename "$f")" "$f" root; done
+      fi
+      for f in /root/.ssh/authorized_keys /root/.ssh/authorized_keys2 /home/*/.ssh/authorized_keys /home/*/.ssh/authorized_keys2; do [ -f "$f" ] && ar_ssh_keys "$f"; done
+    fi
+    ar_profiles
+  } | tsv_json "kind,location,name,command,user" 5000
+}
+
 inventory_json() {
-  printf '{"software":%s,"services":%s,"users":%s,"processes":%s,"ports":%s,"antivirus":%s,"firewall":%s,"hardening":%s}' \
-    "$(inv_software)" "$(inv_services)" "$(inv_users)" "$(inv_processes)" "$(inv_ports)" "$(inv_antivirus)" "$(inv_firewall)" "$(inv_hardening)"
+  printf '{"software":%s,"services":%s,"users":%s,"processes":%s,"ports":%s,"antivirus":%s,"firewall":%s,"hardening":%s,"autoruns":%s}' \
+    "$(inv_software)" "$(inv_services)" "$(inv_users)" "$(inv_processes)" "$(inv_ports)" "$(inv_antivirus)" "$(inv_firewall)" "$(inv_hardening)" "$(inv_autoruns)"
 }
 
 send_inventory() {

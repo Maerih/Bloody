@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate, Foothold, FootholdVerdict } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -842,6 +842,30 @@ export const useAddAppControlRule = () => useAppControlMutation((rule: AppContro
 export const useDeleteAppControlRule = () => useAppControlMutation((id: string) => api.delete(`/app-control/rules/${encodeURIComponent(id)}`));
 
 // ─── RMM Guard (ESPM) ───────────────────────────────────────────────────────
+
+export interface FootholdsOverview {
+  organizationId: string;
+  footholds: Foothold[];
+  truncated: boolean;
+  summary: { entries: number; suspicious: number; malicious: number; newLast7Days: number; endpointsReporting: number };
+}
+
+export function useFootholdsOverview(organizationId: string | null) {
+  return useQuery<FootholdsOverview, ApiError>({
+    queryKey: ["footholds", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/footholds/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+    staleTime: 30_000,
+  });
+}
+
+export function useSetFootholdVerdict() {
+  const qc = useQueryClient();
+  return useMutation<{ changed: number }, ApiError, { organizationId: string; fingerprints: string[]; verdict: FootholdVerdict | null; note?: string }>({
+    mutationFn: (body) => api.put<{ changed: number }>("/footholds/verdicts", body),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["footholds"] }),
+  });
+}
 
 export interface RmmGuardOverview {
   organizationId: string;

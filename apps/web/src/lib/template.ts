@@ -71,6 +71,15 @@ const BY_EVENT: Record<AutomationEvent, TemplateVariable[]> = {
     { name: "agent.hostname", description: "Endpoint hostname" },
     { name: "hardening.checks", description: "Settings that were switched off" },
   ],
+  "foothold.suspicious_detected": [
+    { name: "agent.hostname", description: "Endpoint hostname" },
+    { name: "foothold.kind", description: "Kind of autostart entry" },
+    { name: "foothold.name", description: "Entry name" },
+    { name: "foothold.command", description: "What it runs" },
+    { name: "foothold.location", description: "Where it is registered" },
+    { name: "foothold.level", description: "Rating (high / medium)" },
+    { name: "foothold.reasons", description: "Why it was rated that way" },
+  ],
   "exposure.port_open": [
     { name: "exposure.ip", description: "Public address" },
     { name: "exposure.port", description: "Port found open" },

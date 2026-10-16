@@ -12,7 +12,7 @@
 set -euo pipefail
 
 PLATFORM_URL="${SCIAT_PLATFORM_URL:-__PLATFORM_URL__}"
-AGENT_VERSION="1.3.0"
+AGENT_VERSION="1.4.0"
 PREFIX="/opt/sciat-agent"
 OS="$(uname -s)"
 if [ "$OS" = Darwin ]; then

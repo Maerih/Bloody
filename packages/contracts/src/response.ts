@@ -158,6 +158,7 @@ export const AUTOMATION_EVENTS = [
   "rmm.unapproved_detected",
   "exposure.port_open",
   "hardening.regressed",
+  "foothold.suspicious_detected",
   "indicator.matched",
   "vulnerability.kev_detected",
   "report.generated",

@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { HostInventoryReport } from "@bloody/contracts";
+import { AUTORUN_KIND_LABELS, HostInventoryReport } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
 import { requireAuth, requirePermission } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
@@ -281,7 +281,9 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
         prev ? { hardening: (prev.hardening as Record<string, unknown>) ?? {}, users: (prev.users as never) ?? [], firewall: (prev.firewall as never) ?? null } : null,
         { hardening: report.hardening, users: report.users, firewall: report.firewall },
       );
-      return { ...agent, ...recorded, newRmm, regressed };
+      // Persistent Footholds: autostart entries that appeared since the computer's baseline.
+      const footholds = s.footholds.alertable(await s.footholds.record(tx, agent, report.autoruns));
+      return { ...agent, ...recorded, newRmm, regressed, footholds };
     });
     for (const tool of res.newRmm) {
       s.domainEvents.publish({
@@ -293,6 +295,32 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
         subject: { kind: "agent", id: res.agentId, label: `${tool.name} on ${res.hostname}` },
         dedupKey: `agent:${res.agentId}:rmm:${tool.key}`,
         data: { agent: { id: res.agentId, hostname: res.hostname }, tool: { key: tool.key, name: tool.name, evidence: tool.evidence.join("; ") } },
+      });
+    }
+    for (const f of res.footholds) {
+      const malicious = f.verdict === "malicious";
+      // A cron entry's name is only its schedule; show what it runs too.
+      const name = f.entry.kind === "cron" && f.entry.command ? `${f.entry.name} ${f.entry.command}`.slice(0, 120) : f.entry.name;
+      s.domainEvents.publish({
+        tenantId: res.tenantId,
+        organizationId: res.organizationId,
+        event: "foothold.suspicious_detected",
+        occurredAt: new Date(s.now()).toISOString(),
+        severity: malicious || f.assessment.level === "high" ? "high" : "medium",
+        subject: { kind: "agent", id: res.agentId, label: res.hostname },
+        dedupKey: `agent:${res.agentId}:foothold:${f.fingerprint}`,
+        data: {
+          agent: { id: res.agentId, hostname: res.hostname },
+          foothold: {
+            fingerprint: f.fingerprint,
+            kind: AUTORUN_KIND_LABELS[f.entry.kind],
+            name,
+            command: f.entry.command ?? "—",
+            location: f.entry.location,
+            level: malicious ? "malicious (marked by an analyst)" : f.assessment.level,
+            reasons: f.assessment.reasons.map((r) => r.text).join("; ") || "—",
+          },
+        },
       });
     }
     if (res.regressed.length) {

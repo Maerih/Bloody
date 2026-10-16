@@ -17,3 +17,4 @@ export * from "./rmm-guard.js";
 export * from "./external-exposure.js";
 export * from "./attack-reduction.js";
 export * from "./awareness.js";
+export * from "./footholds.js";

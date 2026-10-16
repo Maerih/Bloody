@@ -367,6 +367,7 @@ const SYSTEM_NOTICES: Partial<Record<AutomationEvent, { roles: string[]; minSeve
   "escalation.overdue": { roles: ["soc_analyst_t2", "incident_responder", "org_admin", "ciso", "mssp_admin"], title: (e) => `Escalation overdue: ${e.subject.label ?? e.subject.id}` },
   "response.pending_approval": { roles: ["incident_responder", "org_admin", "ciso", "mssp_admin"], title: (_e, d) => `Approval needed: ${String((d.action as { action?: string } | undefined)?.action ?? d.action ?? "response action")}` },
   "agent.unresponsive": { roles: ["security_engineer", "soc_analyst_t1", "org_admin"], title: (e) => `Agent unresponsive: ${e.subject.label ?? e.subject.id}` },
+  "foothold.suspicious_detected": { roles: ["soc_analyst_t1", "soc_analyst_t2", "incident_responder", "org_admin"], title: (e) => `Suspicious persistence on ${e.subject.label ?? e.subject.id}` },
   "hardening.regressed": { roles: ["soc_analyst_t1", "soc_analyst_t2", "incident_responder", "org_admin"], title: (e) => `Hardening weakened on ${e.subject.label ?? e.subject.id}` },
   "exposure.port_open": { roles: ["soc_analyst_t1", "soc_analyst_t2", "incident_responder", "org_admin"], title: (e) => `Exposed to the internet: ${e.subject.label ?? e.subject.id}` },
   "rmm.unapproved_detected": { roles: ["soc_analyst_t1", "soc_analyst_t2", "incident_responder", "org_admin"], title: (e) => `Unapproved remote-access tool: ${e.subject.label ?? e.subject.id}` },
