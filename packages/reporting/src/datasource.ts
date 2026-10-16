@@ -260,6 +260,22 @@ export interface IncidentDetail {
   lessonsLearned: string[];
 }
 
+/** Security awareness for one organization: training at period end, simulations in the period. */
+export interface AwarenessFact {
+  organizationId: string;
+  learners: number;
+  assignments: number;
+  completed: number;
+  overdue: number;
+  averageScore: number | null;
+  phishSent: number;
+  phishClicked: number;
+  campaigns: Array<{ name: string; template: string; sentAt: string; sent: number; clicked: number }>;
+  /** People with the highest human risk (score >= 35), highest first. */
+  atRisk: Array<{ name: string; email: string; score: number; level: "low" | "medium" | "high"; mainReason: string }>;
+  highRisk: number;
+}
+
 export interface ReportDataSource {
   organizations(q: ReportQuery): Promise<OrganizationFact[]>;
   /** Incidents detected in [from, to) plus incidents still open at `from` (backlog). */
@@ -283,6 +299,7 @@ export interface ReportDataSource {
   billing(q: ReportQuery): Promise<BillingFact[]>;
   /** Full post-incident detail; null when not found in the tenant/scope. */
   incidentDetail(q: ReportQuery, incidentId: string): Promise<IncidentDetail | null>;
+  awareness(q: ReportQuery): Promise<AwarenessFact[]>;
 }
 
 /** Thrown when a data source returns a row outside the requested tenant/organization scope. */
@@ -338,6 +355,7 @@ export function scopedDataSource(ds: ReportDataSource): ReportDataSource {
     responseStats: (q) => ds.responseStats(q),
     usage: async (q) => check(await ds.usage(q), q, "usage"),
     billing: async (q) => check(await ds.billing(q), q, "billing"),
+    awareness: async (q) => check(await ds.awareness(q), q, "awareness"),
     incidentDetail: async (q, id) => {
       const d = await ds.incidentDetail(q, id);
       if (d && !inScope(q.organizationIds, d.incident.organizationId)) throw new ReportScopeError("incidentDetail: incident outside the requested scope");

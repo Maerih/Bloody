@@ -156,4 +156,7 @@ export const GLOSSARY: Record<string, string> = {
   MRR: "Monthly recurring revenue from customer subscriptions at the end of the period. ARR = MRR × 12.",
   "Escalation on-time rate": "Escalations resolved by their due date, divided by escalations resolved or overdue.",
   "Trend vs previous period": "Each change compares the period with the immediately preceding period of equal length.",
+  "Click rate": "People who opened the link in a phishing simulation, divided by simulation emails delivered in the period.",
+  "Training completion": "Training assignments completed (every lesson's quiz passed), divided by all assignments given, at period end.",
+  "Human risk": "Explainable 0-100 score per person over the last 12 months: phishing-simulation clicks raise it; simulations not clicked, completed training and strong quiz results lower it. High = 60 or more.",
 };

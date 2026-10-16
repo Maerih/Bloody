@@ -117,3 +117,21 @@ describe("human risk", () => {
     expect(o.summary).toMatchObject({ highRisk: 1, averageRisk: 45 });
   });
 });
+
+describe("security awareness report", () => {
+  it("reports training, simulation results and people at risk from real data", async () => {
+    const res = await admin.post("/reports/generate", { type: "security_awareness", format: "json", periodDays: 30, organizationId: org });
+    expect(res.status).toBe(200);
+    const r = res.body;
+    expect(r.title).toBe("Security awareness report");
+    const kpi = (k: string) => r.summary.kpis.find((x: { key: string }) => x.key === k);
+    expect(kpi("click_rate").value).toBe(50);
+    expect(kpi("high_risk").value).toBe(1);
+    const people = r.sections.find((s: { id: string }) => s.id === "people").blocks.find((b: { kind: string }) => b.kind === "table").table.rows;
+    expect(people[0]).toMatchObject({ name: "Amina Mushi", score: 60, level: "high", reason: "Clicked 1 phishing simulation" });
+    const sims = r.sections.find((s: { id: string }) => s.id === "phishing").blocks[0].table.rows;
+    expect(sims[0]).toMatchObject({ name: "Q4 mailbox test", sent: 2, clicked: 1, rate: 50 });
+    // Other accounts cannot report on this organization.
+    expect((await otherAdmin.post("/reports/generate", { type: "security_awareness", format: "json", periodDays: 30, organizationId: org })).status).toBeGreaterThanOrEqual(400);
+  });
+});

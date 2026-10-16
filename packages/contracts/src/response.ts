@@ -196,6 +196,7 @@ export const REPORT_TYPES = [
   { key: "analyst_activity", label: "Analyst activity", audience: "mssp" },
   { key: "customer_monthly", label: "Customer monthly service review", audience: "customer" },
   { key: "mssp_portfolio", label: "MSSP portfolio & revenue", audience: "mssp" },
+  { key: "security_awareness", label: "Security awareness", audience: "customer" },
 ] as const;
 export type ReportType = (typeof REPORT_TYPES)[number]["key"];
 export const ReportType = z.enum(REPORT_TYPES.map((r) => r.key) as [ReportType, ...ReportType[]]);

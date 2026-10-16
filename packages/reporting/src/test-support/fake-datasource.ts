@@ -5,6 +5,7 @@
  */
 import type { RiskFactor, Severity } from "@bloody/contracts";
 import type {
+  AwarenessFact,
   AlertStats,
   AnalystActivityFact,
   AttackPathStats,
@@ -391,6 +392,27 @@ export class FakeReportDataSource implements ReportDataSource {
     return this.orgs(q).map((o) => (o === ORG_A ? { organizationId: o, plan: "professional", mrr: 4800, previousMrr: 4500, currency: "USD" } : { organizationId: o, plan: "enterprise", mrr: 9200, previousMrr: null, currency: "USD" }));
   }
 
+  async awareness(q: ReportQuery): Promise<AwarenessFact[]> {
+    this.log("awareness", q);
+    const cur = isCurrent(q);
+    return this.orgs(q).map((o) => ({
+      organizationId: o,
+      learners: 40,
+      assignments: 40,
+      completed: cur ? 34 : 22,
+      overdue: cur ? 3 : 9,
+      averageScore: cur ? 86 : 79,
+      phishSent: 40,
+      phishClicked: cur ? 4 : 9,
+      campaigns: [{ name: cur ? "Overdue invoice test" : "Mailbox full test", template: cur ? "invoice_overdue" : "mailbox_full", sentAt: cur ? "2026-03-10T08:00:00.000Z" : "2026-02-10T08:00:00.000Z", sent: 40, clicked: cur ? 4 : 9 }],
+      atRisk: [
+        { name: "Joseph Mrema", email: "joseph@example.test", score: 70, level: "high", mainReason: "Clicked 2 phishing simulations" },
+        { name: "Grace Lyimo", email: "grace@example.test", score: 40, level: "medium", mainReason: "No training completed in the last 12 months" },
+      ],
+      highRisk: 1,
+    }));
+  }
+
   async incidentDetail(q: ReportQuery, incidentId: string): Promise<IncidentDetail | null> {
     this.log("incidentDetail", q);
     const inc = INCIDENTS.find((i) => i.id === incidentId && inScope(q, i.organizationId));
@@ -443,6 +465,9 @@ export class EmptyReportDataSource extends FakeReportDataSource {
     return [];
   }
   override async billing(): Promise<BillingFact[]> {
+    return [];
+  }
+  override async awareness(): Promise<AwarenessFact[]> {
     return [];
   }
   override async usage(): Promise<UsageFact[]> {

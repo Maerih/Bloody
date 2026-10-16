@@ -42,6 +42,7 @@ const REPORT_COPY: Partial<Record<ReportType, string>> = {
   sla: "Acknowledge / response / resolution times against contracted SLAs, with breaches.",
   analyst_activity: "Per-analyst triage, investigation and escalation throughput and quality.",
   customer_monthly: "Monthly service review: incidents handled, escalations, coverage and recommendations.",
+  security_awareness: "Training completion, phishing-simulation click rate and the people who need coaching.",
   mssp_portfolio: "Customer portfolio risk, incidents, agent health, SLA breaches and MRR.",
 };
 

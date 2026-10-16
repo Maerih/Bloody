@@ -19,6 +19,7 @@ import {
 import { useSession } from "../../app/session";
 import { Badge, Button, Card, Checkbox, CopyButton, DataTable, Dialog, Drawer, EmptyState, ErrorState, Field, Input, OrganizationSelect, RelativeTime, Select, StatTile, useDefaultOrganization, type DataTableColumn } from "../../components";
 import { ModuleWorkspace } from "../../features/modules/ModuleWorkspace";
+import { ReportMenu } from "../../components/ReportMenu";
 
 type Links = Array<{ enrolmentId: string; name: string; email: string; url: string }>;
 
@@ -588,7 +589,7 @@ function Lessons() {
 
 /** Security Awareness Training workspace: assignments, learners, lesson library. */
 export default function AwarenessPage() {
-  return <ModuleWorkspace moduleId="sat" sections={{ "": () => <Overview />, learners: () => <Learners />, phishing: () => <Phishing />, lessons: () => <Lessons /> }} />;
+  return <ModuleWorkspace moduleId="sat" actions={<ReportMenu reports={["security_awareness"]} defaultReport="security_awareness" />} sections={{ "": () => <Overview />, learners: () => <Learners />, phishing: () => <Phishing />, lessons: () => <Lessons /> }} />;
 }
 
 // Re-exported for tests.

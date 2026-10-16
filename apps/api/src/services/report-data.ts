@@ -1,7 +1,8 @@
-import { PlanKey, type AttackTechnique, type Criticality, type IncidentStatus, type RiskFactor, type Severity } from "@bloody/contracts";
+import { PlanKey, humanRisk, type AttackTechnique, type Criticality, type IncidentStatus, type RiskFactor, type Severity } from "@bloody/contracts";
 import { isCrownJewel, type RiskEngine } from "@bloody/engines";
 import type {
   AlertStats,
+  AwarenessFact,
   AnalystActivityFact,
   AttackPathStats,
   BillingFact,
@@ -673,6 +674,70 @@ export class SqlReportDataSource implements ReportDataSource {
         const plan = PlanKey.safeParse(r.plan);
         // MRR history is not stored; previousMrr stays null rather than guessed.
         return { organizationId: String(r.id), plan: plan.success ? plan.data : null, mrr: n(r.mrr), previousMrr: null, currency: String(r.currency).slice(0, 3).toUpperCase() };
+      });
+    });
+  }
+
+  /** Security awareness: training status at period end, simulations sent in the period, human risk (12 months to period end). */
+  async awareness(q: ReportQuery): Promise<AwarenessFact[]> {
+    return this.tx(q, async (tx) => {
+      const training = await this.sql(
+        tx,
+        q,
+        `SELECT o.id AS organization_id,
+                (SELECT count(*) FROM sat_learners l WHERE l.organization_id = o.id AND l.active AND l.created_at <= :to::timestamptz) AS learners,
+                (SELECT count(*) FROM sat_enrolments e JOIN sat_assignments a ON a.id = e.assignment_id WHERE e.organization_id = o.id AND a.created_at <= :to::timestamptz) AS assignments,
+                (SELECT count(*) FROM sat_enrolments e WHERE e.organization_id = o.id AND e.completed_at <= :to::timestamptz) AS completed,
+                (SELECT count(*) FROM sat_enrolments e JOIN sat_assignments a ON a.id = e.assignment_id
+                  WHERE e.organization_id = o.id AND a.due_at < :to::timestamptz AND (e.completed_at IS NULL OR e.completed_at > :to::timestamptz)) AS overdue,
+                (SELECT round(avg(p.best_score)) FROM sat_progress p JOIN sat_enrolments e ON e.id = p.enrolment_id WHERE e.organization_id = o.id AND p.updated_at <= :to::timestamptz) AS avg_score
+           FROM organizations o WHERE ${org("o.id")} ORDER BY o.name`,
+      );
+      const campaigns = await this.sql(
+        tx,
+        q,
+        `SELECT c.organization_id, c.name, c.template, c.launched_at,
+                count(t.id) FILTER (WHERE t.sent_at IS NOT NULL) AS sent,
+                count(t.id) FILTER (WHERE t.clicked_at IS NOT NULL AND t.clicked_at <= :to::timestamptz) AS clicked
+           FROM sat_phish_campaigns c LEFT JOIN sat_phish_targets t ON t.campaign_id = c.id
+          WHERE ${org("c.organization_id")} AND c.launched_at >= :from::timestamptz AND c.launched_at < :to::timestamptz
+          GROUP BY c.id ORDER BY c.launched_at`,
+      );
+      const people = await this.sql(
+        tx,
+        q,
+        `SELECT l.organization_id, l.name, l.email,
+                (SELECT count(*) FROM sat_phish_targets t WHERE t.learner_id = l.id AND t.clicked_at BETWEEN :to::timestamptz - interval '365 days' AND :to::timestamptz) AS clicks,
+                (SELECT count(*) FROM sat_phish_targets t WHERE t.learner_id = l.id AND t.sent_at BETWEEN :to::timestamptz - interval '365 days' AND :to::timestamptz
+                   AND (t.clicked_at IS NULL OR t.clicked_at > :to::timestamptz)) AS spotted,
+                (SELECT count(*) FROM sat_enrolments e WHERE e.learner_id = l.id AND e.completed_at BETWEEN :to::timestamptz - interval '365 days' AND :to::timestamptz) AS completed,
+                (SELECT count(*) FROM sat_enrolments e JOIN sat_assignments a ON a.id = e.assignment_id
+                  WHERE e.learner_id = l.id AND a.due_at < :to::timestamptz AND (e.completed_at IS NULL OR e.completed_at > :to::timestamptz)) AS overdue,
+                (SELECT round(avg(p.best_score)) FROM sat_progress p JOIN sat_enrolments e ON e.id = p.enrolment_id WHERE e.learner_id = l.id AND p.updated_at <= :to::timestamptz) AS avg_score
+           FROM sat_learners l WHERE ${org("l.organization_id")} AND l.active AND l.created_at <= :to::timestamptz`,
+      );
+      const scored = people.map((r) => {
+        const risk = humanRisk({ phishClicks: n(r.clicks), phishSpotted: n(r.spotted), completedTraining: n(r.completed), overdueTraining: n(r.overdue), averageScore: r.avg_score === null ? null : n(r.avg_score) });
+        const main = risk.reasons.find((x) => x.points > 0 && x.text !== "Baseline for everyone") ?? risk.reasons[0]!;
+        return { organizationId: String(r.organization_id), name: String(r.name), email: String(r.email), score: risk.score, level: risk.level, mainReason: main.text };
+      });
+      return training.map((t) => {
+        const id = String(t.organization_id);
+        const mine = campaigns.filter((c) => String(c.organization_id) === id);
+        const theirs = scored.filter((p) => p.organizationId === id);
+        return {
+          organizationId: id,
+          learners: n(t.learners),
+          assignments: n(t.assignments),
+          completed: n(t.completed),
+          overdue: n(t.overdue),
+          averageScore: t.avg_score === null ? null : n(t.avg_score),
+          phishSent: mine.reduce((s, c) => s + n(c.sent), 0),
+          phishClicked: mine.reduce((s, c) => s + n(c.clicked), 0),
+          campaigns: mine.map((c) => ({ name: String(c.name), template: String(c.template), sentAt: new Date(String(c.launched_at)).toISOString(), sent: n(c.sent), clicked: n(c.clicked) })),
+          atRisk: theirs.filter((p) => p.score >= 35).sort((a, b) => b.score - a.score).slice(0, 25).map(({ organizationId: _o, ...p }) => p),
+          highRisk: theirs.filter((p) => p.level === "high").length,
+        };
       });
     });
   }

@@ -214,3 +214,26 @@ describe("report builders", () => {
     expect(bad.dataQuality.filter((d) => d.startsWith("branding."))).toHaveLength(2);
   });
 });
+
+const recs = (r: ReportData) => r.sections.flatMap((s) => s.blocks.flatMap((b) => (b.kind === "recommendations" ? b.items : [])));
+
+describe("security awareness report", () => {
+  it("summarises training, simulations and the people who need help", async () => {
+    const r = await build("security_awareness", { orgs: [ORG_A] });
+    expect(kpiOf(r, "completion")).toMatchObject({ value: 85, unit: "percent", status: "warn" });
+    expect(kpiOf(r, "click_rate")).toMatchObject({ value: 10, status: "warn" });
+    expect(kpiOf(r, "click_rate").delta).not.toBeNull();
+    expect(kpiOf(r, "high_risk").value).toBe(1);
+    expect(r.summary.headline).toContain("40 people enrolled");
+    const people = r.sections.find((s) => s.id === "people")!.blocks.find((b) => b.kind === "table");
+    expect(people && people.kind === "table" ? people.table.rows[0] : null).toMatchObject({ name: "Joseph Mrema", score: 70, level: "high" });
+    expect(recs(r).map((x) => x.title)).toEqual(expect.arrayContaining(["Coach high-risk people", "Chase overdue training"]));
+  });
+
+  it("recommends starting when nobody is enrolled", async () => {
+    const { EmptyReportDataSource: Empty } = await import("../test-support/fake-datasource.js");
+    const r = await build("security_awareness", { orgs: [ORG_A], ds: new Empty() });
+    expect(r.summary.headline).toBe("No one is enrolled in security awareness training yet.");
+    expect(recs(r)[0]).toMatchObject({ title: "Start security awareness training" });
+  });
+});

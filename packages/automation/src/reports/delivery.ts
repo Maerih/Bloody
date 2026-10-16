@@ -153,7 +153,7 @@ export class ScheduledReportRunner {
       dedupKey: `report-schedule:${s.id}`,
       data: { report: { scheduleId: s.id, type: s.type, format: s.format, title: file.title, periodLabel, from: period.from, to: period.to, filename: file.filename, sizeBytes: file.content.length } },
       ...(attach ? { attachments: [{ filename: file.filename, contentType: file.contentType, content: file.content }] } : {}),
-      audience: s.type === "customer_monthly" ? "customer" : s.type === "executive" || s.type === "compliance" ? "business" : s.type === "mssp_portfolio" || s.type === "sla" || s.type === "analyst_activity" ? "mssp" : "soc",
+      audience: s.type === "customer_monthly" || s.type === "security_awareness" ? "customer" : s.type === "executive" || s.type === "compliance" ? "business" : s.type === "mssp_portfolio" || s.type === "sla" || s.type === "analyst_activity" ? "mssp" : "soc",
       origin: { kind: "report_schedule", id: s.id, name: s.name },
     };
     const deliveries = s.channelIds.length > 0 ? await this.deps.delivery.deliver(message, s.channelIds, { tenantId: s.tenantId, organizationId: s.organizationId }) : [];
