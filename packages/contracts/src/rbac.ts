@@ -67,6 +67,8 @@ export const ROLE_KEYS = [
   "security_engineer",
   "customer_viewer",
   "api_service",
+  /** Read-only visitor of the demo sandbox account. */
+  "demo_viewer",
 ] as const;
 
 export const RoleKey = z.enum(ROLE_KEYS);
@@ -125,6 +127,7 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly Permission[]> = {
   ],
   customer_viewer: ["org:read", "incident:read", "escalation:read", "escalation:write", "report:read", "asset:read"],
   api_service: ["event:ingest", "asset:read", "asset:write", "alert:read"],
+  demo_viewer: READ_ALL,
 };
 
 export function roleHasPermission(role: RoleKey, permission: Permission): boolean {

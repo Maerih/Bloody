@@ -845,3 +845,16 @@ export const useConnectM365 = () =>
   useM365Mutation((input: M365ConnectionInput) => api.post<{ connection: M365Connection; assessment: M365Assessment | null; error: string | null }>("/m365/connections", input));
 export const useAssessM365 = () => useM365Mutation((id: string) => api.post<M365Assessment>(`/m365/connections/${encodeURIComponent(id)}/assess`, {}));
 export const useDisconnectM365 = () => useM365Mutation((id: string) => api.delete(`/m365/connections/${encodeURIComponent(id)}`));
+
+// ─── Demo sandbox ──────────────────────────────────────────────────────────
+
+export function useSandbox() {
+  return useQuery<{ available: boolean; accountName: string | null; inSandbox: boolean }, ApiError>({
+    queryKey: ["sandbox"],
+    queryFn: ({ signal }) => api.get("/sandbox", { signal }),
+    staleTime: 60_000,
+  });
+}
+/** Switching accounts changes every cached answer: the caller reloads the app afterwards. */
+export const useEnterSandbox = () => useMutation<{ ok: boolean }, ApiError, void>({ mutationFn: () => api.post("/sandbox/enter", {}) });
+export const useExitSandbox = () => useMutation<{ restored: boolean }, ApiError, void>({ mutationFn: () => api.post("/sandbox/exit", {}) });

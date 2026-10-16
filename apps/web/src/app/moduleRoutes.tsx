@@ -69,7 +69,7 @@ function workspace(base: string, element: ReactNode): AppRoute[] {
 
 const SimulateIncidentPage = lazy(() => import("../pages/SimulateIncidentPage"));
 const DownloadAgentPage = lazy(() => import("../features/agents/DownloadAgentPage").then((m) => ({ default: m.DownloadAgentPage })));
-const DemoSandboxPage = lazy(() => import("../pages/HelpPages").then((m) => ({ default: m.DemoSandboxPage })));
+const DemoSandboxPage = lazy(() => import("../features/sandbox/DemoSandboxPage").then((m) => ({ default: m.DemoSandboxPage })));
 const SupportPage = lazy(() => import("../pages/HelpPages").then((m) => ({ default: m.SupportPage })));
 const FeedbackPage = lazy(() => import("../pages/HelpPages").then((m) => ({ default: m.FeedbackPage })));
 

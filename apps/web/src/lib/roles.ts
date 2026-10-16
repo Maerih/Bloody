@@ -14,12 +14,13 @@ export const ROLE_LABELS: Record<RoleKey, string> = {
   security_engineer: "Security engineer",
   customer_viewer: "Customer viewer",
   api_service: "API service",
+  demo_viewer: "Demo sandbox visitor",
 };
 
 /** Roles offered to people (service roles are for API keys; platform_admin is operator-only). */
-export const USER_ROLES: RoleKey[] = ROLE_KEYS.filter((r) => r !== "platform_admin" && r !== "api_service");
+export const USER_ROLES: RoleKey[] = ROLE_KEYS.filter((r) => r !== "platform_admin" && r !== "api_service" && r !== "demo_viewer");
 /** Roles an API key can carry. */
-export const API_KEY_ROLES: RoleKey[] = ROLE_KEYS.filter((r) => r !== "platform_admin");
+export const API_KEY_ROLES: RoleKey[] = ROLE_KEYS.filter((r) => r !== "platform_admin" && r !== "demo_viewer");
 
 export function roleLabel(role: string): string {
   return (ROLE_LABELS as Record<string, string>)[role] ?? role;

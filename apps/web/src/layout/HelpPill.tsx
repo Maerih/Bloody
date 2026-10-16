@@ -15,6 +15,7 @@ export function HelpPill() {
         panelClassName="w-56"
         trigger={(props) => (
           <button
+            data-tour="help"
             {...props}
             type="button"
             className="inline-flex h-8 items-center gap-1.5 rounded-full bg-primary px-3.5 text-base font-semibold text-white shadow-pop hover:bg-primary-hover"

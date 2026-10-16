@@ -15,6 +15,7 @@ export const DEMO_PASSWORD = "ChangeMe!123";
  *   pnpm admin reset-password --email admin@acme.example
  *   pnpm admin status
  *   pnpm admin agent-key --account <slug>     print the SCIAT Agent account key and organization keys
+ *   pnpm admin sandbox-setup --account <slug> use this account as the read-only Demo Sandbox
  *
  * Passwords are generated (never taken from the command line, which would land in shell history)
  * and printed once.
@@ -219,13 +220,22 @@ async function main(): Promise<void> {
         console.log(`account key: ${out.key}\norganization keys:\n${out.orgs.map((o) => `  ${o.slug.padEnd(28)} ${o.name}`).join("\n")}`);
         break;
       }
+      case "sandbox-setup": {
+        // Every signed-in user can explore this account read-only (as its "demo_viewer" visitor).
+        const slug = arg("--account");
+        if (!slug) throw new Error("usage: sandbox-setup --account <slug of the account holding the demo data>");
+        const acct = await pool.query<{ id: string; name: string }>("SELECT id, name FROM accounts WHERE slug = $1", [slug]);
+        if (!acct.rows[0]) throw new Error(`no account ${slug}`);
+        console.log(`"${acct.rows[0].name}" will be the Demo Sandbox. Add this line to the platform's .env and restart the API:\n\n  BLOODY_DEMO_ACCOUNT=${acct.rows[0].id}\n\nVisitors only get read access; keep real customer data out of this account.`);
+        break;
+      }
       case "status": {
         const s = await accountSummary(pool);
         console.log(JSON.stringify(s));
         break;
       }
       default:
-        throw new Error("commands: create-account, reset-password, status, mark-paid, generate-invoices, agent-key");
+        throw new Error("commands: create-account, reset-password, status, mark-paid, generate-invoices, agent-key, sandbox-setup");
     }
   } finally {
     await pool.end();

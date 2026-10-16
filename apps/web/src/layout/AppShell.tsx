@@ -8,6 +8,8 @@ import { HelpPill } from "./HelpPill";
 import { LeftRail } from "./LeftRail";
 import { ShortcutHelpDialog } from "./ShortcutHelpDialog";
 import { TopBar } from "./TopBar";
+import { SandboxBanner } from "../features/sandbox/SandboxBanner";
+import { TourProvider } from "../features/sandbox/Tour";
 
 export function PageSkeleton() {
   return (
@@ -27,6 +29,7 @@ export function PageSkeleton() {
 export function AppShell() {
   const location = useLocation();
   return (
+    <TourProvider>
     <div className="min-h-screen bg-canvas">
       <a href="#main" className="sr-only z-[100] rounded bg-primary px-3 py-2 text-white focus:not-sr-only focus:fixed focus:left-2 focus:top-2">
         Skip to content
@@ -34,6 +37,7 @@ export function AppShell() {
       <TopBar />
       <LeftRail />
       <main id="main" tabIndex={-1} className="min-h-screen pl-[60px] pt-11 focus:outline-none">
+        <SandboxBanner />
         <div className="mx-auto max-w-[1920px] px-4 pb-16 pt-4 lg:px-6">
           <ErrorBoundary resetKey={location.pathname}>
             <Suspense fallback={<PageSkeleton />}>
@@ -47,5 +51,6 @@ export function AppShell() {
       <ShortcutHelpDialog />
       <GlobalShortcuts />
     </div>
+    </TourProvider>
   );
 }

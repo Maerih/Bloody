@@ -58,6 +58,7 @@ export function TopBar() {
           onClick={ui.openPalette}
           className="hidden h-7 items-center gap-2 rounded border border-white/15 bg-white/5 px-2 text-sm text-topbar-muted hover:bg-white/10 hover:text-topbar-fg md:inline-flex"
           aria-label="Search and commands"
+          data-tour="search"
           aria-keyshortcuts={isMac() ? "Meta+K" : "Control+K"}
         >
           <Search size={13} aria-hidden />

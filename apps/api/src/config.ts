@@ -75,6 +75,8 @@ const RawEnv = z.object({
   BLOODY_BILLING_BANK_DETAILS: z.string().max(2000).optional(),
   /** Account team shown on the billing page: "Name <email>". */
   BLOODY_BILLING_CONTACT: z.string().max(300).optional(),
+  /** Demo sandbox account (UUID, see `pnpm admin sandbox-setup`); unset disables the sandbox. */
+  BLOODY_DEMO_ACCOUNT: z.string().uuid().optional(),
   /** Directory holding the SCIAT Agent installers (infra/agent); found automatically when unset. */
   BLOODY_AGENT_FILES_DIR: z.string().min(1).optional(),
   BLOODY_INVOICE_DUE_DAYS: z.coerce.number().int().min(0).max(90).default(14),
@@ -214,6 +216,7 @@ export interface AppConfig {
   telemetry: { otlpEndpoint: string | null; serviceName: string; resourceAttributes: string | undefined };
   bus: { kind: "memory" | "kafka"; brokers: string[]; consumerGroup: string };
   agent: { filesDir: string | undefined };
+  sandbox: { accountId: string | null };
   billing: {
     priceBook: PriceBook;
     bankDetails: string | null;
@@ -405,6 +408,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     enrichment: { allowedHosts: e.ENRICHMENT_ALLOWED_HOSTS.map((h) => h.toLowerCase()), kevFeedUrl: e.KEV_FEED_URL, epssApiUrl: e.EPSS_API_URL },
     reports: { maxStoredBytes: e.REPORT_MAX_STORED_BYTES },
     agent: { filesDir: e.BLOODY_AGENT_FILES_DIR },
+    sandbox: { accountId: e.BLOODY_DEMO_ACCOUNT ?? null },
     billing: {
       priceBook,
       bankDetails: e.BLOODY_BILLING_BANK_DETAILS ? e.BLOODY_BILLING_BANK_DETAILS.replace(/\\n/g, "\n") : null,

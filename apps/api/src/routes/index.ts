@@ -19,6 +19,7 @@ import { userRoutes } from "./users.js";
 import { agentRoutes } from "./agent.js";
 import { appControlRoutes } from "./app-control.js";
 import { m365Routes } from "./m365.js";
+import { sandboxRoutes } from "./sandbox.js";
 import { hostInventoryRoutes } from "./host-inventory.js";
 import { aiRoutes } from "./ai.js";
 import { billingRoutes } from "./billing.js";
@@ -71,5 +72,6 @@ export async function registerRoutes(app: FastifyInstance, services: AppServices
   await hostInventoryRoutes(app, services);
   await appControlRoutes(app, services);
   await m365Routes(app, services);
+  await sandboxRoutes(app, services);
   await msspAdminRoutes(app, services);
 }

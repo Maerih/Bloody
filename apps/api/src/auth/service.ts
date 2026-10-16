@@ -179,7 +179,7 @@ export class AuthService {
 
   async createSession(
     tx: Queryable,
-    input: { tenantId: string; userId: string; organizationId: string | null; method: "password" | "oidc"; mfaVerified: boolean; client: ClientInfo },
+    input: { tenantId: string; userId: string; organizationId: string | null; method: "password" | "oidc" | "sandbox"; mfaVerified: boolean; client: ClientInfo },
   ): Promise<IssuedSession> {
     const secret = randomToken(32);
     const now = this.now();
@@ -414,6 +414,31 @@ export class AuthService {
   // ─── OIDC ────────────────────────────────────────────────────────────────
 
   /** Sign in a pre-provisioned user after a verified OIDC callback (no just-in-time provisioning). */
+  /**
+   * Demo sandbox: a read-only session in the demo account for any signed-in user. The visitor
+   * is the account's sandbox user (role demo_viewer, no password, created on first use).
+   */
+  async sandboxSession(demoTenantId: string, client: ClientInfo): Promise<LoginSuccess> {
+    return this.db.withTenant(demoTenantId, async (tx) => {
+      const email = `sandbox@${demoTenantId.slice(0, 8)}.demo.invalid`;
+      let id = (await tx.query<{ id: string }>("SELECT id FROM users WHERE lower(email) = $1", [email])).rows[0]?.id;
+      if (!id) {
+        id = (await tx.query<{ id: string }>("INSERT INTO users (tenant_id, email, display_name, title, status) VALUES ($1, $2, 'Demo visitor', 'Demo sandbox', 'active') RETURNING id", [demoTenantId, email])).rows[0]!.id;
+      }
+      await tx.query("DELETE FROM role_bindings WHERE principal_kind = 'user' AND principal_id = $1 AND role <> 'demo_viewer'", [id]);
+      await tx.query(
+        "INSERT INTO role_bindings (tenant_id, principal_kind, principal_id, role, organization_id) SELECT $1, 'user', $2, 'demo_viewer', NULL WHERE NOT EXISTS (SELECT 1 FROM role_bindings WHERE principal_kind = 'user' AND principal_id = $2 AND role = 'demo_viewer')",
+        [demoTenantId, id],
+      );
+      const user = await this.activeUser(tx, id);
+      if (!user) throw new HttpError(503, "sandbox_unavailable", "The demo sandbox user is disabled");
+      const session = await this.createSession(tx, { tenantId: demoTenantId, userId: id, organizationId: null, method: "sandbox", mfaVerified: true, client });
+      const principal = await this.principalFor(tx, user, session.sessionId);
+      const access = await signAccessToken({ sub: id, tid: demoTenantId, sid: session.sessionId, kind: "user" }, this.tokenSettings, this.now());
+      return { kind: "success" as const, tenantId: demoTenantId, principal, session, accessToken: access.token, accessTokenExpiresAt: access.expiresAt };
+    });
+  }
+
   async loginWithOidc(identity: { email: string; subject: string; issuer: string }, client: ClientInfo): Promise<LoginSuccess> {
     const found = await this.lookupEmail(identity.email);
     if (!found) throw new HttpError(403, "sso_user_not_provisioned", "No Bloody account is provisioned for this identity");

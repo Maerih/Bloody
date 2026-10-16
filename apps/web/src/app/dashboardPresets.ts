@@ -136,6 +136,7 @@ const ROLE_TO_DASHBOARD: Record<RoleKey, DashboardRole> = {
   security_engineer: "security_engineer",
   customer_viewer: "executive",
   api_service: "soc_analyst",
+  demo_viewer: "mssp_admin",
 };
 
 /** Precedence when a principal holds several roles: most operationally specific first. */

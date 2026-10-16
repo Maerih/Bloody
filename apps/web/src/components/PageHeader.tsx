@@ -22,7 +22,7 @@ export interface PageHeaderProps {
 export function PageHeader({ title, subtitle, actions, breadcrumbs, children, className }: PageHeaderProps) {
   useDocumentTitle(title);
   return (
-    <div className={clsx("mb-4", className)}>
+    <div className={clsx("mb-4", className)} data-tour="page-header">
       {breadcrumbs && breadcrumbs.length > 0 ? (
         <nav aria-label="Breadcrumb" className="mb-1 flex items-center gap-1 text-sm text-fg-muted">
           {breadcrumbs.map((b, i) => (

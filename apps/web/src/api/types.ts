@@ -66,6 +66,8 @@ export interface MeResponse {
   plan: PlanKey;
   /** Named account team (CSM / sales engineer) when the account has one assigned. */
   accountTeam?: AccountTeamMember[] | null;
+  /** The browser session (method "sandbox" while exploring the demo sandbox). */
+  session?: { id: string; method: "password" | "oidc" | "sandbox"; mfaVerified: boolean } | null;
 }
 
 export interface EntitlementView extends Entitlement {
