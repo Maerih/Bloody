@@ -10,6 +10,7 @@ import type { AppServices } from "../context.js";
 import { notFound, unauthorized } from "../http/errors.js";
 import type { Row } from "../repo/mappers.js";
 import { SCIAT_AGENT_VERSION } from "../services/agent-enrollment.js";
+import { IdParam } from "../http/params.js";
 import { parse } from "./util.js";
 
 /** Files the platform serves to endpoints: name → path below infra/agent. Nothing else is reachable. */
@@ -44,6 +45,19 @@ export function platformUrlFor(request: FastifyRequest, trustProxy: boolean, fal
   return new URL(fallback).origin;
 }
 
+function bearer(request: FastifyRequest): string {
+  const header = request.headers.authorization;
+  const token = typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!token) throw unauthorized("Agent token required");
+  return token;
+}
+
+const ipsOnly = z
+  .array(z.string().max(64))
+  .max(32)
+  .transform((v) => v.filter((x) => z.string().ip().safeParse(x).success).slice(0, 16))
+  .optional();
+
 const EnrollBody = z
   .object({
     accountKey: z.string().min(10).max(200),
@@ -65,8 +79,12 @@ const HeartbeatBody = z
     uptimeSeconds: z.number().int().min(0).max(1e10).optional(),
     isolation: z.object({ state: z.enum(["isolated", "not_isolated", "unknown"]), mode: z.string().max(20).optional() }).optional(),
     engines: z.record(z.string().max(60), z.string().max(40)).optional(),
+    // Best-effort facts from the endpoint: anything that is not an IP address is dropped, not refused.
+    platformIps: ipsOnly,
+    dnsServers: ipsOnly,
   })
   .strict();
+const ResultBody = z.object({ status: z.enum(["succeeded", "failed"]), output: z.string().max(20_000).default("") }).strict();
 
 /**
  * SCIAT Agent: enrollment keys for admins, and the public endpoint-facing API (installers, agent
@@ -136,11 +154,24 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
   });
 
   app.post("/agent/heartbeat", { config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request) => {
-    const header = request.headers.authorization;
-    const token = typeof header === "string" && header.startsWith("Bearer ") ? header.slice(7) : "";
-    if (!token) throw unauthorized("Agent token required");
+    const token = bearer(request);
     const body = parse(HeartbeatBody, request.body);
     const res = await svc.heartbeat(token, body);
-    return { pollSeconds: res.pollSeconds, serverTime: new Date(s.now()).toISOString() };
+    return {
+      pollSeconds: res.pollSeconds,
+      serverTime: new Date(s.now()).toISOString(),
+      commands: res.commands,
+      // Same commands as plain lines ("<id> <args…>") for agents without a JSON parser.
+      commandLines: res.commands.map((c) => [c.id, ...c.args].join(" ")),
+    };
+  });
+
+  app.post("/agent/commands/:id/result", { config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request) => {
+    const token = bearer(request);
+    const { id } = parse(IdParam, request.params);
+    const body = parse(ResultBody, request.body);
+    const res = await svc.commandResult(token, id, body.status === "succeeded", body.output);
+    if (res.applied && res.actionId) await s.responses.completeFromAgent(res.tenantId, res.actionId, body.status === "succeeded", body.output);
+    return { ok: true };
   });
 }

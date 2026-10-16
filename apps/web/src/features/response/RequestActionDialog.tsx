@@ -153,12 +153,8 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
       description={description ?? "Requests are attributed to you and recorded in the audit log."}
       footer={
         request.isSuccess ? (
-          <span role="status" className="mr-auto text-sm text-healthy">
-            {request.data?.emergency
-              ? "Done — executed as an emergency. A second responder must review it."
-              : request.data?.status === "pending_approval"
-                ? "Submitted — waiting in the approval queue."
-                : "Action submitted."}
+          <span role="status" className={`mr-auto text-sm ${request.data?.status === "failed" ? "text-sev-critical" : "text-healthy"}`}>
+            {resultMessage(request.data)}
           </span>
         ) : (
           <>
@@ -284,4 +280,18 @@ export function RequestActionDialog({ open, onClose, organizationId, incidentId,
       </div>
     </Dialog>
   );
+}
+
+/** Footer text after a request: emergency, approval queue, handed to the SCIAT Agent, or failed. */
+export function resultMessage(data: { status?: string; emergency?: boolean; executor?: string | null; error?: unknown } | undefined): string {
+  if (!data) return "Action submitted.";
+  if (data.status === "failed") {
+    const message = (data.error as { message?: string } | null)?.message;
+    return `Failed${message ? ` — ${message}` : "."}`;
+  }
+  const review = data.emergency ? " A second responder must review it." : "";
+  if (data.status === "running" && data.executor === "sciat:agent") return `Sent to the SCIAT Agent — it applies the change at its next check-in (within a minute).${review}`;
+  if (data.emergency) return `Done — executed as an emergency.${review}`;
+  if (data.status === "pending_approval") return "Submitted — waiting in the approval queue.";
+  return "Action submitted.";
 }

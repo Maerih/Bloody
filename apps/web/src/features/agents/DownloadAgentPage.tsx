@@ -309,6 +309,7 @@ function AboutAgent({ version }: { version: string }) {
     ["Linux", <>systemd service sciat-agent in /opt/sciat-agent</>],
     ["Check-in", "Every 60 seconds over HTTPS to this platform; backs off while offline"],
     ["Reports", "Host name, OS, IP addresses, uptime, isolation state and the security engines running beside it"],
+    ["Response", "Isolates the computer (LAN only or full) and releases it on command from the platform — Windows and Linux; this platform always stays reachable"],
   ];
   return (
     <Card title={<span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4" aria-hidden /> About the SCIAT Agent</span>}>

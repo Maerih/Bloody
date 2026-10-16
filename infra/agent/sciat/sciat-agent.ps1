@@ -36,6 +36,52 @@ function Get-Engines {
   return $engines
 }
 
+function Get-PlatformIps {
+  $h = ([Uri]$Conf.platformUrl).Host.Trim('[', ']')
+  $cache = Join-Path $DataDir 'platform-ips'
+  try {
+    $ips = @([System.Net.Dns]::GetHostAddresses($h) | ForEach-Object { $_.IPAddressToString } | Select-Object -Unique -First 8)
+    if ($ips.Count -gt 0) { $ips | Set-Content -Path $cache -Encoding ascii; return $ips }
+  } catch { }
+  if (Test-Path $cache) { return @(Get-Content $cache) }
+  return @()
+}
+
+function Get-DnsServers {
+  return @(Get-DnsClientServerAddress -ErrorAction SilentlyContinue | ForEach-Object { $_.ServerAddresses } |
+      Where-Object { $_ -and $_ -notlike '127.*' -and $_ -ne '::1' -and $_ -notlike 'fec0:*' } | Select-Object -Unique -First 8)
+}
+
+function Invoke-Api([string]$Path, $Body) {
+  Invoke-RestMethod -Method Post -Uri "$($Conf.platformUrl)/api/v1$Path" -TimeoutSec 20 `
+    -Headers @{ authorization = "Bearer $($Conf.agentToken)" } -ContentType 'application/json' -Body ($Body | ConvertTo-Json -Depth 4 -Compress)
+}
+
+# Commands from the platform: only isolate / release, only with address-like arguments.
+function Invoke-Commands($Response) {
+  $ran = $false
+  foreach ($c in @($Response.commands)) {
+    if (-not $c -or "$($c.id)" -notmatch '^[0-9a-f-]{36}$') { continue }
+    $words = @($c.args | ForEach-Object { "$_" })
+    $iso = Join-Path $Home_ 'bloody-isolate.ps1'
+    if ($words.Count -eq 0 -or $words[0] -notin @('isolate', 'release') -or ($words | Where-Object { $_ -notmatch '^[A-Za-z0-9.,:=/_-]+$' })) {
+      $ok = $false; $out = 'refused: unexpected command'
+    } elseif (-not (Test-Path $iso)) {
+      $ok = $false; $out = 'bloody-isolate.ps1 is missing - reinstall the SCIAT Agent'
+    } else {
+      $out = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $iso @words 2>&1 | Out-String)
+      $ok = ($LASTEXITCODE -eq 0)
+      if ($ok) { $out += (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $iso status 2>&1 | Out-String) }
+    }
+    $status = if ($ok) { 'succeeded' } else { 'failed' }
+    Write-AgentLog "command $($words[0]) ($($c.id)): $status"
+    if ($out.Length -gt 4000) { $out = $out.Substring(0, 4000) }
+    try { Invoke-Api "/agent/commands/$($c.id)/result" @{ status = $status; output = $out } | Out-Null } catch { Write-AgentLog "could not report command $($c.id): $($_.Exception.Message)" 'Warning' }
+    $ran = $true
+  }
+  return $ran
+}
+
 function Invoke-Checkin {
   $os = Get-CimInstance Win32_OperatingSystem
   $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
@@ -49,13 +95,14 @@ function Invoke-Checkin {
     uptimeSeconds = [int]((Get-Date) - $os.LastBootUpTime).TotalSeconds
     isolation     = Get-Isolation
     engines       = Get-Engines
-  } | ConvertTo-Json -Depth 4 -Compress
-  Invoke-RestMethod -Method Post -Uri "$($Conf.platformUrl)/api/v1/agent/heartbeat" -TimeoutSec 20 `
-    -Headers @{ authorization = "Bearer $($Conf.agentToken)" } -ContentType 'application/json' -Body $body
+    platformIps   = @(Get-PlatformIps)
+    dnsServers    = @(Get-DnsServers)
+  }
+  Invoke-Api '/agent/heartbeat' $body
 }
 
 switch ($Command) {
-  'once' { Invoke-Checkin | ConvertTo-Json -Compress }
+  'once' { $r = Invoke-Checkin; $r | ConvertTo-Json -Compress -Depth 4; Invoke-Commands $r | Out-Null }
   'status' {
     "SCIAT Agent $AgentVersion"
     "platform: $($Conf.platformUrl)"
@@ -71,6 +118,8 @@ switch ($Command) {
         $failures = 0
         (Get-Date).ToUniversalTime().ToString('s') + 'Z' | Set-Content -Path (Join-Path $DataDir 'last-checkin') -Encoding ascii
         $delay = if ($resp.pollSeconds) { [int]$resp.pollSeconds } else { 60 }
+        # Ran a command: check in again soon so the platform sees the new state.
+        if (Invoke-Commands $resp) { $delay = 5 }
       } catch {
         $failures++
         # Back off while the platform is unreachable (max 10 minutes).

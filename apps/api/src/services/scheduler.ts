@@ -39,6 +39,8 @@ export interface SchedulerDeps {
   entitlements: EntitlementService;
   /** Monthly invoicing (in arrears) and dunning; optional so tests can leave it out. */
   billing?: BillingService;
+  /** Expires SCIAT Agent commands nobody collected (fails their response actions). */
+  responses?: { expireAgentCommands(tenantId: string): Promise<number> };
   log: PipelineLogger;
   intervalSeconds: number;
   now: () => number;
@@ -242,6 +244,9 @@ export class Scheduler {
           if (inv && before === 0) result.invoicesIssued += 1;
           await billing.markOverdue(tx);
         });
+      });
+      await guard(`agent-commands:${t.id}`, async () => {
+        await this.deps.responses?.expireAgentCommands(t.id);
       });
       await guard(`trials:${t.id}`, async () => {
         result.trialNotices += await this.trialNotices(t.id, now);

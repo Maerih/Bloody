@@ -48,6 +48,17 @@ export interface HeartbeatInput {
   uptimeSeconds?: number | undefined;
   isolation?: { state: "isolated" | "not_isolated" | "unknown"; mode?: string | undefined } | undefined;
   engines?: Record<string, string> | undefined;
+  /** Addresses the agent reaches the platform at — kept open when the endpoint is isolated. */
+  platformIps?: string[] | undefined;
+  /** The endpoint's DNS resolvers (kept reachable in full isolation). */
+  dnsServers?: string[] | undefined;
+}
+
+/** A command for the agent: run `bloody-isolate <args…>` and report the result. */
+export interface AgentCommand {
+  id: string;
+  kind: "isolate" | "release";
+  args: string[];
 }
 
 export class AgentEnrollmentError extends HttpError {}
@@ -121,8 +132,8 @@ export class AgentEnrollmentService {
     });
   }
 
-  /** Authenticated check-in: refresh liveness and host facts. */
-  async heartbeat(token: string, input: HeartbeatInput): Promise<{ pollSeconds: number; agentId: string; tenantId: string }> {
+  /** The agent behind a token, inside its tenant's transaction (401 when it does not match). */
+  private async withAgent<T>(token: string, fn: (tx: Queryable, agent: { tenantId: string; agentId: string; organizationId: string }) => Promise<T>): Promise<T> {
     const m = AGENT_TOKEN_RE.exec(token.trim());
     if (!m) throw new AgentEnrollmentError(401, "invalid_agent_token", "Invalid agent token");
     const tenantId = uuidOf(m[1]!);
@@ -131,16 +142,67 @@ export class AgentEnrollmentService {
       const { rows } = await tx.query<Row>("SELECT id, organization_id, agent_token_hash FROM agents WHERE id = $1 AND engine = 'sciat'", [agentId]);
       const row = rows[0];
       if (!row?.agent_token_hash || !sameHash(String(row.agent_token_hash), sha256(m[3]!))) throw new AgentEnrollmentError(401, "invalid_agent_token", "Invalid agent token");
+      return fn(tx, { tenantId, agentId, organizationId: String(row.organization_id) });
+    });
+  }
+
+  /** Authenticated check-in: refresh liveness and host facts, hand over queued commands. */
+  async heartbeat(token: string, input: HeartbeatInput): Promise<{ pollSeconds: number; agentId: string; tenantId: string; commands: AgentCommand[] }> {
+    return this.withAgent(token, async (tx, { tenantId, agentId, organizationId }) => {
       const now = new Date(this.deps.now()).toISOString();
-      const assets = await this.deps.inventory.resolveOrDiscoverHosts(tx, tenantId, String(row.organization_id), [{ hostname: input.hostname, os: input.os, ips: input.ips, lastSeenAt: now }]);
+      const assets = await this.deps.inventory.resolveOrDiscoverHosts(tx, tenantId, organizationId, [{ hostname: input.hostname, os: input.os, ips: input.ips, lastSeenAt: now }]);
       await tx.query(
         `UPDATE agents SET last_checkin_at = $2, version = $3, hostname = $4, asset_id = coalesce($5, asset_id),
                 status = CASE WHEN isolation IS NOT NULL THEN 'isolated' ELSE 'protected' END,
-                host_info = $6::jsonb
+                -- An agent that could not resolve the platform this time keeps the last known addresses.
+                host_info = jsonb_build_object('platformIps', coalesce(host_info->'platformIps', '[]'::jsonb), 'dnsServers', coalesce(host_info->'dnsServers', '[]'::jsonb)) || $6::jsonb
          WHERE id = $1`,
-        [agentId, now, input.version, input.hostname, [...assets.values()][0] ?? null, JSON.stringify({ os: input.os ?? null, ips: input.ips ?? [], uptimeSeconds: input.uptimeSeconds ?? null, isolation: input.isolation ?? null, engines: input.engines ?? {} })],
+        [
+          agentId,
+          now,
+          input.version,
+          input.hostname,
+          [...assets.values()][0] ?? null,
+          JSON.stringify({
+            os: input.os ?? null,
+            ips: input.ips ?? [],
+            uptimeSeconds: input.uptimeSeconds ?? null,
+            isolation: input.isolation ?? null,
+            engines: input.engines ?? {},
+            ...(input.platformIps?.length ? { platformIps: input.platformIps } : {}),
+            ...(input.dnsServers?.length ? { dnsServers: input.dnsServers } : {}),
+          }),
+        ],
       );
-      return { pollSeconds: AGENT_POLL_SECONDS, agentId, tenantId };
+      // Pending commands, plus delivered ones that were never answered (redelivered after 5 minutes;
+      // isolate / release are idempotent on the endpoint).
+      const { rows } = await tx.query<Row>(
+        `UPDATE agent_commands SET status = 'delivered', delivered_at = now(), attempts = attempts + 1
+          WHERE id IN (SELECT id FROM agent_commands WHERE agent_id = $1 AND expires_at > now()
+                         AND (status = 'pending' OR (status = 'delivered' AND delivered_at < now() - interval '5 minutes'))
+                       ORDER BY created_at LIMIT 5)
+          RETURNING id, kind, args, created_at`,
+        [agentId],
+      );
+      const commands = rows
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+        .map((r) => ({ id: String(r.id), kind: r.kind as AgentCommand["kind"], args: (r.args as string[]).map(String) }));
+      return { pollSeconds: AGENT_POLL_SECONDS, agentId, tenantId, commands };
+    });
+  }
+
+  /** Result of a command; returns the response action to complete (once). */
+  async commandResult(token: string, commandId: string, ok: boolean, output: string): Promise<{ tenantId: string; actionId: string | null; applied: boolean }> {
+    return this.withAgent(token, async (tx, { tenantId, agentId }) => {
+      const { rows } = await tx.query<Row>(
+        `UPDATE agent_commands SET status = $3, output = $4, finished_at = now()
+          WHERE id = $1 AND agent_id = $2 AND status IN ('pending', 'delivered') RETURNING response_action_id`,
+        [commandId, agentId, ok ? "succeeded" : "failed", output.slice(0, 8000)],
+      );
+      if (rows[0]) return { tenantId, actionId: (rows[0].response_action_id as string | null) ?? null, applied: true };
+      const known = await tx.query("SELECT 1 FROM agent_commands WHERE id = $1 AND agent_id = $2", [commandId, agentId]);
+      if ((known.rowCount ?? 0) === 0) throw new AgentEnrollmentError(404, "not_found", "Unknown command");
+      return { tenantId, actionId: null, applied: false }; // already answered or expired
     });
   }
 }

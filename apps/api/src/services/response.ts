@@ -20,7 +20,7 @@ import {
   type ApprovalRequester,
   type PlaybookEngine,
 } from "@bloody/automation";
-import type { ResponseExecutionRequest, ResponseExecutionResult } from "@bloody/adapters";
+import { ResponseGuardError, buildIsolationPolicy, isIpOrCidr, isolationScriptArgs, type ResponseExecutionRequest, type ResponseExecutionResult } from "@bloody/adapters";
 import type { RiskEngine } from "@bloody/engines";
 import { SYSTEM_ACTOR, writeAudit, type AuditActor } from "../audit/audit.js";
 import type { Database, Queryable } from "../db/pool.js";
@@ -170,7 +170,8 @@ export function approvalHttpError(err: unknown): unknown {
 }
 
 interface ExecutionOutcome {
-  status: "succeeded" | "failed";
+  /** "dispatched": handed to a SCIAT Agent; the action stays running until the agent reports. */
+  status: "succeeded" | "failed" | "dispatched";
   executor: string;
   integrationId: string | null;
   result: Record<string, unknown>;
@@ -540,6 +541,10 @@ export class ResponseService {
       const code = err instanceof HttpError ? err.code : ((err as { code?: string }).code ?? "execution_error");
       outcome = { status: "failed", executor: "bloody", integrationId: null, result: {}, error: { code, message: err instanceof Error ? err.message.slice(0, 1000) : "execution failed", retryable: !(err instanceof HttpError) } };
     }
+    if (outcome.status === "dispatched") {
+      await this.deps.db.withTenant(tenantId, (tx) => tx.query("UPDATE response_actions SET executor = $2, result = $3::jsonb WHERE id = $1", [id, outcome.executor, JSON.stringify(outcome.result)]));
+      return this.get(tenantId, id);
+    }
     await this.finish(tenantId, id, outcome, actor, row);
     return this.get(tenantId, id);
   }
@@ -612,7 +617,96 @@ export class ResponseService {
   private async run(tenantId: string, row: Row): Promise<ExecutionOutcome> {
     const action = row.action as ResponseActionKey;
     if (INTERNAL_ACTIONS.has(action)) return this.runInternal(tenantId, row, action);
-    return this.runConnector(tenantId, row, action);
+    return (await this.dispatchToAgent(tenantId, row, action)) ?? this.runConnector(tenantId, row, action);
+  }
+
+  /**
+   * Endpoints running the SCIAT Agent isolate / release themselves: queue the command for the
+   * agent (collected at its next check-in). The platform addresses the agent reported always stay
+   * reachable, so the endpoint can be released later. Null when the target has no SCIAT Agent.
+   */
+  private async dispatchToAgent(tenantId: string, row: Row, action: ResponseActionKey): Promise<ExecutionOutcome | null> {
+    if (action !== "isolate_endpoint" && action !== "release_endpoint") return null;
+    const target = row.target as ResponseTargetInput;
+    if (target.kind !== "asset") return null;
+    return this.deps.db.withTenant(tenantId, async (tx) => {
+      const { rows } = await tx.query<Row>(
+        "SELECT id, organization_id, hostname, platform, host_info FROM agents WHERE asset_id = $1 AND engine = 'sciat' AND agent_token_hash IS NOT NULL ORDER BY last_checkin_at DESC NULLS LAST LIMIT 1",
+        [target.id],
+      );
+      const agent = rows[0];
+      if (!agent) return null;
+      const fail = (code: string, message: string): ExecutionOutcome => ({ status: "failed", executor: "sciat:agent", integrationId: null, result: {}, error: { code, message, retryable: false } });
+      if (agent.platform === "macos") return fail("unsupported_platform", "The SCIAT Agent cannot isolate macOS endpoints yet");
+      let args: string[];
+      if (action === "release_endpoint") args = isolationScriptArgs("release");
+      else {
+        const info = (agent.host_info ?? {}) as { platformIps?: unknown; dnsServers?: unknown };
+        const ips = (v: unknown) => (Array.isArray(v) ? v.map(String).filter(isIpOrCidr).slice(0, 16) : []);
+        const parameters: Record<string, unknown> = { ...((row.parameters as Record<string, unknown>) ?? {}) };
+        if (parameters.mode === "full" && parameters.dns === undefined) parameters.dns = ips(info.dnsServers);
+        const platform = ips(info.platformIps);
+        if (platform.length === 0) return fail("agent_not_ready", "The SCIAT Agent has not reported the platform address yet; try again after its next check-in");
+        try {
+          args = isolationScriptArgs(buildIsolationPolicy({ parameters }, platform));
+        } catch (err) {
+          if (err instanceof ResponseGuardError) return fail(err.code, err.message);
+          throw err;
+        }
+      }
+      const { rows: cmd } = await tx.query<Row>(
+        `INSERT INTO agent_commands (tenant_id, organization_id, agent_id, response_action_id, kind, args, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now() + interval '30 minutes') RETURNING id`,
+        [tenantId, agent.organization_id, agent.id, row.id, action === "release_endpoint" ? "release" : "isolate", args],
+      );
+      return {
+        status: "dispatched",
+        executor: "sciat:agent",
+        integrationId: null,
+        result: { summary: `Sent to the SCIAT Agent on ${String(agent.hostname)}; it runs at the next check-in (within a minute)`, commandId: String(cmd[0]!.id) },
+        error: null,
+      };
+    });
+  }
+
+  /** A SCIAT Agent reported the result of a dispatched command. */
+  async completeFromAgent(tenantId: string, actionId: string, ok: boolean, output: string): Promise<void> {
+    const row = await this.deps.db.withTenant(tenantId, async (tx) => (await tx.query<Row>("SELECT * FROM response_actions WHERE id = $1 AND status = 'running'", [actionId])).rows[0] ?? null);
+    if (!row) return;
+    const verb = row.action === "release_endpoint" ? "released" : "isolated";
+    const summary = ok ? `Endpoint ${verb} by the SCIAT Agent` : `The SCIAT Agent could not apply the change`;
+    await this.finish(
+      tenantId,
+      actionId,
+      { status: ok ? "succeeded" : "failed", executor: "sciat:agent", integrationId: null, result: { summary, output: output.slice(0, 4000) }, error: ok ? null : { code: "agent_failed", message: output.slice(0, 1000) || summary, retryable: true } },
+      SYSTEM_ACTOR(tenantId, "sciat-agent"),
+      row,
+    );
+  }
+
+  /** Fail actions whose agent never collected or answered the command (scheduler). */
+  async expireAgentCommands(tenantId: string): Promise<number> {
+    const ids = await this.deps.db.withTenant(tenantId, async (tx) =>
+      (
+        await tx.query<{ response_action_id: string | null }>(
+          "UPDATE agent_commands SET status = 'expired', finished_at = now() WHERE status IN ('pending', 'delivered') AND expires_at <= now() RETURNING response_action_id",
+        )
+      ).rows,
+    );
+    for (const { response_action_id: id } of ids) {
+      if (!id) continue;
+      const row = await this.deps.db.withTenant(tenantId, async (tx) => (await tx.query<Row>("SELECT * FROM response_actions WHERE id = $1 AND status = 'running'", [id])).rows[0] ?? null);
+      if (row) {
+        await this.finish(
+          tenantId,
+          id,
+          { status: "failed", executor: "sciat:agent", integrationId: null, result: {}, error: { code: "agent_unreachable", message: "The SCIAT Agent did not check in within 30 minutes; the command expired", retryable: true } },
+          SYSTEM_ACTOR(tenantId, "sciat-agent"),
+          row,
+        );
+      }
+    }
+    return ids.length;
   }
 
   private async runConnector(tenantId: string, row: Row, action: ResponseActionKey): Promise<ExecutionOutcome> {
@@ -909,6 +1003,8 @@ export class ResponseService {
     }
     const done = await this.execute(req.tenantId, id, SYSTEM_ACTOR(req.tenantId, `playbook:${req.playbook.id}`));
     if (done.status === "succeeded") return { output: done.result, externalRef: id };
+    // Handed to the endpoint's SCIAT Agent: it applies the change at its next check-in.
+    if (done.status === "running" && done.executor === "sciat:agent") return { output: done.result, externalRef: id };
     const e = (done.error as { code?: string; message?: string; retryable?: boolean } | null) ?? {};
     throw new ActionExecutionError(e.code ?? "failed", e.message ?? `action ${done.status}`, Boolean(e.retryable));
   }

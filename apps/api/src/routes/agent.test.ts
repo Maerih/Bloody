@@ -128,3 +128,86 @@ describe("SCIAT Agent", () => {
     expect((await t.app.inject({ method: "GET", url: "/api/v1/agent/files/constructor" })).statusCode).toBe(404);
   });
 });
+
+describe("SCIAT Agent isolation (agent-executed)", () => {
+  let token: string;
+  let other: string;
+  let assetId: string;
+  let approver: ReturnType<typeof api>;
+  const action = (id: string) => admin.get(`/response/actions/${id}`).then((r) => r.body);
+  const result = (tok: string, id: string, body: object) =>
+    t.app.inject({ method: "POST", url: `/api/v1/agent/commands/${id}/result`, headers: { "content-type": "application/json", authorization: `Bearer ${tok}` }, payload: JSON.stringify(body) });
+  const isolate = (mode: "lan" | "full") =>
+    admin.post("/response/actions", {
+      action: "isolate_endpoint",
+      organizationId: tenant.orgIds[1],
+      target: { kind: "asset", id: assetId, label: "ws-iso-01" },
+      parameters: { mode },
+      reason: "Ransomware spreading from this host, isolate it now",
+      emergency: true,
+    });
+  const agentRow = async () => (await t.privileged.query("SELECT status, isolation FROM agents WHERE hostname = 'ws-iso-01'")).rows[0];
+
+  beforeAll(async () => {
+    const key = (await admin.get("/agents/enrollment")).body.accountKey;
+    token = (await enroll({ accountKey: key, organizationKey: "org-2", ...host("ws-iso-01") })).json().token;
+    other = (await enroll({ accountKey: key, organizationKey: "org-2", ...host("ws-iso-02") })).json().token;
+    assetId = (await t.privileged.query("SELECT asset_id FROM agents WHERE hostname = 'ws-iso-01'")).rows[0].asset_id;
+    const a = await createUser(t, tenant.tenantId, { roles: [{ role: "incident_responder", organizationId: null }] });
+    approver = api(t.app, { token: (await login(t.app, a.email)).token });
+  });
+
+  it("refuses until the agent has reported the platform address it must keep reaching", async () => {
+    const res = await isolate("full");
+    expect(res.body).toMatchObject({ status: "failed", error: { code: "agent_not_ready" } });
+  });
+
+  it("queues isolation for the agent, delivers it once and completes when the agent reports", async () => {
+    await heartbeat(token, { ...beat("ws-iso-01"), platformIps: ["10.9.9.9"], dnsServers: ["10.0.0.53"] });
+    const res = await isolate("full");
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ status: "running", executor: "sciat:agent" });
+
+    const hb = (await heartbeat(token, beat("ws-iso-01"))).json();
+    expect(hb.commands).toHaveLength(1);
+    const cmd = hb.commands[0];
+    expect(cmd.kind).toBe("isolate");
+    expect(cmd.args.slice(0, 4)).toEqual(["isolate", "full", "allow=10.9.9.9", "dns=10.0.0.53"]);
+    expect(hb.commandLines[0]).toBe([cmd.id, ...cmd.args].join(" "));
+    expect((await heartbeat(token, beat("ws-iso-01"))).json().commands).toHaveLength(0); // delivered once
+    expect((await heartbeat(other, beat("ws-iso-02"))).json().commands).toHaveLength(0); // only for its agent
+
+    expect((await result(other, cmd.id, { status: "succeeded" })).statusCode).toBe(404);
+    expect((await result(token, cmd.id, { status: "succeeded", output: "isolated\nmode=full" })).statusCode).toBe(200);
+    expect(await action(res.body.id)).toMatchObject({ status: "succeeded", executor: "sciat:agent" });
+    expect(await agentRow()).toMatchObject({ status: "isolated", isolation: { mode: "full" } });
+    // A late duplicate report changes nothing.
+    expect((await result(token, cmd.id, { status: "failed", output: "late" })).statusCode).toBe(200);
+    expect((await action(res.body.id)).status).toBe("succeeded");
+  });
+
+  it("release (approved when the policy asks) goes to the agent; a failure on the endpoint is reported", async () => {
+    const req = await admin.post("/response/actions", {
+      action: "release_endpoint",
+      organizationId: tenant.orgIds[1],
+      target: { kind: "asset", id: assetId, label: "ws-iso-01" },
+      reason: "Host reimaged and verified clean",
+    });
+    if (req.body.status === "pending_approval") expect((await approver.post(`/response/actions/${req.body.id}/approve`, { comment: "ok" })).status).toBe(200);
+    expect((await action(req.body.id)).status).toBe("running");
+    const cmd = (await heartbeat(token, beat("ws-iso-01"))).json().commands[0];
+    expect(cmd.args).toEqual(["release"]);
+    await result(token, cmd.id, { status: "failed", output: "nft: permission denied" });
+    expect(await action(req.body.id)).toMatchObject({ status: "failed", error: { code: "agent_failed", message: "nft: permission denied" } });
+    expect((await agentRow()).status).toBe("isolated");
+  });
+
+  it("fails the action when the agent never collects the command", async () => {
+    const res = await isolate("lan");
+    expect(res.body).toMatchObject({ status: "running" }); // platform addresses kept from an earlier check-in
+    await t.privileged.query("UPDATE agent_commands SET expires_at = now() - interval '1 second' WHERE response_action_id = $1", [res.body.id]);
+    expect(await t.services.responses.expireAgentCommands(tenant.tenantId)).toBe(1);
+    expect(await action(res.body.id)).toMatchObject({ status: "failed", error: { code: "agent_unreachable" } });
+    expect((await heartbeat(token, beat("ws-iso-01"))).json().commands).toHaveLength(0);
+  });
+});

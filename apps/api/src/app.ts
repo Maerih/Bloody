@@ -252,7 +252,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     log,
     now,
   });
-  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
   const services: AppServices = {
     config,
