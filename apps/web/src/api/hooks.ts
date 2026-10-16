@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -977,6 +977,30 @@ export function useSubmitQuiz(token: string) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["learn", token] }),
   });
 }
+
+export function usePhishTemplates() {
+  return useQuery<{ items: PhishTemplate[] }, ApiError>({ queryKey: ["awareness", "phish-templates"], queryFn: ({ signal }) => api.get("/awareness/phishing/templates", { signal }), staleTime: Infinity });
+}
+export function usePhishCampaigns(organizationId: string | null) {
+  return useQuery<{ organizationId: string; canEmail: boolean; campaigns: PhishCampaign[] }, ApiError>({
+    queryKey: ["awareness", organizationId ?? "", "phishing"],
+    queryFn: ({ signal }) => api.get("/awareness/phishing/campaigns", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+  });
+}
+export const useLaunchPhish = () =>
+  useAwarenessMutation((body: PhishCampaignInput) => api.post<{ id: string; recipients: number; sent: number; failed: number }>("/awareness/phishing/campaigns", body));
+
+export interface PhishReveal {
+  organization: { name: string };
+  learner: { name: string };
+  email: { fromName: string; subject: string };
+  redFlags: string[];
+  lesson: { title: string; minutes: number } | null;
+  trainingUrl: string | null;
+}
+/** Recorded once the simulation page loads (POST), never by link scanners fetching the URL. */
+export const useRevealPhish = () => useMutation<PhishReveal, ApiError, string>({ mutationFn: (token) => api.post(`/caught/${encodeURIComponent(token)}`, {}) });
 
 // ─── Microsoft 365 hardening (ITDR) ────────────────────────────────────────
 

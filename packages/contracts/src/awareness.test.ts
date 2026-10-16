@@ -30,3 +30,19 @@ describe("security awareness lessons", () => {
     expect(AwarenessAssignmentInput.safeParse({ organizationId: org, title: "Q4 training", lessons: [] }).success).toBe(false);
   });
 });
+
+describe("phishing templates", () => {
+  it("are complete, link a known lesson and never name real brands or ask for passwords on our side", async () => {
+    const { PHISH_TEMPLATES, renderPhish, lessonByKey: lesson } = await import("./awareness.js");
+    expect(new Set(PHISH_TEMPLATES.map((t) => t.key)).size).toBe(PHISH_TEMPLATES.length);
+    for (const t of PHISH_TEMPLATES) {
+      expect(lesson(t.lesson), t.key).toBeTruthy();
+      expect(t.body, t.key).toContain("{{link}}");
+      expect(t.redFlags.length, t.key).toBeGreaterThanOrEqual(2);
+      expect(`${t.fromName} ${t.subject} ${t.body}`, t.key).not.toMatch(/microsoft|google|safaricom|m-pesa|mpesa|dhl|fedex|equity|kcb|airtel|amazon|paypal/i);
+      const r = renderPhish(t, { name: "Amina", org: "Kilimanjaro Bank", link: "https://x/caught/p_1" });
+      expect(r.text).toContain("https://x/caught/p_1");
+      expect(r.text).not.toContain("{{");
+    }
+  });
+});

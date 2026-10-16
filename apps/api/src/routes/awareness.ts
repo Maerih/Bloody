@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { AwarenessAssignmentInput, AwarenessLearnerInput, LESSONS, PASS_MARK, QuizSubmission, Uuid } from "@bloody/contracts";
+import { AwarenessAssignmentInput, AwarenessLearnerInput, LESSONS, PASS_MARK, PHISH_TEMPLATES, PhishCampaignInput, QuizSubmission, Uuid } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
 import { actorId, requireAuth, requirePermission } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
@@ -110,7 +110,48 @@ export async function awarenessRoutes(app: FastifyInstance, s: AppServices): Pro
     });
   });
 
+  // ---- Phishing simulations ----
+  app.get("/awareness/phishing/templates", { config: sat }, async (request) => {
+    requireAuth(request);
+    return { items: PHISH_TEMPLATES };
+  });
+
+  app.get("/awareness/phishing/campaigns", { config: sat }, async (request) => {
+    const auth = requireAuth(request);
+    const { organizationId } = parse(z.object({ organizationId: Uuid }), request.query);
+    requirePermission(request, "org:read", organizationId);
+    return s.db.withTenant(auth.tenantId, async (tx) => {
+      await assertOrganization(tx, organizationId);
+      return { organizationId, canEmail: s.awareness.canEmail, campaigns: await s.phishing.campaigns(tx, organizationId) };
+    });
+  });
+
+  // Launching sends real emails to the organization's people: org:write, a recorded authorization
+  // and an explicit attestation are required, and the launch is audited.
+  app.post("/awareness/phishing/campaigns", { config: { ...sat, audit: false } }, async (request, reply) => {
+    const body = parse(PhishCampaignInput, request.body);
+    const auth = requirePermission(request, "org:write", body.organizationId);
+    const result = await s.phishing.launch(auth.tenantId, body, actorId(auth));
+    await s.db.withTenant(auth.tenantId, (tx) =>
+      recordAudit(tx, request, {
+        action: "awareness.phishing_launched",
+        organizationId: body.organizationId,
+        targetKind: "phishing_campaign",
+        targetId: result.id,
+        details: { name: body.name, template: body.template, reference: body.reference, attested: true, recipients: result.recipients, sent: result.sent, failed: result.failed },
+      }),
+    );
+    return reply.code(201).send(result);
+  });
+
   // ---- Learner pages (public: the personal link is the credential) ----
+  // Simulation reveal: POST from SCIAT's page (not the email link itself), so link scanners that
+  // only fetch URLs do not count as clicks.
+  app.post("/caught/:token", { config: { public: true, audit: false, rateLimit: learnerLimit } }, async (request) => {
+    const { token } = parse(TokenParam, request.params);
+    return s.phishing.reveal(token);
+  });
+
   app.get("/learn/:token", { config: { public: true, audit: false, rateLimit: learnerLimit } }, async (request) => {
     const { token } = parse(TokenParam, request.params);
     return s.awareness.learnerView(token);

@@ -53,6 +53,7 @@ import { M365Service, systemDnsResolver } from "./services/m365.js";
 import { RmmGuardService } from "./services/rmm-guard.js";
 import { AttackReductionService } from "./services/attack-reduction.js";
 import { AwarenessMailer, AwarenessService } from "./services/awareness.js";
+import { PhishingService } from "./services/phishing.js";
 import { ExposureService, tcpProbe, type PortProbe } from "./services/external-exposure.js";
 import { NotificationService, type EmailTransport } from "./services/notifications.js";
 import { playbookTriggerHandler } from "./services/playbook-triggers.js";
@@ -265,6 +266,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   });
   const appControl = new AppControlService(now);
   const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
+  const awareness = new AwarenessService({ db, mailer: new AwarenessMailer(config.smtp, deps.emailTransport ?? null), publicUrl: config.http.publicUrl, now });
   const exposure = new ExposureService({ db, events: domainEvents, probe: deps.portProbe ?? tcpProbe, now });
   const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, exposure, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
@@ -297,7 +299,8 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     rmmGuard: new RmmGuardService(appControl),
     exposure,
     attackReduction: new AttackReductionService(),
-    awareness: new AwarenessService({ db, mailer: new AwarenessMailer(config.smtp, deps.emailTransport ?? null), publicUrl: config.http.publicUrl, now }),
+    awareness,
+    phishing: new PhishingService({ db, awareness }),
     hostInventory: new HostInventoryService(now),
     m365,
     paymentProviders,

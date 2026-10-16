@@ -29,6 +29,7 @@ import {
   Earth,
   FileSearch,
   FileText,
+  Fish,
   Fingerprint,
   FlaskConical,
   FolderLock,
@@ -478,6 +479,7 @@ export const RAIL_MODULES: RailModule[] = [
     items: [
       { label: "Training Overview", path: "/awareness", icon: ChartLine },
       { label: "Learners", path: "/awareness/learners", icon: Users, description: "The organization's people who receive training" },
+      { label: "Phishing Simulations", path: "/awareness/phishing", icon: Fish, description: "Safe test emails, click tracking and follow-up training" },
       { label: "Lesson Library", path: "/awareness/lessons", icon: BookOpen, description: "SCIAT lessons and quizzes" },
     ],
   },

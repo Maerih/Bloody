@@ -1,9 +1,9 @@
-import { LESSONS } from "@bloody/contracts";
+import { LESSONS, PHISH_TEMPLATES } from "@bloody/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ORG_A } from "../../test/fixtures";
 import { mockApi, renderApp, renderWithSession } from "../../test/utils";
-import { AwarenessOverviewSection } from "./AwarenessPage";
+import { AwarenessOverviewSection, AwarenessPhishingSection } from "./AwarenessPage";
 
 const NOW = new Date().toISOString();
 const lessons = { passMark: 75, items: LESSONS.map(({ key, title, minutes, summary, quiz }) => ({ key, title, minutes, summary, questions: quiz.length })) };
@@ -77,5 +77,48 @@ describe("learner page (public)", () => {
     mockApi({ "/learn/l_old": { status: 404, body: { error: { code: "not_found", message: "Training link not found" } } } });
     renderApp("/learn/l_old");
     expect(await screen.findByText("This training link does not work")).toBeInTheDocument();
+  });
+});
+
+describe("phishing simulations", () => {
+  it("previews the template and only sends after the authorization is attested", async () => {
+    const { calls } = mockApi({
+      "/awareness/phishing/campaigns": { organizationId: ORG_A, canEmail: true, campaigns: [] },
+      "/awareness/phishing/templates": { items: PHISH_TEMPLATES },
+      "/awareness/overview": overview,
+      "POST /awareness/phishing/campaigns": { id: "pc1", recipients: 2, sent: 2, failed: 0 },
+    });
+    renderWithSession(<AwarenessPhishingSection />);
+    fireEvent.click(await screen.findByRole("button", { name: "New simulation" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Action required: your mailbox is 98% full")).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Campaign name"), { target: { value: "Q4 mailbox test" } });
+    fireEvent.change(within(dialog).getByLabelText("Authorization reference"), { target: { value: "MSA-2026-014 §6" } });
+    const send = within(dialog).getByRole("button", { name: "Send to 2 people now" });
+    expect(send).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /I confirm the organization has authorized/ }));
+    fireEvent.click(send);
+    await waitFor(() =>
+      expect(calls.find((c) => c.method === "POST")?.body).toEqual({ organizationId: ORG_A, name: "Q4 mailbox test", template: "mailbox_full", autoAssign: true, reference: "MSA-2026-014 §6", attest: true }),
+    );
+    expect(await within(dialog).findByRole("status")).toHaveTextContent("Sent to 2 of 2");
+  });
+
+  it("the reveal page records the click by POST and explains the red flags", async () => {
+    const { calls } = mockApi({
+      "POST /caught/p_tok": {
+        organization: { name: "Kilimanjaro Bank" },
+        learner: { name: "Amina Mushi" },
+        email: { fromName: "IT Service Desk", subject: "Action required: your mailbox is 98% full" },
+        redFlags: PHISH_TEMPLATES[0]!.redFlags,
+        lesson: { title: "Spotting phishing emails and messages", minutes: 6 },
+        trainingUrl: "https://sciat.example/learn/l_x",
+      },
+    });
+    renderApp("/caught/p_tok");
+    expect(await screen.findByText("This was a phishing simulation")).toBeInTheDocument();
+    expect(screen.getByText(PHISH_TEMPLATES[0]!.redFlags[0]!)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Take the 6-minute lesson/ })).toHaveAttribute("href", "https://sciat.example/learn/l_x");
+    expect(calls.some((c) => c.method === "POST")).toBe(true);
   });
 });

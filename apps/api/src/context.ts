@@ -9,6 +9,7 @@ import type { RmmGuardService } from "./services/rmm-guard.js";
 import type { ExposureService } from "./services/external-exposure.js";
 import type { AttackReductionService } from "./services/attack-reduction.js";
 import type { AwarenessService } from "./services/awareness.js";
+import type { PhishingService } from "./services/phishing.js";
 import type { PaymentProvider } from "./billing/providers.js";
 import type { AttackPathEngine, RiskEngine } from "@bloody/engines";
 import type { ExternalAuthProvider } from "./auth/oidc.js";
@@ -76,6 +77,7 @@ export interface AppServices {
   exposure: ExposureService;
   attackReduction: AttackReductionService;
   awareness: AwarenessService;
+  phishing: PhishingService;
   /** Payment gateways the operator configured (bank transfer when bank details are set). */
   paymentProviders: Map<PaymentProviderKey, PaymentProvider>;
   intel: IntelService;

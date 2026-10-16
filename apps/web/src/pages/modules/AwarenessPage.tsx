@@ -1,5 +1,5 @@
-import type { AwarenessAssignment, AwarenessEnrolment, AwarenessLearner } from "@bloody/contracts";
-import { BookOpen, Clock, Link2, Mail, Plus, Trash2, UserPlus, Users } from "lucide-react";
+import { renderPhish, type AwarenessAssignment, type AwarenessEnrolment, type AwarenessLearner, type PhishCampaign, type PhishTarget } from "@bloody/contracts";
+import { BookOpen, Clock, Fish, Link2, Mail, Plus, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
 import { errorMessage } from "../../api/client";
 import {
@@ -8,13 +8,16 @@ import {
   useAwarenessOverview,
   useCreateAssignment,
   useImportLearners,
+  useLaunchPhish,
+  usePhishCampaigns,
+  usePhishTemplates,
   useLearnerLink,
   useRemoveLearner,
   useSendInvitations,
   type AwarenessOverview,
 } from "../../api/hooks";
 import { useSession } from "../../app/session";
-import { Badge, Button, Card, CopyButton, DataTable, Dialog, Drawer, EmptyState, ErrorState, Field, Input, OrganizationSelect, RelativeTime, StatTile, useDefaultOrganization, type DataTableColumn } from "../../components";
+import { Badge, Button, Card, Checkbox, CopyButton, DataTable, Dialog, Drawer, EmptyState, ErrorState, Field, Input, OrganizationSelect, RelativeTime, Select, StatTile, useDefaultOrganization, type DataTableColumn } from "../../components";
 import { ModuleWorkspace } from "../../features/modules/ModuleWorkspace";
 
 type Links = Array<{ enrolmentId: string; name: string; email: string; url: string }>;
@@ -361,6 +364,163 @@ function Learners() {
   );
 }
 
+function LaunchPhishDialog({ organizationId, learners, onClose }: { organizationId: string; learners: number; onClose: () => void }) {
+  const templates = usePhishTemplates();
+  const launch = useLaunchPhish();
+  const [name, setName] = useState("");
+  const [template, setTemplate] = useState("mailbox_full");
+  const [autoAssign, setAutoAssign] = useState(true);
+  const [reference, setReference] = useState("");
+  const [attest, setAttest] = useState(false);
+  const t = templates.data?.items.find((x) => x.key === template);
+  const preview = t ? renderPhish(t, { name: "Amina Mushi", org: "the organization", link: "https://…/caught/(personal link)" }) : null;
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      size="lg"
+      title="New phishing simulation"
+      description="A safe test email that teaches people to spot phishing. The link only opens a SCIAT page explaining it was a simulation; nothing is collected."
+      footer={
+        launch.data ? (
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        ) : (
+          <>
+            {launch.error ? (
+              <span role="alert" className="mr-auto text-sm text-sev-critical">
+                {errorMessage(launch.error)}
+              </span>
+            ) : null}
+            <Button variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              icon={Mail}
+              loading={launch.isPending}
+              disabled={!attest || name.trim().length < 3 || reference.trim().length < 3}
+              onClick={() => launch.mutate({ organizationId, name: name.trim(), template, autoAssign, reference: reference.trim(), attest: true })}
+            >
+              Send to {learners} {learners === 1 ? "person" : "people"} now
+            </Button>
+          </>
+        )
+      }
+    >
+      {launch.data ? (
+        <p role="status" className="text-sm">
+          Sent to {launch.data.sent} of {launch.data.recipients}
+          {launch.data.failed ? ` (${launch.data.failed} failed: see the campaign)` : ""}. Clicks appear on the campaign as people open the link.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Campaign name">{(f) => <Input {...f} value={name} onChange={(e) => setName(e.target.value)} placeholder="Q4 mailbox test" maxLength={200} />}</Field>
+            <Field label="Template">
+              {(f) => (
+                <Select {...f} value={template} onChange={(e) => setTemplate(e.target.value)}>
+                  {(templates.data?.items ?? []).map((x) => (
+                    <option key={x.key} value={x.key}>
+                      {x.name} ({x.difficulty})
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          </div>
+          {preview && t ? (
+            <div className="rounded border border-line bg-canvas p-3 text-sm" aria-label="Email preview">
+              <div className="text-xs text-fg-muted">
+                From: <span className="font-medium text-fg">{t.fromName}</span> (the platform's sending address) · Subject: <span className="font-medium text-fg">{preview.subject}</span>
+              </div>
+              <pre className="mt-2 whitespace-pre-wrap font-sans">{preview.text}</pre>
+            </div>
+          ) : null}
+          <Checkbox checked={autoAssign} onChange={(e) => setAutoAssign(e.target.checked)} label="Enrol people who click in the matching lesson straight away" />
+          <Field label="Authorization reference" hint="What allows this test, e.g. the contract clause or written approval from the organization.">
+            {(f) => <Input {...f} value={reference} onChange={(e) => setReference(e.target.value)} maxLength={500} />}
+          </Field>
+          <Checkbox
+            checked={attest}
+            onChange={(e) => setAttest(e.target.checked)}
+            label={`I confirm the organization has authorized phishing simulations for these ${learners} people, and that its mail filters allow emails marked X-SCIAT-Simulation.`}
+          />
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+function CampaignDrawer({ campaign, templateName, onClose }: { campaign: PhishCampaign; templateName: string; onClose: () => void }) {
+  const columns: DataTableColumn<PhishTarget>[] = [
+    { id: "name", header: "Person", accessor: (x) => x.learnerName, hideable: false, cell: (x) => <div><div className="font-medium">{x.learnerName}</div><div className="text-xs text-fg-muted">{x.learnerEmail}</div></div> },
+    { id: "sent", header: "Sent", accessor: (x) => (x.sentAt ? new Date(x.sentAt) : null), cell: (x) => (x.sentAt ? <RelativeTime value={x.sentAt} /> : x.sendError ? <span className="text-sev-critical" title={x.sendError}>failed</span> : "—") },
+    { id: "clicked", header: "Clicked", accessor: (x) => (x.clickedAt ? "clicked" : "no"), cell: (x) => (x.clickedAt ? <Badge size="xs" tone="danger">Clicked <RelativeTime value={x.clickedAt} /></Badge> : <Badge size="xs" tone="success">Did not click</Badge>) },
+  ];
+  return (
+    <Drawer open onClose={onClose} title={campaign.name} subtitle={`${templateName} · authorized by ${campaign.reference}`}>
+      <div className="p-4">
+        <DataTable caption="People in this simulation" columns={columns} rows={campaign.targets} getRowId={(x) => x.id} searchable exportFileName="phishing-simulation" />
+      </div>
+    </Drawer>
+  );
+}
+
+function Phishing() {
+  const session = useSession();
+  const [organizationId, setOrganizationId] = useOrg();
+  const data = usePhishCampaigns(organizationId);
+  const overview = useAwarenessOverview(organizationId);
+  const templates = usePhishTemplates();
+  const [launching, setLaunching] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
+  const canWrite = organizationId ? session.can("org:write", organizationId) : false;
+  const learners = overview.data?.summary.learners ?? 0;
+  const tName = (k: string) => templates.data?.items.find((x) => x.key === k)?.name ?? k;
+  const rate = (c: PhishCampaign) => {
+    const sent = c.targets.filter((x) => x.sentAt).length;
+    return sent ? Math.round((c.targets.filter((x) => x.clickedAt).length / sent) * 100) : null;
+  };
+  const columns: DataTableColumn<PhishCampaign>[] = [
+    { id: "name", header: "Simulation", accessor: (c) => c.name, hideable: false, cell: (c) => <div><div className="font-medium">{c.name}</div><div className="text-xs text-fg-muted">{tName(c.template)}</div></div> },
+    { id: "sent", header: "Sent", align: "right", accessor: (c) => c.targets.filter((x) => x.sentAt).length },
+    { id: "clicked", header: "Clicked", align: "right", accessor: (c) => c.targets.filter((x) => x.clickedAt).length },
+    { id: "rate", header: "Click rate", align: "right", accessor: (c) => rate(c), cell: (c) => { const r = rate(c); return r === null ? "—" : <span className={r > 20 ? "font-semibold text-sev-critical" : r > 5 ? "font-semibold text-sev-medium" : "font-semibold text-healthy"}>{r}%</span>; } },
+    { id: "launched", header: "Sent on", accessor: (c) => new Date(c.launchedAt), cell: (c) => <RelativeTime value={c.launchedAt} /> },
+  ];
+  const campaign = open ? data.data?.campaigns.find((c) => c.id === open) : undefined;
+  return (
+    <div className="space-y-4">
+      <Card title="Phishing simulations">
+        <div className="space-y-3">
+          <p className="max-w-3xl text-sm text-fg-muted">
+            Realistic but harmless test emails from generic senders (never a real brand), sent from the platform's own address and marked with an <code>X-SCIAT-Simulation</code> header. Anyone who clicks sees what they missed and can be enrolled in the matching lesson.
+          </p>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <OrgPicker value={organizationId} onChange={setOrganizationId} />
+            {canWrite && data.data ? (
+              <Button variant="primary" icon={Fish} disabled={!data.data.canEmail || learners === 0} onClick={() => setLaunching(true)}>
+                New simulation
+              </Button>
+            ) : null}
+          </div>
+          {data.data && !data.data.canEmail ? <p className="text-sm text-fg-muted">Phishing simulations need the platform's SMTP relay (SMTP_HOST) to be configured.</p> : null}
+          {data.isError ? <ErrorState compact error={data.error} onRetry={() => void data.refetch()} /> : null}
+          {organizationId ? (
+            <DataTable caption="Phishing simulations" columns={columns} rows={data.data?.campaigns} loading={data.isPending} getRowId={(c) => c.id} onRowClick={(c) => setOpen(c.id)} emptyState={<EmptyState compact icon={ShieldCheck} title="No simulations yet" />} />
+          ) : (
+            <EmptyState compact title="Pick an organization" />
+          )}
+        </div>
+      </Card>
+      {launching && organizationId ? <LaunchPhishDialog organizationId={organizationId} learners={learners} onClose={() => setLaunching(false)} /> : null}
+      {campaign ? <CampaignDrawer campaign={campaign} templateName={tName(campaign.template)} onClose={() => setOpen(null)} /> : null}
+    </div>
+  );
+}
+
 function Lessons() {
   const lessons = useAwarenessLessons();
   return (
@@ -379,8 +539,8 @@ function Lessons() {
 
 /** Security Awareness Training workspace: assignments, learners, lesson library. */
 export default function AwarenessPage() {
-  return <ModuleWorkspace moduleId="sat" sections={{ "": () => <Overview />, learners: () => <Learners />, lessons: () => <Lessons /> }} />;
+  return <ModuleWorkspace moduleId="sat" sections={{ "": () => <Overview />, learners: () => <Learners />, phishing: () => <Phishing />, lessons: () => <Lessons /> }} />;
 }
 
 // Re-exported for tests.
-export { Overview as AwarenessOverviewSection, Learners as AwarenessLearnersSection };
+export { Overview as AwarenessOverviewSection, Learners as AwarenessLearnersSection, Phishing as AwarenessPhishingSection };

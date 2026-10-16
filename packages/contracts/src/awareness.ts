@@ -339,3 +339,142 @@ export interface AwarenessAssignment {
   createdAt: string;
   enrolments: AwarenessEnrolment[];
 }
+
+// ─── Phishing simulations ──────────────────────────────────────────────────
+
+/**
+ * Simulated phishing emails. Senders are generic roles, never real brands or domains; mail is sent
+ * from the platform's own address with an X-SCIAT-Simulation header so gateways can allowlist it.
+ * The link only ever opens SCIAT's "this was a simulation" page; nothing asks for a password.
+ * Placeholders: {{name}}, {{org}}, {{link}}.
+ */
+export interface PhishTemplate {
+  key: string;
+  name: string;
+  difficulty: "easy" | "medium" | "hard";
+  fromName: string;
+  subject: string;
+  body: string;
+  /** Lesson assigned to people who click (when the campaign asks for it). */
+  lesson: string;
+  /** What the learner should have noticed, shown on the reveal page. */
+  redFlags: string[];
+}
+
+export const PHISH_TEMPLATES: PhishTemplate[] = [
+  {
+    key: "mailbox_full",
+    name: "Mailbox almost full",
+    difficulty: "easy",
+    fromName: "IT Service Desk",
+    subject: "Action required: your mailbox is 98% full",
+    body: "Dear {{name}},\n\nYour mailbox has reached 98% of its storage limit. New messages will be rejected within 24 hours.\n\nTo keep receiving email, verify your account and request more storage here:\n{{link}}\n\nIT Service Desk",
+    lesson: "phishing",
+    redFlags: ["Pressure: messages “rejected within 24 hours”.", "Generic sender “IT Service Desk” from an address that is not your IT team's.", "A link to “verify your account”: real storage warnings never ask you to sign in from a link."],
+  },
+  {
+    key: "parcel",
+    name: "Failed parcel delivery",
+    difficulty: "easy",
+    fromName: "Delivery Notifications",
+    subject: "We could not deliver your parcel today",
+    body: "Hello {{name}},\n\nOur courier attempted to deliver a parcel to your office today but nobody was available to sign.\n\nPlease choose a new delivery slot within 48 hours, otherwise the parcel will be returned to the sender:\n{{link}}\n\nThank you,\nDelivery Notifications",
+    lesson: "phishing",
+    redFlags: ["You were not expecting a parcel, and no courier name or tracking number is given.", "A deadline to make you act before thinking.", "The link goes to an unknown site rather than a courier you know."],
+  },
+  {
+    key: "invoice_overdue",
+    name: "Overdue invoice",
+    difficulty: "medium",
+    fromName: "Accounts Receivable",
+    subject: "Overdue invoice INV-20419 – final reminder",
+    body: "Dear {{name}},\n\nOur records show invoice INV-20419 for services delivered to {{org}} is now 30 days overdue. Late-payment charges apply from tomorrow.\n\nPlease review the invoice and remittance details here:\n{{link}}\n\nRegards,\nAccounts Receivable",
+    lesson: "payment_fraud",
+    redFlags: ["An invoice you cannot match to a real supplier or order.", "Threat of late charges to rush you.", "Payment details reached through a link instead of your finance process."],
+  },
+  {
+    key: "bank_details",
+    name: "Supplier bank details changed",
+    difficulty: "hard",
+    fromName: "Supplier Accounts",
+    subject: "Updated remittance details for future payments",
+    body: "Good morning {{name}},\n\nPlease note that, following our annual audit, our company bank account has changed with immediate effect. All payments for open invoices should go to the new account.\n\nThe signed letter with the new details is here:\n{{link}}\n\nKind regards,\nSupplier Accounts",
+    lesson: "payment_fraud",
+    redFlags: ["A change of bank details announced by email.", "“With immediate effect”: urgency on a payment change.", "Bank changes must always be confirmed by phone on a number you already have."],
+  },
+  {
+    key: "password_expiry",
+    name: "Password expires today",
+    difficulty: "medium",
+    fromName: "IT Security",
+    subject: "Your password expires today",
+    body: "Hi {{name}},\n\nYour network password expires at 17:00 today. To avoid being locked out, keep your current password using the secure link below:\n{{link}}\n\nIT Security Team",
+    lesson: "passwords_mfa",
+    redFlags: ["A deadline the same day.", "“Keep your current password” through a link: real password changes happen in Windows or your company portal.", "IT never asks you to sign in from an email link."],
+  },
+  {
+    key: "leave_policy",
+    name: "Updated leave policy",
+    difficulty: "hard",
+    fromName: "Human Resources",
+    subject: "Updated leave policy – acknowledgement required by Friday",
+    body: "Dear {{name}},\n\nThe leave and public-holiday policy for {{org}} has been updated for next year. All staff must read and acknowledge the new policy by Friday.\n\nOpen the policy document:\n{{link}}\n\nHuman Resources",
+    lesson: "phishing",
+    redFlags: ["An internal-sounding sender from an external address.", "A document link instead of the usual HR system or intranet.", "Plausible and boring on purpose: the hardest phishing looks routine."],
+  },
+  {
+    key: "mobile_money_bonus",
+    name: "Mobile-money cash bonus",
+    difficulty: "easy",
+    fromName: "Mobile Money Rewards",
+    subject: "Congratulations! A cash bonus is waiting for you",
+    body: "Dear customer,\n\nYou have been selected to receive a loyalty cash bonus to your mobile-money wallet. Confirm your number and PIN within 12 hours to receive it:\n{{link}}\n\nMobile Money Rewards",
+    lesson: "sim_swap",
+    redFlags: ["Free money you did not expect.", "A request for your PIN: no provider ever asks for it.", "“Dear customer” and a short deadline."],
+  },
+];
+
+export function phishTemplate(key: string): PhishTemplate | undefined {
+  return PHISH_TEMPLATES.find((t) => t.key === key);
+}
+
+export function renderPhish(t: PhishTemplate, vars: { name: string; org: string; link: string }): { subject: string; text: string } {
+  const fill = (s: string) => s.replaceAll("{{name}}", vars.name).replaceAll("{{org}}", vars.org).replaceAll("{{link}}", vars.link);
+  return { subject: fill(t.subject), text: fill(t.body) };
+}
+
+export const PhishCampaignInput = z
+  .object({
+    organizationId: z.string().uuid(),
+    name: z.string().trim().min(3).max(200),
+    template: z.string().refine((k) => !!phishTemplate(k), "Unknown template"),
+    learnerIds: z.array(z.string().uuid()).max(5000).optional(),
+    /** Assign the template's lesson to everyone who clicks. */
+    autoAssign: z.boolean().default(true),
+    /** What authorizes this simulation (contract clause, written approval). */
+    reference: z.string().trim().min(3).max(500),
+    /** The person launching confirms the organization authorized phishing tests of these people. */
+    attest: z.literal(true),
+  })
+  .strict();
+export type PhishCampaignInput = z.infer<typeof PhishCampaignInput>;
+
+export interface PhishTarget {
+  id: string;
+  learnerName: string;
+  learnerEmail: string;
+  sentAt: string | null;
+  sendError: string | null;
+  clickedAt: string | null;
+}
+
+export interface PhishCampaign {
+  id: string;
+  name: string;
+  template: string;
+  autoAssign: boolean;
+  reference: string;
+  launchedAt: string;
+  launchedBy: string | null;
+  targets: PhishTarget[];
+}
