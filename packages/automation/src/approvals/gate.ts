@@ -188,14 +188,20 @@ export class ApprovalGate {
     return out;
   }
 
-  /** Can this principal decide this request? Explains why not (for disabling UI buttons). */
-  canDecide(principal: Principal, request: ApprovalRequest): { allowed: true } | { allowed: false; code: ApprovalErrorCode; reason: string } {
+  /**
+   * Can this principal decide this request? Explains why not (for disabling UI buttons).
+   * `soleApprover`: the caller established that nobody else can approve this organization's
+   * actions, so a user may approve their own request (four-eyes is impossible with one person);
+   * rejecting / withdrawing is always allowed to them through cancel.
+   */
+  canDecide(principal: Principal, request: ApprovalRequest, opts: { soleApprover?: boolean } = {}): { allowed: true } | { allowed: false; code: ApprovalErrorCode; reason: string } {
     if (principal.tenantId !== request.tenantId) return { allowed: false, code: "not_found", reason: "approval request not found" };
     if (principal.kind !== "user") return { allowed: false, code: "forbidden", reason: "only human users can approve or reject actions" };
     if (!principalCan(principal, "response:approve", request.organizationId)) {
       return { allowed: false, code: "forbidden", reason: "missing permission response:approve for this organization" };
     }
-    if (principal.id === request.requestedBy.id || (request.requestedBy.onBehalfOf !== undefined && principal.id === request.requestedBy.onBehalfOf)) {
+    const own = principal.id === request.requestedBy.id || (request.requestedBy.onBehalfOf !== undefined && principal.id === request.requestedBy.onBehalfOf);
+    if (own && !(opts.soleApprover && request.requestedBy.kind === "user")) {
       return { allowed: false, code: "self_approval", reason: "the requester cannot decide their own request" };
     }
     if (request.approvals.some((a) => a.principalId === principal.id)) {
@@ -206,8 +212,8 @@ export class ApprovalGate {
     return { allowed: true };
   }
 
-  async approve(tenantId: string, id: string, principal: Principal, comment?: string): Promise<ApprovalRequest> {
-    return this.decide(tenantId, id, principal, "approve", comment);
+  async approve(tenantId: string, id: string, principal: Principal, comment?: string, opts: { soleApprover?: boolean } = {}): Promise<ApprovalRequest> {
+    return this.decide(tenantId, id, principal, "approve", comment, opts);
   }
 
   async reject(tenantId: string, id: string, principal: Principal, comment?: string): Promise<ApprovalRequest> {
@@ -258,7 +264,7 @@ export class ApprovalGate {
     return next;
   }
 
-  private async decide(tenantId: string, id: string, principal: Principal, decision: "approve" | "reject", comment?: string): Promise<ApprovalRequest> {
+  private async decide(tenantId: string, id: string, principal: Principal, decision: "approve" | "reject", comment?: string, opts: { soleApprover?: boolean } = {}): Promise<ApprovalRequest> {
     const cleanComment = comment?.trim() ? comment.trim().slice(0, 2000) : null;
     for (let attempt = 0; attempt < 3; attempt++) {
       const cur = await this.store.get(tenantId, id);
@@ -268,7 +274,7 @@ export class ApprovalGate {
         await this.denied(cur, principal, decision, "expired", "approval request has expired");
         throw new ApprovalError("expired", "approval request has expired");
       }
-      const check = this.canDecide(principal, cur);
+      const check = this.canDecide(principal, cur, decision === "approve" ? opts : {});
       if (!check.allowed) {
         await this.denied(cur, principal, decision, check.code, check.reason);
         throw new ApprovalError(check.code, check.reason);

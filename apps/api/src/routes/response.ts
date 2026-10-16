@@ -8,7 +8,7 @@ import type { AppServices } from "../context.js";
 import { badRequest, forbidden, notFound } from "../http/errors.js";
 import { IdParam, Limit, csvOf, decodeCursor } from "../http/params.js";
 import type { Row } from "../repo/mappers.js";
-import { toResponseAction } from "../services/response.js";
+import { SELF_APPROVAL_REASON_MIN, toResponseAction } from "../services/response.js";
 import { keysetClause, orderBy, pageRows, parse, type KeysetSort } from "./util.js";
 
 const RequestBody = z
@@ -173,6 +173,16 @@ export async function responseRoutes(app: FastifyInstance, s: AppServices): Prom
     assertRecordAccess(request, "incident:read", view.organizationId, "Response action");
     const approval = view.approvalId ? await s.approvals.get(auth.tenantId, view.approvalId) : null;
     return { ...view, approval: approval ? approvalView(approval, s.approvals.canDecide(auth.principal, approval)) : null };
+  });
+
+  // Whether anyone besides the caller can approve this organization's actions (UI: offer the
+  // sole-approver path instead of a dead "requested by you").
+  app.get("/response/approvers", { config: soar }, async (request) => {
+    const auth = requireAuth(request);
+    const q = parse(z.object({ organizationId: Uuid }), request.query);
+    requirePermission(request, "response:request", q.organizationId);
+    const others = await s.responses.otherApprovers(auth.tenantId, q.organizationId, auth.principal.id);
+    return { others, selfApprovalAllowed: others === 0 && auth.principal.kind === "user", minJustification: SELF_APPROVAL_REASON_MIN };
   });
 
   for (const decision of ["approve", "reject"] as const) {

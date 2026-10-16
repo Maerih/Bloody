@@ -740,3 +740,13 @@ export function useRegenerateAccountKey() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.agentEnrollment }),
   });
 }
+
+/** Whether anyone besides the caller can approve this organization's response actions. */
+export function useApprovers(organizationId: string | null | undefined, options: { enabled?: boolean } = {}) {
+  return useQuery<{ others: number; selfApprovalAllowed: boolean; minJustification: number }, ApiError>({
+    queryKey: ["response", "approvers", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/response/approvers", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: (options.enabled ?? true) && Boolean(organizationId),
+    staleTime: 60_000,
+  });
+}

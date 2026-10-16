@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   RESPONSE_ACTIONS,
+  ROLE_PERMISSIONS,
   actionRisk,
+  type RoleKey,
   type ActionRisk,
   type Principal,
   type ResponseActionKey,
@@ -168,6 +170,9 @@ export function approvalHttpError(err: unknown): unknown {
       return new HttpError(400, "invalid_request", err.message);
   }
 }
+
+/** Minimum justification when the only approver approves their own request. */
+export const SELF_APPROVAL_REASON_MIN = 20;
 
 interface ExecutionOutcome {
   /** "dispatched": handed to a SCIAT Agent; the action stays running until the agent reports. */
@@ -431,14 +436,50 @@ export class ResponseService {
     if (row.requested_via === "ai" && row.ai_action_id && this.aiDecider) {
       await this.aiDecider(principal, String(row.ai_action_id), decision, comment);
     } else {
+      // Four-eyes needs two people: an account with a single approver may approve its own user
+      // request, with a written justification, recorded as a self-approval.
+      const own = decision === "approve" && row.requested_via === "user" && String(row.requested_by) === principal.id;
+      const sole = own && (await this.otherApprovers(principal.tenantId, String(row.organization_id), principal.id)) === 0;
+      if (sole && (comment?.trim().length ?? 0) < SELF_APPROVAL_REASON_MIN) {
+        throw new HttpError(400, "justification_required", `You are the only approver: explain why in at least ${SELF_APPROVAL_REASON_MIN} characters`);
+      }
       try {
-        if (decision === "approve") await this.deps.gate.approve(principal.tenantId, String(row.approval_id), principal, comment);
+        if (decision === "approve") await this.deps.gate.approve(principal.tenantId, String(row.approval_id), principal, comment, { soleApprover: sole });
         else await this.deps.gate.reject(principal.tenantId, String(row.approval_id), principal, comment);
       } catch (err) {
         throw approvalHttpError(err);
       }
+      if (sole) {
+        await this.deps.db.withTenant(principal.tenantId, (tx) =>
+          writeAudit(tx, { tenantId: principal.tenantId, actorKind: "user", actorId: principal.id, actorLabel: principal.displayName ?? null, ip: null, userAgent: null, requestId: null }, {
+            action: "response.self_approved",
+            organizationId: String(row.organization_id),
+            targetKind: "response_action",
+            targetId: id,
+            outcome: "success",
+            details: { reason: "no other approver for this organization", comment: comment?.trim() ?? null, action: row.action },
+          }),
+        );
+      }
     }
     return this.get(principal.tenantId, id);
+  }
+
+  /** Other active users who may approve response actions for the organization. */
+  async otherApprovers(tenantId: string, organizationId: string, excludeUserId: string): Promise<number> {
+    const roles = (Object.keys(ROLE_PERMISSIONS) as RoleKey[]).filter((r) => ROLE_PERMISSIONS[r].includes("response:approve"));
+    return this.deps.db.withTenant(tenantId, async (tx) => {
+      const { rows } = await tx.query<{ n: number }>(
+        `SELECT count(DISTINCT u.id)::int AS n FROM users u
+          WHERE u.status = 'active' AND u.id::text <> $1
+            AND EXISTS (SELECT 1 FROM role_bindings b
+                         WHERE b.role = ANY($2::text[]) AND (b.organization_id IS NULL OR b.organization_id = $3)
+                           AND ((b.principal_kind = 'user' AND b.principal_id = u.id)
+                             OR (b.principal_kind = 'team' AND b.principal_id IN (SELECT team_id FROM team_members WHERE user_id = u.id))))`,
+        [excludeUserId, roles, organizationId],
+      );
+      return rows[0]?.n ?? 0;
+    });
   }
 
   /** Decide an approval request directly (unified approvals queue: response, playbook and AI). */
@@ -646,7 +687,7 @@ export class ResponseService {
         const parameters: Record<string, unknown> = { ...((row.parameters as Record<string, unknown>) ?? {}) };
         if (parameters.mode === "full" && parameters.dns === undefined) parameters.dns = ips(info.dnsServers);
         const platform = ips(info.platformIps);
-        if (platform.length === 0) return fail("agent_not_ready", "The SCIAT Agent has not reported the platform address yet; try again after its next check-in");
+        if (platform.length === 0) return fail("agent_not_ready", `The SCIAT Agent on ${String(agent.hostname)} has not reported this platform's address yet. Wait a minute for its next check-in; if this persists the agent is an older version that cannot isolate — reinstall it from Download Agent.`);
         try {
           args = isolationScriptArgs(buildIsolationPolicy({ parameters }, platform));
         } catch (err) {

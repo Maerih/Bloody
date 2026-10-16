@@ -292,6 +292,6 @@ export function resultMessage(data: { status?: string; emergency?: boolean; exec
   const review = data.emergency ? " A second responder must review it." : "";
   if (data.status === "running" && data.executor === "sciat:agent") return `Sent to the SCIAT Agent — it applies the change at its next check-in (within a minute).${review}`;
   if (data.emergency) return `Done — executed as an emergency.${review}`;
-  if (data.status === "pending_approval") return "Submitted — waiting in the approval queue.";
+  if (data.status === "pending_approval") return "Submitted — waiting in the approval queue (SOAR → Approvals, or Approve on the agent's row).";
   return "Action submitted.";
 }

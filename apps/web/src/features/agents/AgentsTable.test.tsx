@@ -1,7 +1,7 @@
 import type { Agent } from "@bloody/contracts";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { makeMe, ORG_A, TENANT_ID } from "../../test/fixtures";
+import { makeMe, ORG_A, TENANT_ID, USER_ID } from "../../test/fixtures";
 import { mockApi, renderWithSession } from "../../test/utils";
 import { AgentsTable } from "./AgentsTable";
 
@@ -91,5 +91,63 @@ describe("Agent isolation", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Isolate" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).queryByRole("checkbox", { name: /Emergency/ })).toBeNull();
+  });
+});
+
+describe("Containment requests on the agents table", () => {
+  const record = (overrides: Record<string, unknown> = {}) => ({
+    id: "00000000-0000-4000-8000-0000000000f9",
+    tenantId: TENANT_ID,
+    organizationId: ORG_A,
+    incidentId: null,
+    action: "isolate_endpoint",
+    target: { kind: "asset", id: ASSET_ID, label: "ws-sales-03" },
+    parameters: { mode: "full" },
+    reason: "Beaconing to C2",
+    status: "pending_approval",
+    requestedBy: USER_ID,
+    requestedVia: "user",
+    approvedBy: null,
+    executor: null,
+    result: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...overrides,
+  });
+
+  it("shows a waiting request and lets the only approver approve it with a justification", async () => {
+    const { calls } = mockApi({
+      "/agents": { items: [agent()], nextCursor: null },
+      "/response/actions": { items: [record()], nextCursor: null },
+      "/response/approvers": { others: 0, selfApprovalAllowed: true, minJustification: 20 },
+      "POST /response/actions/00000000-0000-4000-8000-0000000000f9/approve": record({ status: "running", executor: "sciat:agent" }),
+    });
+    renderWithSession(<AgentsTable />);
+    expect(await screen.findByText("Isolation awaiting approval")).toBeInTheDocument();
+    expect(screen.getByText("Request in progress")).toBeInTheDocument(); // no second Isolate while one is pending
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/only approver for this organization/)).toBeInTheDocument();
+    const go = within(dialog).getByRole("button", { name: /Approve & execute/ });
+    expect(go).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText(/Justification/), { target: { value: "Only analyst on duty tonight" } });
+    fireEvent.click(go);
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/approve"))).toBe(true));
+    expect(await within(dialog).findByText(/sent to the SCIAT Agent/)).toBeInTheDocument();
+  });
+
+  it("points the requester to another approver when four-eyes applies, and shows failures", async () => {
+    mockApi({
+      "/agents": { items: [agent(), agent({ id: "00000000-0000-4000-8000-0000000000e2", assetId: "00000000-0000-4000-8000-0000000000d2", hostname: "ws-02" })], nextCursor: null },
+      "/response/actions": {
+        items: [record(), record({ id: "00000000-0000-4000-8000-0000000000fa", target: { kind: "asset", id: "00000000-0000-4000-8000-0000000000d2" }, status: "failed", error: { code: "no_connector", message: "No enabled integration can perform isolate_endpoint" } })],
+        nextCursor: null,
+      },
+      "/response/approvers": { others: 2, selfApprovalAllowed: false, minJustification: 20 },
+    });
+    renderWithSession(<AgentsTable />);
+    expect(await screen.findByRole("link", { name: "Needs another approver" })).toHaveAttribute("href", "/soar/approvals");
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.getByText(/Isolation failed: No enabled integration/)).toBeInTheDocument();
   });
 });

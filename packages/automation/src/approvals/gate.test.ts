@@ -62,6 +62,18 @@ describe("ApprovalGate decisions", () => {
     expect(audit.entries.map((e) => e.action)).toEqual(["approval.requested", "approval.approved"]);
   });
 
+  it("lets a sole approver approve their own user request, never a playbook's", async () => {
+    const { gate } = setup();
+    const alice = principal("alice", "incident_responder");
+    const req = await requestIsolation(gate);
+    expect(gate.canDecide(alice, req, { soleApprover: true })).toEqual({ allowed: true });
+    await expect(gate.reject(TENANT, req.id, alice)).rejects.toMatchObject({ code: "self_approval" });
+    const done = await gate.approve(TENANT, req.id, alice, "Only responder on shift tonight", { soleApprover: true });
+    expect(done.status).toBe("approved");
+    const pb = await requestIsolation(gate, { kind: "playbook_step", requestedBy: { kind: "playbook", id: "playbook:1", onBehalfOf: "dave" } });
+    await expect(gate.approve(TENANT, pb.id, principal("dave", "incident_responder"), "x", { soleApprover: true })).rejects.toMatchObject({ code: "self_approval" });
+  });
+
   it("forbids self-approval, including by the human a playbook acted for", async () => {
     const { gate, audit } = setup();
     const userAsApprover = principal("alice", "incident_responder");

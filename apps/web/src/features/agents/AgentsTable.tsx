@@ -1,6 +1,6 @@
 import type { Agent, ResponseActionKey } from "@bloody/contracts";
 import { Lock, LockOpen, Monitor, SquareTerminal } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAgents } from "../../api/hooks";
 import type { AgentFilters } from "../../api/types";
@@ -13,6 +13,7 @@ import { RelativeTime } from "../../components/RelativeTime";
 import { hrefForEntity } from "../../lib/entityLinks";
 import { humanize } from "../../lib/format";
 import { RequestActionDialog } from "../response/RequestActionDialog";
+import { ContainmentNote, isInFlight, useContainmentState } from "./ContainmentState";
 
 const AGENT_TONE: Record<Agent["status"], "success" | "danger" | "warning" | "purple" | "neutral"> = {
   protected: "success",
@@ -56,6 +57,13 @@ export function AgentsTable({
   const agents = useAgents(filters);
   const [action, setAction] = useState<{ agent: Agent; actions: ResponseActionKey[] } | null>(null);
   const rows = useMemo(() => agents.items?.filter((a) => (predicate ? predicate(a) : true)), [agents.items, predicate]);
+  const containment = useContainmentState(mode === "containment");
+  // Refresh the fleet when a request finishes, so "Isolated" / "Protected" shows without a reload.
+  const inFlight = [...containment.values()].filter(isInFlight).map((a) => a.id).sort().join(",");
+  const refetchAgents = agents.refetch;
+  useEffect(() => {
+    void refetchAgents();
+  }, [inFlight, refetchAgents]);
 
   const columns: DataTableColumn<Agent>[] = [
     {
@@ -73,7 +81,16 @@ export function AgentsTable({
         ),
     },
     { id: "platform", header: "Platform", accessor: (a) => a.platform, filter: { kind: "select", options: ["windows", "macos", "linux"].map((p) => ({ value: p, label: p })) } },
-    { id: "status", header: "Agent status", accessor: (a) => a.status, cell: (a) => <Badge size="xs" tone={AGENT_TONE[a.status]}>{agentStatusLabel(a)}</Badge>, filter: { kind: "select", options: Object.keys(AGENT_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
+    { id: "status", header: "Agent status", accessor: (a) => a.status, cell: (a) => {
+        const pending = a.assetId ? containment.get(a.assetId) : undefined;
+        return (
+          <div>
+            <Badge size="xs" tone={AGENT_TONE[a.status]}>{agentStatusLabel(a)}</Badge>
+            {pending ? <ContainmentNote record={pending} /> : null}
+          </div>
+        );
+      },
+      filter: { kind: "select", options: Object.keys(AGENT_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
     { id: "av", header: "Antivirus", accessor: (a) => a.antivirusStatus, cell: (a) => <Badge size="xs" tone={AV_TONE[a.antivirusStatus]}>{humanize(a.antivirusStatus)}</Badge>, filter: { kind: "select", options: Object.keys(AV_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
     { id: "firewall", header: "Firewall", accessor: (a) => (a.firewallEnabled ? "enabled" : "disabled"), cell: (a) => (a.firewallEnabled ? <span className="text-healthy">Enabled</span> : <span className="text-sev-high">Disabled</span>), filter: { kind: "select", options: [{ value: "enabled", label: "Enabled" }, { value: "disabled", label: "Disabled" }] } },
     { id: "engine", header: "Engine", accessor: (a) => (a.engine === "sciat" ? "SCIAT Agent" : a.engine) },
@@ -97,6 +114,7 @@ export function AgentsTable({
             </Button>
           );
         }
+        if (isInFlight(containment.get(a.assetId))) return <span className="text-xs text-fg-subtle">Request in progress</span>;
         return a.status === "isolated" ? (
           <Button size="xs" icon={LockOpen} onClick={(e) => (e.stopPropagation(), setAction({ agent: a, actions: ["release_endpoint"] }))}>
             Release

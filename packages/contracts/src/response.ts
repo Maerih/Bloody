@@ -80,6 +80,8 @@ export const ResponseActionRecord = z.object({
   approvedBy: z.string().nullable(),
   executor: z.string().nullable(),
   result: z.unknown().nullable(),
+  /** Why execution failed ({ code, message, retryable }). */
+  error: z.unknown().nullable().optional(),
   /** Executed under break-glass; `review` tracks the mandatory after-the-fact review. */
   emergency: z.boolean().optional(),
   review: z
