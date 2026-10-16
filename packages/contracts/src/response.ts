@@ -159,6 +159,7 @@ export const AUTOMATION_EVENTS = [
   "exposure.port_open",
   "hardening.regressed",
   "foothold.suspicious_detected",
+  "patch.sla_breached",
   "indicator.matched",
   "vulnerability.kev_detected",
   "report.generated",

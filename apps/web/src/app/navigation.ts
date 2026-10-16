@@ -1,5 +1,6 @@
 import {
   Activity,
+  PackageCheck,
   AppWindow,
   Archive,
   BadgeCheck,
@@ -364,6 +365,7 @@ export const RAIL_MODULES: RailModule[] = [
       { label: "Vulnerability Dashboard", path: "/vm", icon: ChartLine },
       { label: "Vulnerabilities", path: "/vm/vulnerabilities", icon: Bug, permission: "vuln:read" },
       { label: "Known Exploited (KEV)", path: "/vm/kev", icon: Siren, description: "CISA KEV matches in your environment" },
+      { label: "Patch Compliance", path: "/vm/patching", icon: PackageCheck, permission: "asset:read", description: "Missing OS updates, pending restarts and unsupported operating systems per computer" },
       { label: "Software Inventory", path: "/vm/software", icon: Package },
       { label: "Remediation & SLA", path: "/vm/remediation", icon: Timer },
       { label: "Exceptions", path: "/vm/exceptions", icon: ClipboardList },

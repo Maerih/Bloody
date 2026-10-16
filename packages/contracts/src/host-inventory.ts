@@ -2,6 +2,7 @@ import { z } from "zod";
 import { HardeningFacts } from "./attack-reduction.js";
 import { IsoDateTime, Uuid } from "./common.js";
 import { HostAutorun } from "./footholds.js";
+import { HostPatchStatus } from "./patching.js";
 
 /**
  * Host inventory reported by the SCIAT Agent (proprietary): installed software, services, local
@@ -81,12 +82,14 @@ export const HostInventoryReport = z
     hardening: HardeningFacts.default({}),
     /** Persistent Footholds: autostart entries (agent 1.4+). */
     autoruns: z.array(HostAutorun).max(5000).default([]),
+    /** Patch Compliance: pending updates, restart, last install (agent 1.5+). */
+    patches: HostPatchStatus.nullish().transform((v) => v ?? null),
   })
   .strict();
 export type HostInventoryReport = z.output<typeof HostInventoryReport>;
 
 /** GET /assets/:id/inventory */
-export interface HostInventory extends Omit<HostInventoryReport, "autoruns"> {
+export interface HostInventory extends Omit<HostInventoryReport, "autoruns" | "patches"> {
   agentId: string;
   hostname: string;
   platform: string;

@@ -252,6 +252,23 @@ export const DEFAULT_RULE_TEMPLATES: Record<AutomationEvent, RuleTemplatePreset>
     ],
     throttleMinutes: 60,
   },
+  "patch.sla_breached": {
+    event: "patch.sla_breached",
+    name: "Endpoint out of patch compliance",
+    description: "Patch Compliance saw a computer miss the patch SLA: security updates outstanding for longer than allowed, or an operating system that no longer gets security updates.",
+    audience: "soc",
+    subject: "{{agent.hostname}} is out of patch compliance",
+    body: [
+      "**{{agent.hostname}}** ({{organization.name}}, {{patch.os}}) is out of patch compliance: {{patch.reasons}}",
+      "Unpatched and unsupported systems are among the most common ways attackers get in. Install the outstanding updates and restart, or plan the upgrade (VM → Patch Compliance lists every computer and update).",
+    ].join("\n\n"),
+    variables: [
+      { path: "agent.hostname", description: "Host name" },
+      { path: "patch.os", description: "Operating system" },
+      { path: "patch.reasons", description: "Why it is out of compliance" },
+    ],
+    throttleMinutes: 1440,
+  },
   "exposure.port_open": {
     event: "exposure.port_open",
     name: "Risky service exposed to the internet",

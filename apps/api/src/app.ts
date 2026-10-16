@@ -52,6 +52,7 @@ import { HostInventoryService } from "./services/host-inventory.js";
 import { M365Service, systemDnsResolver } from "./services/m365.js";
 import { RmmGuardService } from "./services/rmm-guard.js";
 import { FootholdsService } from "./services/footholds.js";
+import { PatchingService } from "./services/patching.js";
 import { AttackReductionService } from "./services/attack-reduction.js";
 import { AwarenessMailer, AwarenessService } from "./services/awareness.js";
 import { PhishingService } from "./services/phishing.js";
@@ -299,6 +300,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     appControl,
     rmmGuard: new RmmGuardService(appControl),
     footholds: new FootholdsService(now),
+    patching: new PatchingService(now),
     exposure,
     attackReduction: new AttackReductionService(),
     awareness,

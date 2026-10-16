@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate, Foothold, FootholdVerdict } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate, Foothold, FootholdVerdict, PatchEndpoint, MissingUpdate } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -842,6 +842,22 @@ export const useAddAppControlRule = () => useAppControlMutation((rule: AppContro
 export const useDeleteAppControlRule = () => useAppControlMutation((id: string) => api.delete(`/app-control/rules/${encodeURIComponent(id)}`));
 
 // ─── RMM Guard (ESPM) ───────────────────────────────────────────────────────
+
+export interface PatchingOverview {
+  organizationId: string;
+  endpoints: PatchEndpoint[];
+  missing: MissingUpdate[];
+  summary: { endpoints: number; reporting: number; current: number; behind: number; breached: number; unknown: number; compliance: number | null; unsupportedOs: number; securityUpdates: number; rebootPending: number };
+}
+
+export function usePatchingOverview(organizationId: string | null) {
+  return useQuery<PatchingOverview, ApiError>({
+    queryKey: ["patching", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/patching/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+    staleTime: 60_000,
+  });
+}
 
 export interface FootholdsOverview {
   organizationId: string;

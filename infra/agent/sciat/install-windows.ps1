@@ -14,7 +14,7 @@ param(
   [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.4.0'
+$AgentVersion = '1.5.0'
 $ServiceName = 'SCIATAgent'
 $Home_ = Join-Path $env:ProgramFiles 'SCIAT\Agent'
 $DataDir = Join-Path $env:ProgramData 'SCIAT\Agent'

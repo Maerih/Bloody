@@ -80,6 +80,11 @@ const BY_EVENT: Record<AutomationEvent, TemplateVariable[]> = {
     { name: "foothold.level", description: "Rating (high / medium)" },
     { name: "foothold.reasons", description: "Why it was rated that way" },
   ],
+  "patch.sla_breached": [
+    { name: "agent.hostname", description: "Endpoint hostname" },
+    { name: "patch.os", description: "Operating system" },
+    { name: "patch.reasons", description: "Why it is out of compliance" },
+  ],
   "exposure.port_open": [
     { name: "exposure.ip", description: "Public address" },
     { name: "exposure.port", description: "Port found open" },

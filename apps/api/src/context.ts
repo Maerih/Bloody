@@ -7,6 +7,7 @@ import type { HostInventoryService } from "./services/host-inventory.js";
 import type { M365Service } from "./services/m365.js";
 import type { RmmGuardService } from "./services/rmm-guard.js";
 import type { FootholdsService } from "./services/footholds.js";
+import type { PatchingService } from "./services/patching.js";
 import type { ExposureService } from "./services/external-exposure.js";
 import type { AttackReductionService } from "./services/attack-reduction.js";
 import type { AwarenessService } from "./services/awareness.js";
@@ -76,6 +77,7 @@ export interface AppServices {
   m365: M365Service;
   rmmGuard: RmmGuardService;
   footholds: FootholdsService;
+  patching: PatchingService;
   exposure: ExposureService;
   attackReduction: AttackReductionService;
   awareness: AwarenessService;

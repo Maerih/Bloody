@@ -39,6 +39,7 @@ export const EVENT_LABELS: Record<AutomationEvent, string> = {
   "exposure.port_open": "Risky service exposed to the internet",
   "hardening.regressed": "Endpoint hardening got weaker",
   "foothold.suspicious_detected": "Suspicious new persistence on an endpoint",
+  "patch.sla_breached": "Endpoint out of patch compliance",
   "indicator.matched": "Threat-intel indicator matched",
   "vulnerability.kev_detected": "Known-exploited vulnerability detected",
   "report.generated": "Report generated",

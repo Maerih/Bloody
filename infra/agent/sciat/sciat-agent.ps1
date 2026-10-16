@@ -4,7 +4,7 @@
 #   sciat-agent.ps1 run | once | status
 param([ValidateSet('run', 'once', 'status', 'inventory')][string]$Command = 'run')
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.4.0'
+$AgentVersion = '1.5.0'
 $Home_ = Join-Path $env:ProgramFiles 'SCIAT\Agent'
 $DataDir = Join-Path $env:ProgramData 'SCIAT\Agent'
 $Conf = Get-Content (Join-Path $DataDir 'agent.json') -Raw | ConvertFrom-Json
@@ -421,11 +421,42 @@ function Get-AutorunInventory {
   $out.ToArray()
 }
 
+# ---- Patch Compliance (pending Windows updates) ----------------------------------------------
+# Reads Windows Update's results from its last scan (offline: no download, no install).
+function ConvertTo-IsoDate($Value) {
+  try { $d = [datetime]$Value; if ($d.Year -lt 2000) { return $null }; return $d.ToUniversalTime().ToString('s') + 'Z' } catch { return $null }
+}
+function Get-PatchStatus {
+  $pending = New-Object System.Collections.Generic.List[object]
+  $err = $null
+  try {
+    $searcher = (New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher()
+    $searcher.Online = $false
+    $result = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Software'")
+    foreach ($u in $result.Updates) {
+      $cats = @($u.Categories | ForEach-Object { "$($_.Name)" })
+      # Antivirus definitions update themselves several times a day: not a patching gap.
+      if ($cats -contains 'Definition Updates') { continue }
+      $kb = if ($u.KBArticleIDs.Count -gt 0) { "KB$($u.KBArticleIDs.Item(0))" } else { $null }
+      $pending.Add(@{ title = "$($u.Title)"; id = $kb; version = $null; security = (($cats -contains 'Security Updates') -or [bool]$u.MsrcSeverity); severity = $(if ($u.MsrcSeverity) { "$($u.MsrcSeverity)".ToLowerInvariant() } else { $null }) })
+      if ($pending.Count -ge 500) { break }
+    }
+  } catch { $err = "Windows Update could not list updates: $($_.Exception.Message)" }
+  $reboot = (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') -or (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending')
+  try { if ((New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired) { $reboot = $true } } catch { }
+  $checked = $null; $installed = $null
+  try { $r = (New-Object -ComObject Microsoft.Update.AutoUpdate).Results; $checked = ConvertTo-IsoDate $r.LastSearchSuccessDate; $installed = ConvertTo-IsoDate $r.LastInstallationSuccessDate } catch { }
+  if (-not $installed) {
+    try { $installed = ConvertTo-IsoDate (@(Get-HotFix -ErrorAction SilentlyContinue | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending)[0].InstalledOn) } catch { }
+  }
+  @{ source = 'windows_update'; pending = $pending.ToArray(); rebootRequired = [bool]$reboot; lastInstalledAt = $installed; lastCheckedAt = $checked; error = $err }
+}
+
 function Send-Inventory {
   $body = @{
     software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory)
     processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory
-    hardening = Get-HardeningFacts; autoruns = @(Get-AutorunInventory)
+    hardening = Get-HardeningFacts; autoruns = @(Get-AutorunInventory); patches = Get-PatchStatus
   }
   Invoke-RestMethod -Method Post -Uri "$($Conf.platformUrl)/api/v1/agent/inventory" -TimeoutSec 60 `
     -Headers @{ authorization = "Bearer $($Conf.agentToken)" } -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes(($body | ConvertTo-Json -Depth 5 -Compress)))
@@ -528,7 +559,7 @@ function Invoke-AppControl {
 
 switch ($Command) {
   'once' { $r = Invoke-Checkin; $r | ConvertTo-Json -Compress -Depth 4; Invoke-Commands $r | Out-Null; try { Sync-AppControl $r; Invoke-AppControl } catch { Write-AgentLog "App Control: $($_.Exception.Message)" 'Warning' }; try { Send-Inventory | Out-Null } catch { Write-AgentLog "inventory upload failed: $($_.Exception.Message)" 'Warning' } }
-  'inventory' { @{ software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory); processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory; hardening = Get-HardeningFacts; autoruns = @(Get-AutorunInventory) } | ConvertTo-Json -Depth 5 }
+  'inventory' { @{ software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory); processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory; hardening = Get-HardeningFacts; autoruns = @(Get-AutorunInventory); patches = Get-PatchStatus } | ConvertTo-Json -Depth 5 }
   'status' {
     "SCIAT Agent $AgentVersion"
     "platform: $($Conf.platformUrl)"

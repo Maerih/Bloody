@@ -283,7 +283,9 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
       );
       // Persistent Footholds: autostart entries that appeared since the computer's baseline.
       const footholds = s.footholds.alertable(await s.footholds.record(tx, agent, report.autoruns));
-      return { ...agent, ...recorded, newRmm, regressed, footholds };
+      // Patch Compliance: grade the computer; alert when it newly breaches the SLA.
+      const patch = await s.patching.record(tx, agent.agentId, report.patches);
+      return { ...agent, ...recorded, newRmm, regressed, footholds, patch };
     });
     for (const tool of res.newRmm) {
       s.domainEvents.publish({
@@ -321,6 +323,18 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
             reasons: f.assessment.reasons.map((r) => r.text).join("; ") || "—",
           },
         },
+      });
+    }
+    if (res.patch && res.patch.grade.state === "breached" && res.patch.before !== "breached") {
+      s.domainEvents.publish({
+        tenantId: res.tenantId,
+        organizationId: res.organizationId,
+        event: "patch.sla_breached",
+        occurredAt: new Date(s.now()).toISOString(),
+        severity: "medium",
+        subject: { kind: "agent", id: res.agentId, label: res.hostname },
+        dedupKey: `agent:${res.agentId}:patch-breached:${new Date(s.now()).toISOString().slice(0, 10)}`,
+        data: { agent: { id: res.agentId, hostname: res.hostname }, patch: { reasons: res.patch.grade.reasons.join("; "), os: res.patch.os ?? "unknown" } },
       });
     }
     if (res.regressed.length) {

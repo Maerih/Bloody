@@ -16,6 +16,7 @@ import { IntegrationStatusList } from "../../features/integrations/IntegrationSt
 import { KpiGrid, ModuleWorkspace } from "../../features/modules/ModuleWorkspace";
 import { slaState, VulnerabilitiesTable } from "../../features/vulns/VulnerabilitiesTable";
 import { daysUntil, formatDate, formatInteger } from "../../lib/format";
+import { PatchComplianceView } from "../../features/patching/PatchComplianceView";
 
 const SCANNERS = ["greenbone", "nuclei", "trivy", "grype"];
 const OPEN: VulnerabilityView["status"][] = ["open", "in_remediation"];
@@ -216,6 +217,7 @@ export default function VmPage() {
             ]}
           />
         ),
+        patching: () => <PatchComplianceView />,
         remediation: () => <Remediation />,
         exceptions: () => <Exceptions />,
         scanners: () => <Scanners />,

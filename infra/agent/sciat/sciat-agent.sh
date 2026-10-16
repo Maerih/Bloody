@@ -9,7 +9,7 @@
 #   sciat-agent inventory  # print the host inventory (software, services, users, processes, ports, AV)
 set -uo pipefail
 
-AGENT_VERSION="1.4.0"
+AGENT_VERSION="1.5.0"
 CONF="${SCIAT_AGENT_CONF:-/etc/sciat-agent/agent.conf}"
 [ "$(uname -s)" = Darwin ] && CONF="${SCIAT_AGENT_CONF:-/Library/Application Support/SCIAT/agent.conf}"
 STATE_DIR="$(dirname "$CONF")"
@@ -488,9 +488,73 @@ inv_autoruns() {
   } | tsv_json "kind,location,name,command,user" 5000
 }
 
+# ---- Patch Compliance (pending OS updates) ---------------------------------------------------
+# Only reads what the package manager already knows (no refresh, no install, no lock taken).
+# Both always succeed (empty output when unknown): they run inside assignments under set -e.
+iso_epoch() { if [[ "${1:-}" =~ ^[0-9]+$ ]] && [ "$1" -gt 0 ]; then date -u -d "@$1" +%FT%TZ 2>/dev/null || date -u -r "$1" +%FT%TZ 2>/dev/null || true; fi; }
+newest_mtime() {
+  local f m best=0
+  for f in "$@"; do [ -e "$f" ] || continue; m="$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)"; [ "${m:-0}" -gt "$best" ] && best="$m"; done
+  if [ "$best" -gt 0 ]; then printf '%s' "$best"; fi
+}
+patch_json() { # source, pending-json, reboot(true/false/null), lastInstalled epoch, lastChecked epoch, error
+  local inst chk; inst="$(iso_epoch "$4")"; chk="$(iso_epoch "$5")"
+  printf '{"source":"%s","pending":%s,"rebootRequired":%s,"lastInstalledAt":%s,"lastCheckedAt":%s,"error":%s}' \
+    "$1" "$2" "$3" "$([ -n "$inst" ] && js "$inst" || printf null)" "$([ -n "$chk" ] && js "$chk" || printf null)" "$([ -n "$6" ] && js "$6" || printf null)"
+}
+inv_patches() {
+  local out err="" reboot=null
+  if [ "$(uname -s)" = Darwin ]; then
+    local p=/Library/Preferences/com.apple.SoftwareUpdate.plist i=0 name ver id rows="" last
+    while name="$(/usr/libexec/PlistBuddy -c "Print :RecommendedUpdates:$i:Display\ Name" "$p" 2>/dev/null)"; do
+      ver="$(/usr/libexec/PlistBuddy -c "Print :RecommendedUpdates:$i:Display\ Version" "$p" 2>/dev/null)"
+      id="$(/usr/libexec/PlistBuddy -c "Print :RecommendedUpdates:$i:Identifier" "$p" 2>/dev/null)"
+      local sec=0; [[ "$name" =~ macOS|Security|XProtect|Safari|Rapid ]] && sec=1
+      rows="$rows$name"$'\t'"$id"$'\t'"$ver"$'\t'"$sec"$'\t'$'\n'
+      i=$((i + 1)); [ "$i" -ge 200 ] && break
+    done
+    last="$(defaults read /Library/Preferences/com.apple.SoftwareUpdate LastSuccessfulDate 2>/dev/null)"
+    patch_json softwareupdate "$(printf '%s' "$rows" | tsv_json "title,id,version,?security,severity" 1000)" null \
+      "$(newest_mtime /Library/Receipts/InstallHistory.plist)" "$( [ -n "$last" ] && date -j -u -f '%Y-%m-%d %H:%M:%S +0000' "$last" +%s 2>/dev/null)" ""
+    return
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    if out="$(LC_ALL=C apt-get -s -o Debug::NoLocking=1 dist-upgrade 2>&1)"; then :; else err="$(printf '%s' "$out" | grep -m1 -E '^(E|W):' | cut -c1-300)"; err="${err:-apt-get could not plan the upgrade}"; fi
+    [ -f /var/run/reboot-required ] && reboot=true || reboot=false
+    patch_json apt "$(printf '%s\n' "$out" | awk '/^Inst / { pkg = $2; ver = $0; sub(/^[^(]*\(/, "", ver); split(ver, v, " "); sec = ($0 ~ /-security/) ? 1 : 0
+        printf "%s\t%s\t%s\t%s\t\n", pkg, pkg, v[1], sec }' | tsv_json "title,id,version,?security,severity" 1000)" "$reboot" \
+      "$(newest_mtime /var/lib/dpkg/status)" "$(newest_mtime /var/lib/apt/periodic/update-success-stamp /var/lib/apt/lists/*_InRelease /var/lib/apt/lists/*_Release)" "$err"
+    return
+  fi
+  local pm=""; command -v dnf >/dev/null 2>&1 && pm=dnf || { command -v yum >/dev/null 2>&1 && pm=yum; }
+  if [ -n "$pm" ]; then
+    local sec_list rc=0
+    out="$($pm -q -C check-update 2>&1)" || rc=$?
+    [ "$rc" -ne 0 ] && [ "$rc" -ne 100 ] && err="$(printf '%s' "$out" | tail -1 | cut -c1-300)"
+    # "RHSA-2024:1234 Important/Sec. openssl-1:3.0.7-27.el9.x86_64" → package name and severity.
+    sec_list="$($pm -q -C updateinfo list --security --available 2>/dev/null | awk 'NF >= 3 { sev = $2; sub(/\/Sec\.?$/, "", sev); print $3 "\t" tolower(sev) }')"
+    if command -v needs-restarting >/dev/null 2>&1; then needs-restarting -r >/dev/null 2>&1 && reboot=false || reboot=true; fi
+    patch_json "$pm" "$(printf '%s\n' "$out" | awk -v sec="$sec_list" '
+        BEGIN { n = split(sec, l, "\n"); for (i = 1; i <= n; i++) { split(l[i], p, "\t"); s = p[1]; sub(/-[0-9]*:?[0-9][^-]*-[^-]*$/, "", s); severity[s] = p[2] } }
+        NF == 3 && $1 ~ /\./ && $2 ~ /[0-9]/ { name = $1; sub(/\.[^.]*$/, "", name); printf "%s\t%s\t%s\t%s\t%s\n", name, name, $2, (name in severity) ? 1 : 0, severity[name] }' |
+        tsv_json "title,id,version,?security,severity" 1000)" "$reboot" \
+      "$(rpm -qa --qf '%{INSTALLTIME}\n' 2>/dev/null | sort -n | tail -1)" "$(newest_mtime /var/cache/dnf/*.solv /var/cache/dnf/expired_repos.json /var/cache/yum/*/*/repomd.xml)" "$err"
+    return
+  fi
+  if command -v zypper >/dev/null 2>&1; then
+    out="$(zypper --non-interactive --no-refresh -q list-patches 2>&1)" || err="$(printf '%s' "$out" | tail -1 | cut -c1-300)"
+    [ -f /var/run/reboot-needed ] && reboot=true || reboot=false
+    # Repository | Name | Category | Severity | Interactive | Status | Summary
+    patch_json zypper "$(printf '%s\n' "$out" | awk -F'|' 'NF >= 7 && $6 ~ /needed/ { for (i = 1; i <= NF; i++) gsub(/^ +| +$/, "", $i); printf "%s\t%s\t\t%s\t%s\n", ($7 != "" ? $7 : $2), $2, ($3 == "security") ? 1 : 0, tolower($4) }' |
+        tsv_json "title,id,version,?security,severity" 1000)" "$reboot" "$(newest_mtime /var/lib/rpm/Packages /var/lib/rpm/rpmdb.sqlite /usr/lib/sysimage/rpm/rpmdb.sqlite)" "$(newest_mtime /var/cache/zypp/raw/*/repodata/repomd.xml)" "$err"
+    return
+  fi
+  printf null
+}
+
 inventory_json() {
-  printf '{"software":%s,"services":%s,"users":%s,"processes":%s,"ports":%s,"antivirus":%s,"firewall":%s,"hardening":%s,"autoruns":%s}' \
-    "$(inv_software)" "$(inv_services)" "$(inv_users)" "$(inv_processes)" "$(inv_ports)" "$(inv_antivirus)" "$(inv_firewall)" "$(inv_hardening)" "$(inv_autoruns)"
+  printf '{"software":%s,"services":%s,"users":%s,"processes":%s,"ports":%s,"antivirus":%s,"firewall":%s,"hardening":%s,"autoruns":%s,"patches":%s}' \
+    "$(inv_software)" "$(inv_services)" "$(inv_users)" "$(inv_processes)" "$(inv_ports)" "$(inv_antivirus)" "$(inv_firewall)" "$(inv_hardening)" "$(inv_autoruns)" "$(inv_patches)"
 }
 
 send_inventory() {
