@@ -7,6 +7,7 @@ import { AssetsTable } from "../../features/assets/AssetsTable";
 import { AppControlView } from "../../features/app-control/AppControlView";
 import { AttackPathsView } from "../../features/attackPaths/AttackPathsView";
 import { ExposureBreakdown } from "../../features/exposure/ExposureBreakdown";
+import { RmmGuardView } from "../../features/rmm-guard/RmmGuardView";
 import { ModuleWorkspace } from "../../features/modules/ModuleWorkspace";
 import { SummaryWidgets } from "../../features/modules/SummaryWidgets";
 import { VulnerabilitiesTable } from "../../features/vulns/VulnerabilitiesTable";
@@ -67,6 +68,7 @@ export default function EspmPage() {
         findings: () => <VulnerabilitiesTable filters={{ status: ["open", "in_remediation"] }} emptyTitle="No open exposure findings" savedViewsKey="espm-findings" />,
         remediation: () => <AttackPathsView focus="remediation" />,
         "app-control": () => <AppControlView />,
+        "rmm-guard": () => <RmmGuardView />,
       }}
     />
   );

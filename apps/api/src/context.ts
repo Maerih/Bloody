@@ -5,6 +5,7 @@ import type { AgentEnrollmentService } from "./services/agent-enrollment.js";
 import type { AppControlService } from "./services/app-control.js";
 import type { HostInventoryService } from "./services/host-inventory.js";
 import type { M365Service } from "./services/m365.js";
+import type { RmmGuardService } from "./services/rmm-guard.js";
 import type { PaymentProvider } from "./billing/providers.js";
 import type { AttackPathEngine, RiskEngine } from "@bloody/engines";
 import type { ExternalAuthProvider } from "./auth/oidc.js";
@@ -68,6 +69,7 @@ export interface AppServices {
   appControl: AppControlService;
   hostInventory: HostInventoryService;
   m365: M365Service;
+  rmmGuard: RmmGuardService;
   /** Payment gateways the operator configured (bank transfer when bank details are set). */
   paymentProviders: Map<PaymentProviderKey, PaymentProvider>;
   intel: IntelService;

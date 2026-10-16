@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -817,6 +817,40 @@ export const useSetAppControlMode = () =>
   useAppControlMutation(({ organizationId, mode }: { organizationId: string; mode: AppControlMode }) => api.put(`/app-control/settings/${encodeURIComponent(organizationId)}`, { mode }));
 export const useAddAppControlRule = () => useAppControlMutation((rule: AppControlRuleInput) => api.post<AppControlRule>("/app-control/rules", rule));
 export const useDeleteAppControlRule = () => useAppControlMutation((id: string) => api.delete(`/app-control/rules/${encodeURIComponent(id)}`));
+
+// ─── RMM Guard (ESPM) ───────────────────────────────────────────────────────
+
+export interface RmmGuardOverview {
+  organizationId: string;
+  catalog: Array<{ key: string; name: string; vendor: string }>;
+  approved: string[];
+  findings: RmmFinding[];
+  endpointsWithInventory: number;
+  appControl: AppControlMode;
+}
+
+export function useRmmGuardOverview(organizationId: string | null) {
+  return useQuery<RmmGuardOverview, ApiError>({
+    queryKey: ["rmm-guard", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/rmm-guard/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+  });
+}
+
+function useRmmGuardMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation<TResult, ApiError, TVars>({
+    mutationFn: fn,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["rmm-guard"] });
+      void qc.invalidateQueries({ queryKey: ["app-control"] });
+    },
+  });
+}
+export const useSetRmmApproved = () =>
+  useRmmGuardMutation(({ organizationId, approved }: { organizationId: string; approved: string[] }) => api.put<{ approved: string[] }>(`/rmm-guard/settings/${encodeURIComponent(organizationId)}`, { approved }));
+export const useBlockRmmTools = () =>
+  useRmmGuardMutation((body: { organizationId: string; tools: string[] }) => api.post<{ created: number; skipped: number; appControl: AppControlMode }>("/rmm-guard/block", body));
 
 // ─── Microsoft 365 hardening (ITDR) ────────────────────────────────────────
 

@@ -195,6 +195,24 @@ export const DEFAULT_RULE_TEMPLATES: Record<AutomationEvent, RuleTemplatePreset>
     ],
     throttleMinutes: 240,
   },
+  "rmm.unapproved_detected": {
+    event: "rmm.unapproved_detected",
+    name: "Unapproved remote-access tool found",
+    description: "RMM Guard found a remote-access / RMM tool this organization has not approved.",
+    audience: "soc",
+    subject: "Unapproved remote-access tool on {{agent.hostname}}: {{tool.name}}",
+    body: [
+      "RMM Guard found **{{tool.name}}** on **{{agent.hostname}}** ({{organization.name}}), and it is not on the organization's approved list.",
+      "Evidence: {{tool.evidence}}",
+      "Attackers install legitimate remote-access tools to keep control of a computer. Confirm with the customer who installed it; if nobody did, isolate the endpoint and block the tool (ESPM → RMM Guard).",
+    ].join("\n\n"),
+    variables: [
+      { path: "agent.hostname", description: "Host name" },
+      { path: "tool.name", description: "Tool found" },
+      { path: "tool.evidence", description: "Running process or installed software that matched" },
+    ],
+    throttleMinutes: 1440,
+  },
   "agent.unresponsive": {
     event: "agent.unresponsive",
     name: "Agent unresponsive",

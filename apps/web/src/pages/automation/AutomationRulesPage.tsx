@@ -35,6 +35,7 @@ export const EVENT_LABELS: Record<AutomationEvent, string> = {
   "response.emergency": "Emergency action executed (break-glass)",
   "agent.unresponsive": "Agent unresponsive",
   "antivirus.unhealthy": "Antivirus unhealthy or tampered with",
+  "rmm.unapproved_detected": "Unapproved remote-access tool found",
   "indicator.matched": "Threat-intel indicator matched",
   "vulnerability.kev_detected": "Known-exploited vulnerability detected",
   "report.generated": "Report generated",

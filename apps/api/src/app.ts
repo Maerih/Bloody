@@ -50,6 +50,7 @@ import { AgentEnrollmentService } from "./services/agent-enrollment.js";
 import { AppControlService } from "./services/app-control.js";
 import { HostInventoryService } from "./services/host-inventory.js";
 import { M365Service, systemDnsResolver } from "./services/m365.js";
+import { RmmGuardService } from "./services/rmm-guard.js";
 import { NotificationService, type EmailTransport } from "./services/notifications.js";
 import { playbookTriggerHandler } from "./services/playbook-triggers.js";
 import { ReportService } from "./services/reports.js";
@@ -257,6 +258,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     log,
     now,
   });
+  const appControl = new AppControlService(now);
   const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
   const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
@@ -285,7 +287,8 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     eventSearch,
     billing,
     agentEnrollment: new AgentEnrollmentService({ db, box: secrets, inventory, quota, now }),
-    appControl: new AppControlService(now),
+    appControl,
+    rmmGuard: new RmmGuardService(appControl),
     hostInventory: new HostInventoryService(now),
     m365,
     paymentProviders,

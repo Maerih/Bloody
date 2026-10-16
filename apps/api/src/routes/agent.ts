@@ -192,13 +192,27 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
     const token = bearer(request);
     const report = parse(HostInventoryReport, request.body);
     const res = await svc.withAgent(token, async (tx, agent) => {
+      const prev = (await tx.query<Row>("SELECT software, processes FROM agent_inventory WHERE agent_id = $1", [agent.agentId])).rows[0];
       const recorded = await s.hostInventory.record(tx, agent.agentId, report);
+      const newRmm = await s.rmmGuard.newlyUnapproved(tx, agent.organizationId, prev ? { software: (prev.software as never) ?? [], processes: (prev.processes as never) ?? [] } : null, report);
       // Programs seen running feed App Control's application list (one row per executable path).
       const programs = new Map<string, { name: string; path: string }>();
       for (const p of report.processes) if (p.path) programs.set(p.path, { name: p.name, path: p.path });
       await s.appControl.recordInventory(tx, agent.tenantId, agent.organizationId, agent.agentId, [...programs.values()].slice(0, 1000));
-      return { ...agent, ...recorded };
+      return { ...agent, ...recorded, newRmm };
     });
+    for (const tool of res.newRmm) {
+      s.domainEvents.publish({
+        tenantId: res.tenantId,
+        organizationId: res.organizationId,
+        event: "rmm.unapproved_detected",
+        occurredAt: new Date(s.now()).toISOString(),
+        severity: "high",
+        subject: { kind: "agent", id: res.agentId, label: `${tool.name} on ${res.hostname}` },
+        dedupKey: `agent:${res.agentId}:rmm:${tool.key}`,
+        data: { agent: { id: res.agentId, hostname: res.hostname }, tool: { key: tool.key, name: tool.name, evidence: tool.evidence.join("; ") } },
+      });
+    }
     if (res.after === "unhealthy" && res.before !== "unhealthy") {
       s.domainEvents.publish({
         tenantId: res.tenantId,

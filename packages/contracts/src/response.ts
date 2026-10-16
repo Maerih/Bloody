@@ -154,6 +154,7 @@ export const AUTOMATION_EVENTS = [
   "response.emergency",
   "agent.unresponsive",
   "antivirus.unhealthy",
+  "rmm.unapproved_detected",
   "indicator.matched",
   "vulnerability.kev_detected",
   "report.generated",

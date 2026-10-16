@@ -54,6 +54,7 @@ import {
   Microscope,
   Monitor,
   MonitorSmartphone,
+  ScreenShare,
   Network,
   Package,
   Plug,
@@ -275,6 +276,7 @@ export const RAIL_MODULES: RailModule[] = [
       { label: "Exposure Findings", path: "/espm/findings", icon: ScanSearch },
       { label: "Remediation Plan", path: "/espm/remediation", icon: ClipboardCheck, description: "Fixes ranked by paths broken" },
       { label: "App Control", path: "/espm/app-control", icon: AppWindow, permission: "asset:read", description: "Allow or block programs on endpoints with the SCIAT Agent" },
+      { label: "RMM Guard", path: "/espm/rmm-guard", icon: ScreenShare, permission: "asset:read", description: "Unapproved remote-access and RMM tools on endpoints" },
     ],
   },
   {

@@ -67,6 +67,11 @@ const BY_EVENT: Record<AutomationEvent, TemplateVariable[]> = {
     { name: "action.reason", description: "Written justification" },
     { name: "action.requestedBy", description: "Responder who used break-glass" },
   ],
+  "rmm.unapproved_detected": [
+    { name: "agent.hostname", description: "Endpoint hostname" },
+    { name: "tool.name", description: "Remote-access tool found" },
+    { name: "tool.evidence", description: "What matched" },
+  ],
   "antivirus.unhealthy": [
     { name: "agent.hostname", description: "Endpoint hostname" },
     { name: "antivirus.issues", description: "What is wrong with the antivirus" },
