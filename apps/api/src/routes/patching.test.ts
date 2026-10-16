@@ -96,3 +96,36 @@ describe("Patch Compliance", () => {
     expect((await admin.get(`/patching/overview?organizationId=not-a-uuid`)).status).toBe(400);
   });
 });
+
+describe("endpoint security posture report", () => {
+  it("reports patching, unsupported systems, antivirus and persistence from agent data", async () => {
+    await inventory("kb-lnx-01", { source: "apt", pending: [openssl], rebootRequired: true, lastCheckedAt: today() });
+    await t.app.inject({
+      method: "POST",
+      url: "/api/v1/agent/inventory",
+      headers: { "content-type": "application/json", authorization: `Bearer ${tokens["kb-ws-11"]!.token}` },
+      payload: JSON.stringify({
+        ...report({ source: "windows_update", pending: [], rebootRequired: false, lastCheckedAt: today() }),
+        antivirus: [{ name: "Microsoft Defender Antivirus", enabled: false, realTimeProtection: false }],
+        autoruns: [{ kind: "scheduled_task", location: "\\Updater", name: "Updater", command: "powershell.exe -nop -w hidden -enc SQBFAFgA", user: "SYSTEM" }],
+      }),
+    });
+    const res = await admin.post("/reports/generate", { type: "endpoint_posture", format: "json", periodDays: 30, organizationId: org });
+    expect(res.status).toBe(200);
+    const r = res.body;
+    expect(r.title).toBe("Endpoint security posture");
+    const kpi = (k: string) => r.summary.kpis.find((x: { key: string }) => x.key === k);
+    expect(kpi("unsupported_os").value).toBe(1);
+    expect(kpi("footholds").value).toBe(1);
+    const unsupported = r.sections.find((s: { id: string }) => s.id === "patching").blocks.find((b: { table?: { id: string } }) => b.table?.id === "unsupported-os").table.rows;
+    expect(unsupported).toEqual([expect.objectContaining({ hostname: "kb-ws-10", endsOn: "2025-10-14" })]);
+    const attention = r.sections.find((s: { id: string }) => s.id === "attention").blocks[0].table.rows;
+    const ws11 = attention.find((a: { hostname: string }) => a.hostname === "kb-ws-11");
+    expect(ws11.issues).toContain("Antivirus off or out of date");
+    expect(ws11.issues).toContain("Suspicious persistence: Updater");
+    expect(attention.find((a: { hostname: string }) => a.hostname === "kb-ws-10").issues).toContain("Windows 10 no longer gets security updates (since 2025-10-14)");
+    // PDF renders too, and other accounts cannot report on this organization.
+    expect((await admin.post("/reports/generate", { type: "endpoint_posture", format: "pdf", periodDays: 30, organizationId: org })).status).toBe(200);
+    expect((await otherAdmin.post("/reports/generate", { type: "endpoint_posture", format: "json", periodDays: 30, organizationId: org })).status).toBeGreaterThanOrEqual(400);
+  });
+});

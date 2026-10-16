@@ -1,9 +1,10 @@
-import { PlanKey, humanRisk, type AttackTechnique, type Criticality, type IncidentStatus, type RiskFactor, type Severity } from "@bloody/contracts";
+import { AUTORUN_KIND_LABELS, HARDENING_CHECKS, PlanKey, humanRisk, type AttackTechnique, type Criticality, type IncidentStatus, type RiskFactor, type Severity } from "@bloody/contracts";
 import { isCrownJewel, type RiskEngine } from "@bloody/engines";
 import type {
   AlertStats,
   AwarenessFact,
   AnalystActivityFact,
+  EndpointPostureFact,
   AttackPathStats,
   BillingFact,
   ComplianceControlFact,
@@ -28,7 +29,12 @@ import type {
 } from "@bloody/reporting";
 import { inOrder, type Database, type Queryable } from "../db/pool.js";
 import type { Row } from "../repo/mappers.js";
+import { AppControlService } from "./app-control.js";
+import { AttackReductionService } from "./attack-reduction.js";
 import type { AttackPathService } from "./attack-paths.js";
+import { FootholdsService } from "./footholds.js";
+import { PatchingService } from "./patching.js";
+import { RmmGuardService } from "./rmm-guard.js";
 import { exposureInputsFor, loadPosture, sumPosture, type OrgPosture } from "./posture.js";
 
 /**
@@ -739,6 +745,80 @@ export class SqlReportDataSource implements ReportDataSource {
           highRisk: theirs.filter((p) => p.level === "high").length,
         };
       });
+    });
+  }
+
+  /**
+   * Endpoint posture from the SCIAT Agent, per organization. Agents report current state only,
+   * so this is a snapshot at generation time (or the period end, if earlier). The same services
+   * as the console compute it, so the report and the screens agree.
+   */
+  async endpointPosture(q: ReportQuery): Promise<EndpointPostureFact[]> {
+    const at = Math.min(Date.now(), q.to.getTime());
+    const patching = new PatchingService(() => at);
+    const footholds = new FootholdsService(() => at);
+    const hardening = new AttackReductionService();
+    const rmm = new RmmGuardService(new AppControlService(() => at));
+    return this.tx(q, async (tx) => {
+      const out: EndpointPostureFact[] = [];
+      for (const organizationId of await this.orgIds(tx, q)) {
+        const agents = await tx.query<Row>(
+          `SELECT a.id, a.hostname, a.antivirus_status, a.last_checkin_at, (i.agent_id IS NOT NULL) AS reported
+             FROM agents a LEFT JOIN agent_inventory i ON i.agent_id = a.id
+            WHERE a.organization_id = $1 AND a.engine = 'sciat' AND a.agent_token_hash IS NOT NULL`,
+          [organizationId],
+        );
+        const [p, f, h, r] = [await patching.overview(tx, organizationId), await footholds.overview(tx, organizationId), await hardening.overview(tx, organizationId), await rmm.findings(tx, organizationId)];
+        const issues = new Map<string, string[]>();
+        const add = (agentId: string, text: string) => issues.set(agentId, [...(issues.get(agentId) ?? []), text]);
+        for (const e of p.endpoints) if (e.grade.state === "breached" || (e.grade.state === "behind" && e.securityCount > 0)) add(e.agentId, e.grade.reasons[0]!);
+        for (const a of agents.rows) {
+          if (a.antivirus_status === "unhealthy") add(String(a.id), "Antivirus off or out of date");
+          else if (a.antivirus_status === "unmanaged" && a.reported) add(String(a.id), "No antivirus");
+        }
+        for (const e of h.endpoints) if (e.score !== null && e.score < 60) add(e.agentId, `Hardening score ${e.score}`);
+        const flagged = f.footholds.filter((x) => x.verdict?.verdict === "malicious" || (!x.verdict && x.assessment.level !== "low"));
+        // A cron entry's name is only its schedule; show what it runs too.
+        const label = (x: (typeof flagged)[number]) => (x.kind === "cron" && x.command ? `${x.name} ${x.command}`.slice(0, 120) : x.name);
+        for (const x of flagged) for (const e of x.endpoints) add(e.agentId, `${x.verdict ? "Malicious" : "Suspicious"} persistence: ${label(x)}`);
+        const unapproved = r.filter((x) => !x.approved);
+        for (const x of unapproved) for (const e of x.endpoints) add(e.agentId, `Unapproved remote access: ${x.tool.name}`);
+        const byId = new Map(p.endpoints.map((e) => [e.agentId, e]));
+        const hostname = new Map(agents.rows.map((a) => [String(a.id), String(a.hostname)]));
+        const failing = h.checks.filter((c) => c.failing > 0 && !c.exception).sort((a, b) => b.failing - a.failing);
+        out.push({
+          organizationId,
+          endpoints: agents.rows.length,
+          reporting: agents.rows.filter((a) => a.reported).length,
+          offline: agents.rows.filter((a) => !a.last_checkin_at || at - new Date(String(a.last_checkin_at)).getTime() > 86_400_000).length,
+          antivirus: {
+            protected: agents.rows.filter((a) => a.antivirus_status === "protected").length,
+            unhealthy: agents.rows.filter((a) => a.antivirus_status === "unhealthy").length,
+            unmanaged: agents.rows.filter((a) => a.antivirus_status === "unmanaged" && a.reported).length,
+          },
+          patching: { current: p.summary.current, behind: p.summary.behind, breached: p.summary.breached, unknown: p.summary.unknown, securityUpdates: p.summary.securityUpdates, rebootPending: p.summary.rebootPending },
+          unsupportedOs: p.endpoints.filter((e) => e.osSupport.status === "ended").map((e) => ({ hostname: e.hostname, os: e.os ?? e.osSupport.product, product: e.osSupport.product, endsOn: e.osSupport.endsOn })),
+          hardeningScore: h.score,
+          weakestChecks: failing.slice(0, 10).map((c) => ({ title: HARDENING_CHECKS.find((k) => k.key === c.key)?.title ?? c.key, failing: c.failing })),
+          footholds: {
+            suspicious: f.summary.suspicious,
+            malicious: f.summary.malicious,
+            top: flagged.slice(0, 10).map((x) => ({
+              name: label(x),
+              kind: AUTORUN_KIND_LABELS[x.kind],
+              level: x.verdict?.verdict === "malicious" ? "malicious" : x.assessment.level,
+              reason: x.assessment.reasons[0]?.text ?? "—",
+              endpoints: x.endpointCount,
+            })),
+          },
+          unapprovedRemoteAccess: unapproved.map((x) => ({ tool: x.tool.name, endpoints: x.endpoints.length })),
+          atRisk: [...issues]
+            .map(([agentId, list]) => ({ hostname: hostname.get(agentId) ?? byId.get(agentId)?.hostname ?? agentId, os: byId.get(agentId)?.os ?? null, issues: [...new Set(list)] }))
+            .sort((a, b) => b.issues.length - a.issues.length || a.hostname.localeCompare(b.hostname))
+            .slice(0, 25),
+        });
+      }
+      return out;
     });
   }
 

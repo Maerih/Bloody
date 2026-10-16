@@ -237,3 +237,27 @@ describe("security awareness report", () => {
     expect(recs(r)[0]).toMatchObject({ title: "Start security awareness training" });
   });
 });
+
+describe("endpoint posture report", () => {
+  it("summarises patching, unsupported systems, antivirus, hardening and persistence", async () => {
+    const r = await build("endpoint_posture", { orgs: [ORG_A] });
+    expect(r.title).toBe("Endpoint security posture");
+    expect(r.subtitle).toMatch(/as of \d{4}-\d{2}-\d{2}/);
+    expect(kpiOf(r, "patch_compliance")).toMatchObject({ value: 74, unit: "percent", status: "warn" });
+    expect(kpiOf(r, "unsupported_os").value).toBe(1);
+    expect(kpiOf(r, "antivirus")).toMatchObject({ value: 89, status: "bad" });
+    expect(kpiOf(r, "footholds").value).toBe(3);
+    expect(r.summary.headline).toBe("20 computers protected by the SCIAT Agent; 74% patch compliant; 1 computer runs an unsupported operating system.");
+    const attention = r.sections.find((s) => s.id === "attention")!.blocks[0]!;
+    expect(attention.kind === "table" ? attention.table.rows[0] : null).toMatchObject({ hostname: "kb-ws-07", issues: expect.stringContaining("Malicious persistence") });
+    expect(recs(r).map((x) => x.title)).toEqual(expect.arrayContaining(["Replace or upgrade unsupported operating systems", "Install outstanding security updates", "Remove malicious persistence", "Approve or block remote-access tools"]));
+    expect(r.methodology.map((t) => t.term)).toEqual(expect.arrayContaining(["Patch compliance", "Persistent foothold"]));
+  });
+
+  it("asks for the agent when no computer runs it", async () => {
+    const { EmptyReportDataSource: Empty } = await import("../test-support/fake-datasource.js");
+    const r = await build("endpoint_posture", { orgs: [ORG_A], ds: new Empty() });
+    expect(r.summary.headline).toBe("No computer runs the SCIAT Agent yet.");
+    expect(recs(r)[0]).toMatchObject({ title: "Install the SCIAT Agent" });
+  });
+});

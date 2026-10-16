@@ -276,6 +276,31 @@ export interface AwarenessFact {
   highRisk: number;
 }
 
+/**
+ * Endpoint security posture for one organization from the SCIAT Agent: a snapshot of the state
+ * when the report is generated (agents report current state; there is no history to compare).
+ */
+export interface EndpointPostureFact {
+  organizationId: string;
+  /** Computers with the SCIAT Agent enrolled. */
+  endpoints: number;
+  /** Computers that sent a host inventory. */
+  reporting: number;
+  /** Not checked in for more than 24 hours. */
+  offline: number;
+  antivirus: { protected: number; unhealthy: number; unmanaged: number };
+  patching: { current: number; behind: number; breached: number; unknown: number; securityUpdates: number; rebootPending: number };
+  unsupportedOs: Array<{ hostname: string; os: string; product: string; endsOn: string | null }>;
+  /** Average Attack Reduction (hardening) score, 0-100; null when no computer reported. */
+  hardeningScore: number | null;
+  /** Hardening checks failing on the most computers. */
+  weakestChecks: Array<{ title: string; failing: number }>;
+  footholds: { suspicious: number; malicious: number; top: Array<{ name: string; kind: string; level: string; reason: string; endpoints: number }> };
+  unapprovedRemoteAccess: Array<{ tool: string; endpoints: number }>;
+  /** Computers with the most problems, worst first. */
+  atRisk: Array<{ hostname: string; os: string | null; issues: string[] }>;
+}
+
 export interface ReportDataSource {
   organizations(q: ReportQuery): Promise<OrganizationFact[]>;
   /** Incidents detected in [from, to) plus incidents still open at `from` (backlog). */
@@ -300,6 +325,7 @@ export interface ReportDataSource {
   /** Full post-incident detail; null when not found in the tenant/scope. */
   incidentDetail(q: ReportQuery, incidentId: string): Promise<IncidentDetail | null>;
   awareness(q: ReportQuery): Promise<AwarenessFact[]>;
+  endpointPosture(q: ReportQuery): Promise<EndpointPostureFact[]>;
 }
 
 /** Thrown when a data source returns a row outside the requested tenant/organization scope. */
@@ -356,6 +382,7 @@ export function scopedDataSource(ds: ReportDataSource): ReportDataSource {
     usage: async (q) => check(await ds.usage(q), q, "usage"),
     billing: async (q) => check(await ds.billing(q), q, "billing"),
     awareness: async (q) => check(await ds.awareness(q), q, "awareness"),
+    endpointPosture: async (q) => check(await ds.endpointPosture(q), q, "endpointPosture"),
     incidentDetail: async (q, id) => {
       const d = await ds.incidentDetail(q, id);
       if (d && !inScope(q.organizationIds, d.incident.organizationId)) throw new ReportScopeError("incidentDetail: incident outside the requested scope");

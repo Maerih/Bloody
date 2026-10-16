@@ -6,6 +6,7 @@
 import type { RiskFactor, Severity } from "@bloody/contracts";
 import type {
   AwarenessFact,
+  EndpointPostureFact,
   AlertStats,
   AnalystActivityFact,
   AttackPathStats,
@@ -392,6 +393,27 @@ export class FakeReportDataSource implements ReportDataSource {
     return this.orgs(q).map((o) => (o === ORG_A ? { organizationId: o, plan: "professional", mrr: 4800, previousMrr: 4500, currency: "USD" } : { organizationId: o, plan: "enterprise", mrr: 9200, previousMrr: null, currency: "USD" }));
   }
 
+  async endpointPosture(q: ReportQuery): Promise<EndpointPostureFact[]> {
+    this.log("endpointPosture", q);
+    return this.orgs(q).map((o) => ({
+      organizationId: o,
+      endpoints: 20,
+      reporting: 19,
+      offline: 1,
+      antivirus: { protected: 17, unhealthy: 1, unmanaged: 1 },
+      patching: { current: 14, behind: 3, breached: 2, unknown: 1, securityUpdates: 23, rebootPending: 2 },
+      unsupportedOs: [{ hostname: "kb-ws-07", os: "Microsoft Windows 10 Pro 10.0.19045", product: "Windows 10", endsOn: "2025-10-14" }],
+      hardeningScore: 74,
+      weakestChecks: [{ title: "SMBv1 is disabled", failing: 4 }],
+      footholds: { suspicious: 2, malicious: 1, top: [{ name: "UpdateCheck", kind: "Scheduled task", level: "malicious", reason: "Encoded or obfuscated PowerShell", endpoints: 1 }] },
+      unapprovedRemoteAccess: [{ tool: "AnyDesk", endpoints: 2 }],
+      atRisk: [
+        { hostname: "kb-ws-07", os: "Microsoft Windows 10 Pro 10.0.19045", issues: ["Windows 10 no longer gets security updates", "Antivirus off or out of date", "Malicious persistence"] },
+        { hostname: "kb-ws-12", os: "Microsoft Windows 11 Pro 10.0.26200", issues: ["12 security updates outstanding for 41 days"] },
+      ],
+    }));
+  }
+
   async awareness(q: ReportQuery): Promise<AwarenessFact[]> {
     this.log("awareness", q);
     const cur = isCurrent(q);
@@ -468,6 +490,9 @@ export class EmptyReportDataSource extends FakeReportDataSource {
     return [];
   }
   override async awareness(): Promise<AwarenessFact[]> {
+    return [];
+  }
+  override async endpointPosture(): Promise<EndpointPostureFact[]> {
     return [];
   }
   override async usage(): Promise<UsageFact[]> {

@@ -12,6 +12,7 @@ import { buildExecutive } from "./executive.js";
 import { buildIncident } from "./incident.js";
 import { buildMsspPortfolio } from "./mssp-portfolio.js";
 import { buildSecurityAwareness } from "./security-awareness.js";
+import { buildEndpointPosture } from "./endpoint-posture.js";
 import { buildSla } from "./sla.js";
 import { buildSocOperations } from "./soc-operations.js";
 import { buildThreatIntel } from "./threat-intel.js";
@@ -30,6 +31,7 @@ export const REPORT_BUILDERS: Record<ReportType, ReportBuilder> = {
   customer_monthly: buildCustomerMonthly,
   mssp_portfolio: buildMsspPortfolio,
   security_awareness: buildSecurityAwareness,
+  endpoint_posture: buildEndpointPosture,
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

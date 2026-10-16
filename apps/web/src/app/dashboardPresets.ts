@@ -101,7 +101,7 @@ export const DASHBOARD_PRESETS: Record<DashboardRole, DashboardPreset> = {
     widgets: ["activeIncidents", "escalations", "socActions", "mttr", "agents", "exposure", "automation", "reportSchedules", "aiActivity", "recommendations", "antivirus", "firewall"],
     showTriage: true,
     defaultReport: "mssp_portfolio",
-    reports: ["mssp_portfolio", "sla", "analyst_activity", "customer_monthly", "executive", "soc_operations", "security_awareness"],
+    reports: ["mssp_portfolio", "sla", "analyst_activity", "customer_monthly", "executive", "soc_operations", "security_awareness", "endpoint_posture"],
   },
   org_admin: {
     label: "Organization administrator",
@@ -109,7 +109,7 @@ export const DASHBOARD_PRESETS: Record<DashboardRole, DashboardPreset> = {
     widgets: ["activeIncidents", "escalations", "agents", "antivirus", "firewall", "exposure", "identityRisk", "vulnerabilities", "mttr", "recommendations", "reportSchedules", "automation"],
     showTriage: true,
     defaultReport: "customer_monthly",
-    reports: ["customer_monthly", "executive", "incident", "vulnerability", "compliance", "security_awareness"],
+    reports: ["customer_monthly", "executive", "incident", "vulnerability", "compliance", "security_awareness", "endpoint_posture"],
   },
   executive: {
     label: "Executive",

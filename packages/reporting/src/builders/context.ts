@@ -158,5 +158,9 @@ export const GLOSSARY: Record<string, string> = {
   "Trend vs previous period": "Each change compares the period with the immediately preceding period of equal length.",
   "Click rate": "People who opened the link in a phishing simulation, divided by simulation emails delivered in the period.",
   "Training completion": "Training assignments completed (every lesson's quiz passed), divided by all assignments given, at period end.",
+  "Patch compliance": "Computers with no security update waiting past the 30-day SLA, a supported operating system and no stale update list, divided by computers that reported update status.",
+  "Unsupported operating system": "An operating system whose vendor no longer releases security updates for it (for example Windows 10 without Extended Security Updates).",
+  "Hardening score": "Share of applicable Attack Reduction checks (old protocols, credential theft, encryption, firewall…) a computer passes, 0-100, averaged over computers.",
+  "Persistent foothold": "An autostart entry (Run key, scheduled task, service, launch daemon, cron job, SSH key…) rated suspicious because of traits attackers rely on, and not marked expected by an analyst.",
   "Human risk": "Explainable 0-100 score per person over the last 12 months: phishing-simulation clicks raise it; simulations not clicked, completed training and strong quiz results lower it. High = 60 or more.",
 };

@@ -17,6 +17,7 @@ import { KpiGrid, ModuleWorkspace } from "../../features/modules/ModuleWorkspace
 import { slaState, VulnerabilitiesTable } from "../../features/vulns/VulnerabilitiesTable";
 import { daysUntil, formatDate, formatInteger } from "../../lib/format";
 import { PatchComplianceView } from "../../features/patching/PatchComplianceView";
+import { ReportMenu } from "../../components/ReportMenu";
 
 const SCANNERS = ["greenbone", "nuclei", "trivy", "grype"];
 const OPEN: VulnerabilityView["status"][] = ["open", "in_remediation"];
@@ -171,6 +172,7 @@ export default function VmPage() {
   return (
     <ModuleWorkspace
       moduleId="vm"
+      actions={<ReportMenu reports={["vulnerability", "endpoint_posture"]} defaultReport="vulnerability" />}
       aliases={{ "/vulnerabilities": "vulnerabilities" }}
       sections={{
         "": () => (

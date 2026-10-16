@@ -15,6 +15,7 @@ import { SummaryWidgets } from "../../features/modules/SummaryWidgets";
 import { ResponseActionsTable } from "../../features/response/ResponseActionsTable";
 import { hasTechnique, PERSISTENCE_TECHNIQUES } from "../../lib/classify";
 import { AgentsWidget, AntivirusWidget, FirewallWidget } from "../command-center/widgets";
+import { ReportMenu } from "../../components/ReportMenu";
 
 const ENDPOINT_ENGINES = ["wazuh", "velociraptor", "osquery"];
 const LIVE_ACTIONS = ["collect_evidence", "run_yara_scan", "kill_process", "quarantine_file"] as const;
@@ -90,6 +91,7 @@ export default function EdrPage() {
   return (
     <ModuleWorkspace
       moduleId="edr"
+      actions={<ReportMenu reports={["endpoint_posture"]} defaultReport="endpoint_posture" />}
       sections={{
         "": () => (
           <div className="space-y-4">
