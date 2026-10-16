@@ -130,7 +130,7 @@ export default function EdrPage() {
         antivirus: () => (
           <div className="space-y-4">
             <SummaryWidgets widgets={[AntivirusWidget]} columns={2} />
-            <AgentsTable mode="none" filters={avStatus ? { antivirusStatus: avStatus } : {}} emptyTitle={avStatus ? `No endpoints with antivirus ${avStatus}` : "No agents reporting antivirus status"} savedViewsKey="edr-antivirus" />
+            <AgentsTable mode="none" antivirusDetail filters={avStatus ? { antivirusStatus: avStatus } : {}} emptyTitle={avStatus ? `No endpoints with antivirus ${avStatus}` : "No agents reporting antivirus status"} savedViewsKey="edr-antivirus" />
             <AlertsLens title="Malware detections" predicate={isMalware} engines={["wazuh", "yara"]} emptyTitle="No malware detections" savedViewsKey="edr-malware" />
           </div>
         ),

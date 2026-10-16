@@ -367,6 +367,7 @@ const SYSTEM_NOTICES: Partial<Record<AutomationEvent, { roles: string[]; minSeve
   "escalation.overdue": { roles: ["soc_analyst_t2", "incident_responder", "org_admin", "ciso", "mssp_admin"], title: (e) => `Escalation overdue: ${e.subject.label ?? e.subject.id}` },
   "response.pending_approval": { roles: ["incident_responder", "org_admin", "ciso", "mssp_admin"], title: (_e, d) => `Approval needed: ${String((d.action as { action?: string } | undefined)?.action ?? d.action ?? "response action")}` },
   "agent.unresponsive": { roles: ["security_engineer", "soc_analyst_t1", "org_admin"], title: (e) => `Agent unresponsive: ${e.subject.label ?? e.subject.id}` },
+  "antivirus.unhealthy": { roles: ["soc_analyst_t1", "soc_analyst_t2", "security_engineer", "org_admin"], title: (e) => `Antivirus unhealthy: ${e.subject.label ?? e.subject.id}` },
   "indicator.matched": { roles: ["soc_analyst_t2", "threat_hunter", "incident_responder"], title: (_e, d) => `Threat-intel match${Number(d.matches ?? 1) === 1 ? "" : `es (${String(d.matches)})`} in your environment` },
   "vulnerability.kev_detected": { roles: ["security_engineer", "org_admin", "ciso"], title: (_e, d) => `Known-exploited vulnerability ${String(d.cve ?? "")} on ${String(d.asset ?? "an asset")}` },
   "trial.ending": { roles: ["org_admin", "mssp_admin", "platform_admin"], title: (_e, d) => `Trial ending: ${String(d.moduleName ?? d.module ?? "module")}` },

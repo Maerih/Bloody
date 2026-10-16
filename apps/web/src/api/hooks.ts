@@ -35,6 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
+import type { HostInventory } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -747,6 +748,27 @@ export function useApprovers(organizationId: string | null | undefined, options:
     queryKey: ["response", "approvers", organizationId ?? ""],
     queryFn: ({ signal }) => api.get("/response/approvers", { signal, query: { organizationId: organizationId ?? undefined } }),
     enabled: (options.enabled ?? true) && Boolean(organizationId),
+    staleTime: 60_000,
+  });
+}
+
+/** What the SCIAT Agent reported about the host (null when no agent has reported yet). */
+export function useAssetInventory(assetId: string | null | undefined) {
+  return useQuery<{ inventory: HostInventory | null }, ApiError>({
+    queryKey: ["asset", assetId ?? "", "inventory"],
+    queryFn: ({ signal }) => api.get(`/assets/${encodeURIComponent(assetId ?? "")}/inventory`, { signal }),
+    enabled: Boolean(assetId),
+    staleTime: 60_000,
+  });
+}
+
+/** Antivirus products and issues per agent (Managed Antivirus). */
+export function useAntivirusOverview(organizationId?: string | null, options: { enabled?: boolean } = {}) {
+  const orgId = useScope(organizationId);
+  return useQuery<{ items: Array<{ agentId: string; products: string[]; issues: string[]; collectedAt: string }> }, ApiError>({
+    queryKey: ["agents", "antivirus", orgId ?? ""],
+    queryFn: ({ signal }) => api.get("/agents/antivirus", { signal, query: { organizationId: orgId ?? undefined } }),
+    enabled: options.enabled ?? true,
     staleTime: 60_000,
   });
 }

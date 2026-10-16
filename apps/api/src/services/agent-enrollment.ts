@@ -27,7 +27,7 @@ const secret = () => randomBytes(32).toString("base64url");
 const sameHash = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 export const AGENT_POLL_SECONDS = 60;
-export const SCIAT_AGENT_VERSION = "1.0.0";
+export const SCIAT_AGENT_VERSION = "1.1.0";
 
 export interface EnrollInput {
   accountKey: string;
@@ -133,7 +133,7 @@ export class AgentEnrollmentService {
   }
 
   /** The agent behind a token, inside its tenant's transaction (401 when it does not match). */
-  private async withAgent<T>(token: string, fn: (tx: Queryable, agent: { tenantId: string; agentId: string; organizationId: string }) => Promise<T>): Promise<T> {
+  async withAgent<T>(token: string, fn: (tx: Queryable, agent: { tenantId: string; agentId: string; organizationId: string }) => Promise<T>): Promise<T> {
     const m = AGENT_TOKEN_RE.exec(token.trim());
     if (!m) throw new AgentEnrollmentError(401, "invalid_agent_token", "Invalid agent token");
     const tenantId = uuidOf(m[1]!);
@@ -147,7 +147,7 @@ export class AgentEnrollmentService {
   }
 
   /** Authenticated check-in: refresh liveness and host facts, hand over queued commands. */
-  async heartbeat(token: string, input: HeartbeatInput): Promise<{ pollSeconds: number; agentId: string; tenantId: string; commands: AgentCommand[] }> {
+  async heartbeat(token: string, input: HeartbeatInput): Promise<{ pollSeconds: number; agentId: string; tenantId: string; organizationId: string; commands: AgentCommand[] }> {
     return this.withAgent(token, async (tx, { tenantId, agentId, organizationId }) => {
       const now = new Date(this.deps.now()).toISOString();
       const assets = await this.deps.inventory.resolveOrDiscoverHosts(tx, tenantId, organizationId, [{ hostname: input.hostname, os: input.os, ips: input.ips, lastSeenAt: now }]);
@@ -187,7 +187,7 @@ export class AgentEnrollmentService {
       const commands = rows
         .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
         .map((r) => ({ id: String(r.id), kind: r.kind as AgentCommand["kind"], args: (r.args as string[]).map(String) }));
-      return { pollSeconds: AGENT_POLL_SECONDS, agentId, tenantId, commands };
+      return { pollSeconds: AGENT_POLL_SECONDS, agentId, tenantId, organizationId, commands };
     });
   }
 

@@ -10,3 +10,4 @@ export * from "./engines.js";
 export * from "./response.js";
 export * from "./dashboard.js";
 export * from "./billing.js";
+export * from "./host-inventory.js";

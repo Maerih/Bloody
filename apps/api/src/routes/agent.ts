@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { HostInventoryReport } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
 import { requireAuth, requirePermission } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
@@ -164,6 +165,26 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
       // Same commands as plain lines ("<id> <args…>") for agents without a JSON parser.
       commandLines: res.commands.map((c) => [c.id, ...c.args].join(" ")),
     };
+  });
+
+  // Host inventory (about every 30 minutes): software, services, users, processes, ports, AV, firewall.
+  app.post("/agent/inventory", { bodyLimit: 8 * 1024 * 1024, config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request) => {
+    const token = bearer(request);
+    const report = parse(HostInventoryReport, request.body);
+    const res = await svc.withAgent(token, async (tx, agent) => ({ ...agent, ...(await s.hostInventory.record(tx, agent.agentId, report)) }));
+    if (res.after === "unhealthy" && res.before !== "unhealthy") {
+      s.domainEvents.publish({
+        tenantId: res.tenantId,
+        organizationId: res.organizationId,
+        event: "antivirus.unhealthy",
+        occurredAt: new Date(s.now()).toISOString(),
+        severity: "high",
+        subject: { kind: "agent", id: res.agentId, label: res.hostname },
+        dedupKey: `agent:${res.agentId}:antivirus-unhealthy:${new Date(s.now()).toISOString().slice(0, 10)}`,
+        data: { agent: { id: res.agentId, hostname: res.hostname }, antivirus: { issues: res.issues.join("; ") || "no antivirus is active", previous: res.before } },
+      });
+    }
+    return { ok: true, antivirusStatus: res.after, nextInSeconds: 1800 };
   });
 
   app.post("/agent/commands/:id/result", { config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request) => {

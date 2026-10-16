@@ -2,7 +2,7 @@ import type { Agent, ResponseActionKey } from "@bloody/contracts";
 import { Lock, LockOpen, Monitor, SquareTerminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAgents } from "../../api/hooks";
+import { useAgents, useAntivirusOverview } from "../../api/hooks";
 import type { AgentFilters } from "../../api/types";
 import { useSession } from "../../app/session";
 import { Badge, StatusBadge } from "../../components/Badge";
@@ -45,6 +45,7 @@ export function AgentsTable({
   engines = ["wazuh", "velociraptor", "osquery"],
   emptyTitle = "No agents reporting",
   savedViewsKey,
+  antivirusDetail = false,
 }: {
   filters?: AgentFilters;
   predicate?: (a: Agent) => boolean;
@@ -52,12 +53,16 @@ export function AgentsTable({
   engines?: string[];
   emptyTitle?: string;
   savedViewsKey?: string;
+  /** Managed Antivirus: products found by the SCIAT Agent and what is wrong with them. */
+  antivirusDetail?: boolean;
 }) {
   const session = useSession();
   const agents = useAgents(filters);
   const [action, setAction] = useState<{ agent: Agent; actions: ResponseActionKey[] } | null>(null);
   const rows = useMemo(() => agents.items?.filter((a) => (predicate ? predicate(a) : true)), [agents.items, predicate]);
   const containment = useContainmentState(mode === "containment");
+  const avOverview = useAntivirusOverview(undefined, { enabled: antivirusDetail });
+  const avByAgent = useMemo(() => new Map((antivirusDetail ? avOverview.data?.items ?? [] : []).map((i) => [i.agentId, i])), [antivirusDetail, avOverview.data]);
   // Refresh the fleet when a request finishes, so "Isolated" / "Protected" shows without a reload.
   const inFlight = [...containment.values()].filter(isInFlight).map((a) => a.id).sort().join(",");
   const refetchAgents = agents.refetch;
@@ -92,6 +97,29 @@ export function AgentsTable({
       },
       filter: { kind: "select", options: Object.keys(AGENT_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
     { id: "av", header: "Antivirus", accessor: (a) => a.antivirusStatus, cell: (a) => <Badge size="xs" tone={AV_TONE[a.antivirusStatus]}>{humanize(a.antivirusStatus)}</Badge>, filter: { kind: "select", options: Object.keys(AV_TONE).map((s) => ({ value: s, label: humanize(s) })) } },
+    ...(antivirusDetail
+      ? [
+          {
+            id: "avDetail",
+            header: "Products & issues",
+            accessor: (a: Agent) => [...(avByAgent.get(a.id)?.products ?? []), ...(avByAgent.get(a.id)?.issues ?? [])].join("; "),
+            cell: (a: Agent) => {
+              const d = avByAgent.get(a.id);
+              if (!d) return <span className="text-xs text-fg-subtle">{a.engine === "sciat" ? "Waiting for inventory" : "—"}</span>;
+              return (
+                <div className="text-xs">
+                  <div>{d.products.join(", ") || "No antivirus found"}</div>
+                  {d.issues.map((i) => (
+                    <div key={i} className="text-sev-high">
+                      {i}
+                    </div>
+                  ))}
+                </div>
+              );
+            },
+          } satisfies DataTableColumn<Agent>,
+        ]
+      : []),
     { id: "firewall", header: "Firewall", accessor: (a) => (a.firewallEnabled ? "enabled" : "disabled"), cell: (a) => (a.firewallEnabled ? <span className="text-healthy">Enabled</span> : <span className="text-sev-high">Disabled</span>), filter: { kind: "select", options: [{ value: "enabled", label: "Enabled" }, { value: "disabled", label: "Disabled" }] } },
     { id: "engine", header: "Engine", accessor: (a) => (a.engine === "sciat" ? "SCIAT Agent" : a.engine) },
     { id: "version", header: "Version", accessor: (a) => a.version, cell: (a) => <span className="font-mono text-xs">{a.version}</span> },

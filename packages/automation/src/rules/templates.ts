@@ -177,6 +177,24 @@ export const DEFAULT_RULE_TEMPLATES: Record<AutomationEvent, RuleTemplatePreset>
     ],
     throttleMinutes: 0,
   },
+  "antivirus.unhealthy": {
+    event: "antivirus.unhealthy",
+    name: "Antivirus unhealthy or tampered with",
+    description: "Antivirus on an endpoint was turned off, lost real-time or tamper protection, or fell out of date.",
+    audience: "soc",
+    subject: "Antivirus protection lost on {{agent.hostname}}",
+    body: [
+      "Antivirus protection on **{{agent.hostname}}** ({{organization.name}}) is no longer healthy.",
+      "Problems found: {{antivirus.issues}}",
+      "Someone may have disabled protection to run malware. Check who changed it, turn protection back on and consider isolating the endpoint.",
+    ].join("\n\n"),
+    variables: [
+      { path: "agent.hostname", description: "Host name" },
+      { path: "antivirus.issues", description: "What is wrong (turned off, real-time / tamper protection off, old definitions)" },
+      { path: "antivirus.previous", description: "Status before the change" },
+    ],
+    throttleMinutes: 240,
+  },
   "agent.unresponsive": {
     event: "agent.unresponsive",
     name: "Agent unresponsive",

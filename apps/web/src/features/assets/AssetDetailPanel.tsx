@@ -1,5 +1,5 @@
 import type { Asset, GraphNode } from "@bloody/contracts";
-import { Bug, Fingerprint, Lock, Network, Route, Siren, Sparkles } from "lucide-react";
+import { Boxes, Bug, Fingerprint, Lock, Network, Route, Siren, Sparkles } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../../api/client";
@@ -9,6 +9,7 @@ import { useSession } from "../../app/session";
 import { Badge, SeverityBadge, StatusBadge } from "../../components/Badge";
 import { Button, ButtonLink } from "../../components/Button";
 import { AttackPathChain } from "../../components/AttackPathChain";
+import { HostInventorySection } from "./HostInventory";
 import { DescriptionList } from "../../components/DescriptionList";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
@@ -154,6 +155,12 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
           ]}
         />
       </Section>
+
+      {isEndpoint ? (
+        <Section title="Host inventory" icon={Boxes}>
+          <HostInventorySection assetId={asset.id} />
+        </Section>
+      ) : null}
 
       <Section title="Vulnerabilities" icon={Bug} count={asset.vulnerabilities?.length ?? null} actions={<ButtonLink size="xs" to={`/vm/vulnerabilities?asset=${encodeURIComponent(asset.id)}`}>All</ButtonLink>}>
         {asset.vulnerabilities === null ? (

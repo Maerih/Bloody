@@ -34,6 +34,7 @@ export const EVENT_LABELS: Record<AutomationEvent, string> = {
   "response.pending_approval": "Response action awaiting approval",
   "response.emergency": "Emergency action executed (break-glass)",
   "agent.unresponsive": "Agent unresponsive",
+  "antivirus.unhealthy": "Antivirus unhealthy or tampered with",
   "indicator.matched": "Threat-intel indicator matched",
   "vulnerability.kev_detected": "Known-exploited vulnerability detected",
   "report.generated": "Report generated",
