@@ -17,6 +17,7 @@
 import type { IngestEvent, Severity } from "@bloody/contracts";
 import { uuidV5 } from "@bloody/engines";
 import type { FastifyInstance } from "fastify";
+import { evaluateM365, scoreM365 } from "@bloody/adapters";
 import { buildApp, type BuiltApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { hashPassword } from "../security/passwords.js";
@@ -813,6 +814,53 @@ async function main(): Promise<void> {
           dueInMinutes: 60,
         });
       }
+    }
+
+    // 5b. Microsoft 365 hardening demo: a connected Kilimanjaro Bank tenant graded by the real
+    // checks against a demo configuration snapshot (no Microsoft calls; demo data only).
+    {
+      const kbOrg = orgIds.get("kilimanjaro-bank")!;
+      await services.db.withTenant(tenantId, async (tx) => {
+        if ((await tx.query("SELECT 1 FROM m365_assessments WHERE organization_id = $1", [kbOrg])).rowCount) return;
+        const conn = await services.m365.connect(tx, tenantId, { organizationId: kbOrg, directoryTenantId: "kilimanjarobank.onmicrosoft.com", clientId: "00000000-0000-4000-8000-00000000de30", clientSecret: "demo-not-a-real-secret" }, "seed");
+        const ok = <T,>(data: T) => ({ ok: true as const, data });
+        const results = evaluateM365({
+          collectedAt: new Date().toISOString(),
+          organization: ok({ displayName: "Kilimanjaro Bank", verifiedDomains: ["kilimanjaro-bank.example", "kilimanjarobank.onmicrosoft.com"] }),
+          securityDefaults: ok({ isEnabled: false }),
+          conditionalAccess: ok([
+            { id: "ca1", displayName: "Require MFA — all users", state: "enabled", conditions: { users: { includeUsers: ["All"], excludeUsers: ["breakglass1", "breakglass2"] }, applications: { includeApplications: ["All"] } }, grantControls: { builtInControls: ["mfa"] } },
+            { id: "ca2", displayName: "Block legacy authentication", state: "enabledForReportingButNotEnforced", conditions: { users: { includeUsers: ["All"] }, applications: { includeApplications: ["All"] }, clientAppTypes: ["exchangeActiveSync", "other"] }, grantControls: { builtInControls: ["block"] } },
+          ]),
+          authorizationPolicy: ok({ allowedToCreateApps: true, permissionGrantPolicies: ["ManagePermissionGrantsForSelf.microsoft-user-default-legacy"], guestUserRoleId: "10dae51f-b6af-4016-8d66-8c2a99b929b3", allowInvitesFrom: "adminsAndGuestInviters" }),
+          privilegedRoles: ok([{ roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", roleName: "Global Administrator", members: [
+            { id: "1", userPrincipalName: "amina.mushi@kilimanjaro-bank.example", onPremisesSyncEnabled: true },
+            { id: "2", userPrincipalName: "breakglass1@kilimanjarobank.onmicrosoft.com", onPremisesSyncEnabled: false },
+            { id: "3", userPrincipalName: "breakglass2@kilimanjarobank.onmicrosoft.com", onPremisesSyncEnabled: false },
+          ] }]),
+          registration: ok([
+            { userPrincipalName: "amina.mushi@kilimanjaro-bank.example", isAdmin: true, isMfaRegistered: false, methods: [] },
+            { userPrincipalName: "peter.kimaro@kilimanjaro-bank.example", isAdmin: false, isMfaRegistered: true, methods: ["microsoftAuthenticatorPush"] },
+            { userPrincipalName: "grace.lyimo@kilimanjaro-bank.example", isAdmin: false, isMfaRegistered: true, methods: ["fido2"] },
+            { userPrincipalName: "joseph.mrema@kilimanjaro-bank.example", isAdmin: false, isMfaRegistered: true, methods: ["microsoftAuthenticatorPush"] },
+          ]),
+          domains: ok([{ id: "kilimanjaro-bank.example", isVerified: true, passwordValidityPeriodInDays: 90 }]),
+          oauthGrants: ok([
+            { app: "QuickPDF Converter", publisher: null, firstParty: false, consentType: "Principal", scopes: ["openid", "Mail.Read", "Files.Read.All", "offline_access"] },
+            { app: "Microsoft Teams", publisher: "Microsoft", firstParty: true, consentType: "AllPrincipals", scopes: ["User.Read"] },
+          ]),
+          inboxRules: ok({ mailboxesScanned: 4, rules: [{ user: "grace.lyimo@kilimanjaro-bank.example", name: ".", enabled: true, forwardTo: ["accounts-payable@kb-invoices.example"], delete: false, markAsRead: true, moveToFolder: "RSS Feeds" }] }),
+          riskyUsers: { ok: false as const, permission: "IdentityRiskyUser.Read.All", error: "Microsoft Graph refused the request: grant the IdentityRiskyUser.Read.All application permission (with admin consent) — this also needs Entra ID P2." },
+          mailDns: ok([{ domain: "kilimanjaro-bank.example", spf: ["v=spf1 include:spf.protection.outlook.com ~all"], dmarc: ["v=DMARC1; p=none; rua=mailto:dmarc@kilimanjaro-bank.example"], dkimSelectors: ["selector1", "selector2"] }]),
+        });
+        const { score, counts } = scoreM365(results);
+        await tx.query(
+          `INSERT INTO m365_assessments (tenant_id, organization_id, connection_id, tenant_name, started_at, finished_at, score, counts, results)
+           VALUES ($1, $2, $3, 'Kilimanjaro Bank', now(), now(), $4, $5::jsonb, $6::jsonb)`,
+          [tenantId, kbOrg, conn.id, score, JSON.stringify(counts), JSON.stringify(results)],
+        );
+        await tx.query("UPDATE m365_connections SET status = 'connected', display_name = 'Kilimanjaro Bank (demo)', last_assessed_at = now(), last_score = $2 WHERE id = $1", [conn.id, score]);
+      });
     }
 
     // 6. Report.

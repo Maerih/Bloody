@@ -184,6 +184,7 @@ export const RAIL_MODULES: RailModule[] = [
     items: [
       { label: "ITDR Dashboard", path: "/itdr", icon: ChartLine },
       { label: "Identity Detections", path: "/itdr/detections", icon: ShieldAlert, description: "Impossible travel, password spraying, privilege escalation" },
+      { label: "Microsoft 365 Hardening", path: "/itdr/m365", icon: ShieldCheck, permission: "identity:read", description: "Grade a Microsoft 365 tenant against CISA SCuBA and CIS, with step-by-step fixes" },
       { label: "Risky Sign-ins", path: "/itdr/sign-ins", icon: Earth, description: "Suspicious authentications by geo, device and outcome" },
       { label: "Token & Session Abuse", path: "/itdr/sessions", icon: KeyRound, description: "Token theft, session hijack and MFA manipulation" },
       { label: "OAuth Applications", path: "/itdr/oauth-apps", icon: AppWindow, description: "Consented apps and OAuth abuse" },

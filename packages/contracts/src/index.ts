@@ -12,3 +12,4 @@ export * from "./dashboard.js";
 export * from "./billing.js";
 export * from "./app-control.js";
 export * from "./host-inventory.js";
+export * from "./m365.js";

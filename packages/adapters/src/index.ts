@@ -74,3 +74,8 @@ export * from "./copilot/sync.js";
 
 // registry
 export * from "./registry.js";
+
+// Microsoft 365 posture (Graph)
+export * from "./saas/m365/graph.js";
+export * from "./saas/m365/collect.js";
+export { M365_CHECKS, evaluateM365, scoreM365 } from "./saas/m365/checks.js";

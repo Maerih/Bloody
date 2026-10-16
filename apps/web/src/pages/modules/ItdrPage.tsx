@@ -8,6 +8,7 @@ import { AlertsLens } from "../../features/alerts/AlertsLens";
 import { CategorySummary } from "../../features/alerts/CategorySummary";
 import { EventsLens } from "../../features/events/EventsLens";
 import { IdentitiesTable } from "../../features/identities/IdentitiesTable";
+import { M365HardeningView } from "../../features/m365/M365HardeningView";
 import { IntegrationStatusList } from "../../features/integrations/IntegrationStatusList";
 import { ModuleWorkspace } from "../../features/modules/ModuleWorkspace";
 import { SummaryWidgets } from "../../features/modules/SummaryWidgets";
@@ -86,6 +87,7 @@ export default function ItdrPage() {
           </div>
         ),
         detections: () => <Detections />,
+        m365: () => <M365HardeningView />,
         "sign-ins": () => (
           <EventsLens
             title="Sign-ins"

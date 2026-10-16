@@ -49,6 +49,7 @@ import { InventoryService } from "./services/inventory.js";
 import { AgentEnrollmentService } from "./services/agent-enrollment.js";
 import { AppControlService } from "./services/app-control.js";
 import { HostInventoryService } from "./services/host-inventory.js";
+import { M365Service, systemDnsResolver } from "./services/m365.js";
 import { NotificationService, type EmailTransport } from "./services/notifications.js";
 import { playbookTriggerHandler } from "./services/playbook-triggers.js";
 import { ReportService } from "./services/reports.js";
@@ -79,6 +80,8 @@ export interface AppDeps {
   startScheduler?: boolean;
   /** Outbound HTTP for engine connectors, AI providers and enrichment feeds (default: global fetch). */
   fetch?: typeof fetch;
+  /** Public DNS for mail-authentication checks (tests inject a fake). */
+  dns?: import("@bloody/adapters").DnsResolver;
   /** DNS validation for outbound endpoints (false disables — tests with fake hosts only). */
   hostResolver?: ((hostname: string) => Promise<string[]>) | false;
   /** OpenTelemetry span exporter override (tests inject an in-memory exporter). */
@@ -254,7 +257,8 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     log,
     now,
   });
-  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+  const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
   const services: AppServices = {
     config,
@@ -283,6 +287,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     agentEnrollment: new AgentEnrollmentService({ db, box: secrets, inventory, quota, now }),
     appControl: new AppControlService(now),
     hostInventory: new HostInventoryService(now),
+    m365,
     paymentProviders,
     intel,
     enrichment: new EnrichmentService({ db, inventory, events: domainEvents, enabled: config.features.vulnEnrichment, config: config.enrichment, fetch: engineFetch, resolveHost, now }),

@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -817,3 +817,31 @@ export const useSetAppControlMode = () =>
   useAppControlMutation(({ organizationId, mode }: { organizationId: string; mode: AppControlMode }) => api.put(`/app-control/settings/${encodeURIComponent(organizationId)}`, { mode }));
 export const useAddAppControlRule = () => useAppControlMutation((rule: AppControlRuleInput) => api.post<AppControlRule>("/app-control/rules", rule));
 export const useDeleteAppControlRule = () => useAppControlMutation((id: string) => api.delete(`/app-control/rules/${encodeURIComponent(id)}`));
+
+// ─── Microsoft 365 hardening (ITDR) ────────────────────────────────────────
+
+export interface M365Overview {
+  organizationId: string;
+  connection: M365Connection | null;
+  assessment: M365Assessment | null;
+  history: Array<{ id: string; finishedAt: string; score: number }>;
+  permissions: Array<{ name: string; why: string }>;
+  checks: number;
+}
+
+export function useM365Overview(organizationId: string | null) {
+  return useQuery<M365Overview, ApiError>({
+    queryKey: ["m365", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/m365/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+  });
+}
+
+function useM365Mutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation<TResult, ApiError, TVars>({ mutationFn: fn, onSuccess: () => void qc.invalidateQueries({ queryKey: ["m365"] }) });
+}
+export const useConnectM365 = () =>
+  useM365Mutation((input: M365ConnectionInput) => api.post<{ connection: M365Connection; assessment: M365Assessment | null; error: string | null }>("/m365/connections", input));
+export const useAssessM365 = () => useM365Mutation((id: string) => api.post<M365Assessment>(`/m365/connections/${encodeURIComponent(id)}/assess`, {}));
+export const useDisconnectM365 = () => useM365Mutation((id: string) => api.delete(`/m365/connections/${encodeURIComponent(id)}`));
