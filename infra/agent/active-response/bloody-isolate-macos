@@ -1,0 +1,164 @@
+#!/bin/bash
+# SPDX-License-Identifier: LicenseRef-SCIAT-Proprietary
+# Copyright (c) 2026 SCIAT AFRICA. All rights reserved.
+#
+# bloody-isolate (macOS) — SCIAT endpoint network isolation with the built-in pf firewall.
+# Same contract as the Linux (nftables) version, so the SCIAT Agent drives both the same way.
+#
+# Modes (both ALWAYS keep the management path open, so the Mac can be released from the SCIAT
+# platform at any time):
+#   lan   cut the Mac off local networks (RFC1918, CGNAT, link-local, IPv6 ULA/link-local) to stop
+#         lateral movement; the internet stays reachable. DNS to the configured resolvers works.
+#   full  drop everything except the management addresses, DHCP and listed DNS resolvers.
+#
+# Rules live in the pf anchor "com.apple/sciat.isolation": macOS's stock /etc/pf.conf evaluates
+# every anchor under com.apple/*, so the system configuration is never edited. pf is enabled with
+# a reference token (pfctl -E) that release gives back (pfctl -X), leaving pf as it was.
+#
+# Usage
+#   bloody-isolate isolate <lan|full> allow=<ip|cidr,...> [dns=<ip,...>]
+#   bloody-isolate release
+#   bloody-isolate status
+#   bloody-isolate --print isolate ...     print the pf rules instead of applying them
+#
+# Written for /bin/bash 3.2 (macOS): no mapfile, no associative arrays.
+set -euo pipefail
+
+ANCHOR="com.apple/sciat.isolation"
+STATE="/var/run/sciat-isolation.state"
+TOKEN_FILE="/var/run/sciat-isolation.pftoken"
+LOCAL_NETS="10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, fc00::/7, fe80::/10"
+PRINT=0
+
+log() { logger -t sciat-isolate -- "$*" 2>/dev/null || true; echo "bloody-isolate: $*" >&2; }
+die() { log "error: $*"; exit 1; }
+
+# Strict IP / CIDR validation: nothing but addresses reaches the firewall.
+valid_entry() {
+  local v="$1"
+  if [[ "$v" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}(/([89]|[12][0-9]|3[0-2]))?$ ]]; then
+    local a b c d
+    IFS=. read -r a b c d <<< "${v%%/*}"
+    [ "$a" -le 255 ] && [ "$b" -le 255 ] && [ "$c" -le 255 ] && [ "$d" -le 255 ] && return 0
+    return 1
+  fi
+  [[ "$v" =~ ^[0-9A-Fa-f:]+(/([1-9][0-9]?|1[01][0-9]|12[0-8]))?$ && "$v" == *:* ]] && return 0
+  return 1
+}
+
+validate_csv() {
+  local e
+  local IFS=','
+  for e in $1; do
+    [ -z "$e" ] && continue
+    valid_entry "$e" || die "invalid address '$e'"
+  done
+}
+
+# csv → ", "-joined list for a pf table, validating every entry.
+table_list() {
+  local out="" e
+  local IFS=','
+  for e in $1; do
+    [ -z "$e" ] && continue
+    valid_entry "$e" || die "invalid address '$e'"
+    out="${out:+$out, }$e"
+  done
+  printf '%s' "$out"
+}
+
+system_resolvers() {
+  scutil --dns 2>/dev/null | awk '/nameserver\[[0-9]+\]/ {print $3}' | sort -u | while read -r ns; do valid_entry "$ns" && echo "$ns"; done | paste -sd, -
+}
+
+ruleset() { # $1 mode, $2 allow csv, $3 dns csv
+  local mode="$1" mgmt dns
+  mgmt="$(table_list "$2")"
+  dns="$(table_list "$3")"
+  [ -z "$mgmt" ] && die "allow= must list the platform/manager addresses (otherwise the Mac could never be released)"
+  echo "table <sciat_mgmt> const { $mgmt }"
+  [ -n "$dns" ] && echo "table <sciat_dns> const { $dns }"
+  [ "$mode" = lan ] && echo "table <sciat_local> const { $LOCAL_NETS }"
+  # pf: the first matching "quick" rule wins. Everything allowed comes first.
+  echo "pass quick on lo0 all"
+  echo "pass quick from any to <sciat_mgmt>"
+  echo "pass quick from <sciat_mgmt> to any"
+  echo "pass out quick proto udp from any port 68 to any port 67"
+  echo "pass in quick proto udp from any port 67 to any port 68"
+  echo "pass quick inet6 proto icmp6 icmp6-type { neighbrsol, neighbradv, routersol, routeradv }"
+  [ -n "$dns" ] && echo "pass out quick proto { tcp, udp } from any to <sciat_dns> port 53"
+  if [ "$mode" = lan ]; then
+    # Only traffic to / from local networks is dropped; anything else falls through to the
+    # system rules (internet stays reachable).
+    echo "block drop out quick from any to <sciat_local>"
+    echo "block drop in quick from <sciat_local> to any"
+  else
+    echo "block drop quick all"
+  fi
+}
+
+pf_enable() {
+  # Reference-counted enable: keep the token so release can give it back.
+  if [ ! -s "$TOKEN_FILE" ]; then
+    local token
+    token="$(pfctl -E 2>&1 | awk '/Token/ {print $3}' | head -1)"
+    [ -n "$token" ] && printf '%s\n' "$token" > "$TOKEN_FILE"
+  fi
+}
+
+isolate() {
+  local mode="${1:-}" allow="" dns="" kv
+  shift || true
+  [ "$mode" = lan ] || [ "$mode" = full ] || die "mode must be 'lan' or 'full'"
+  for kv in "$@"; do
+    case "$kv" in
+      allow=*) allow="${kv#allow=}" ;;
+      dns=*) dns="${kv#dns=}" ;;
+      block4=*|block6=*) ;; # precomputed ranges for Windows Firewall; pf uses the tables above
+      *) die "unknown argument '$kv'" ;;
+    esac
+  done
+  # Validate here, in the main shell: errors inside $( ) would not stop the script.
+  validate_csv "$allow"
+  validate_csv "$dns"
+  if [ "$mode" = lan ] && [ "$PRINT" = 0 ]; then
+    local sys; sys="$(system_resolvers || true)"
+    dns="${dns:+$dns,}${sys}"
+  fi
+  local rules; rules="$(ruleset "$mode" "$allow" "$dns")"
+  if [ "$PRINT" = 1 ]; then echo "$rules"; return 0; fi
+  command -v pfctl >/dev/null || die "pfctl is required"
+  # Check the rules first, then load them atomically into the anchor.
+  printf '%s\n' "$rules" | pfctl -nf - -a "$ANCHOR" >/dev/null 2>&1 || die "pf rejected the isolation rules"
+  printf '%s\n' "$rules" | pfctl -a "$ANCHOR" -f - 2>/dev/null
+  pf_enable
+  # Cut connections opened before isolation (an attacker's session would otherwise survive in
+  # pf's state table). The agent reconnects to the platform straight away.
+  pfctl -F states >/dev/null 2>&1 || true
+  printf 'mode=%s\nallow=%s\nsince=%s\n' "$mode" "$allow" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STATE"
+  log "isolated (mode=$mode, management=$allow)"
+}
+
+release() {
+  if [ "$PRINT" = 1 ]; then echo "pfctl -a $ANCHOR -F all"; return 0; fi
+  pfctl -a "$ANCHOR" -F all >/dev/null 2>&1 || true
+  if [ -s "$TOKEN_FILE" ]; then pfctl -X "$(cat "$TOKEN_FILE")" >/dev/null 2>&1 || true; fi
+  rm -f "$STATE" "$TOKEN_FILE"
+  log "released"
+}
+
+status() {
+  if [ -f "$STATE" ] && [ -n "$(pfctl -a "$ANCHOR" -s rules 2>/dev/null)" ]; then echo "isolated"; cat "$STATE"; else echo "not isolated"; fi
+}
+
+main() {
+  if [ "${1:-}" = "--print" ]; then PRINT=1; shift; fi
+  case "${1:-}" in
+    isolate) shift; isolate "$@" ;;
+    release) release ;;
+    status) status ;;
+    *) die "usage: bloody-isolate [--print] isolate <lan|full> allow=<ips> [dns=<ips>] | release | status" ;;
+  esac
+}
+
+main "$@"

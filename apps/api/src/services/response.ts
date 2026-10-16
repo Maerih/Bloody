@@ -692,7 +692,6 @@ export class ResponseService {
       const agent = rows[0];
       if (!agent) return null;
       const fail = (code: string, message: string): ExecutionOutcome => ({ status: "failed", executor: "sciat:agent", integrationId: null, result: {}, error: { code, message, retryable: false } });
-      if (agent.platform === "macos") return fail("unsupported_platform", "The SCIAT Agent cannot isolate macOS endpoints yet");
       let args: string[];
       if (action === "release_endpoint") args = isolationScriptArgs("release");
       else {

@@ -20,6 +20,7 @@ const AGENT_FILES: Record<string, { file: string; type: string }> = {
   "sciat-agent.ps1": { file: "sciat/sciat-agent.ps1", type: "text/plain" },
   "SciatAgentService.cs": { file: "sciat/SciatAgentService.cs", type: "text/plain" },
   "bloody-isolate": { file: "active-response/bloody-isolate", type: "text/x-shellscript" },
+  "bloody-isolate-macos": { file: "active-response/bloody-isolate-macos", type: "text/x-shellscript" },
   "bloody-isolate.ps1": { file: "active-response/bloody-isolate.ps1", type: "text/plain" },
 };
 const INSTALLERS = {

@@ -9,7 +9,7 @@
 #   sciat-agent inventory  # print the host inventory (software, services, users, processes, ports, AV)
 set -uo pipefail
 
-AGENT_VERSION="1.2.0"
+AGENT_VERSION="1.3.0"
 CONF="${SCIAT_AGENT_CONF:-/etc/sciat-agent/agent.conf}"
 [ "$(uname -s)" = Darwin ] && CONF="${SCIAT_AGENT_CONF:-/Library/Application Support/SCIAT/agent.conf}"
 STATE_DIR="$(dirname "$CONF")"
@@ -83,6 +83,7 @@ platform_ips() {
 }
 dns_servers() {
   { if command -v resolvectl >/dev/null; then resolvectl dns 2>/dev/null | tr ' ' '\n'; fi
+    if command -v scutil >/dev/null; then scutil --dns 2>/dev/null | awk '/nameserver\[[0-9]+\]/ {print $3}'; fi
     awk '/^nameserver/ {print $2}' /etc/resolv.conf 2>/dev/null; } | grep -E "$IP_RE" | grep -vE '^(127\.|::1$)' | sort -u | head -8
 }
 json_list() { local out=() v; while IFS= read -r v; do [ -n "$v" ] && out+=("$(js "$v")"); done; local IFS=,; printf '[%s]' "${out[*]}"; }
@@ -151,7 +152,7 @@ run_commands() {
         # Re-report straight away so the platform re-grades the computer.
         [ $rc -eq 0 ] && { send_inventory >/dev/null 2>&1 || log "inventory upload failed"; }
       fi
-    elif [ "$(uname -s)" = Darwin ] || [ ! -x "$ISOLATE" ]; then
+    elif [ ! -x "$ISOLATE" ]; then
       out="isolation is not available on this endpoint"; rc=3
     else
       out="$("$ISOLATE" "${args[@]}" 2>&1 </dev/null)"; rc=$?

@@ -12,7 +12,7 @@
 set -euo pipefail
 
 PLATFORM_URL="${SCIAT_PLATFORM_URL:-__PLATFORM_URL__}"
-AGENT_VERSION="1.2.0"
+AGENT_VERSION="1.3.0"
 PREFIX="/opt/sciat-agent"
 OS="$(uname -s)"
 if [ "$OS" = Darwin ]; then
@@ -101,10 +101,13 @@ mkdir -p "$PREFIX" "$CONF_DIR"
 fetch() { curl -fsS --max-time 60 "$PLATFORM_URL/api/v1/agent/files/$1" -o "$2" || die "download of $1 failed"; }
 fetch sciat-agent.sh "$PREFIX/sciat-agent.new" && mv "$PREFIX/sciat-agent.new" "$PREFIX/sciat-agent"
 chmod 0755 "$PREFIX/sciat-agent"
+# Network isolation: nftables on Linux, the built-in pf firewall on macOS (same commands).
 if [ "$platform" = linux ]; then
   fetch bloody-isolate "$PREFIX/bloody-isolate.new" && mv "$PREFIX/bloody-isolate.new" "$PREFIX/bloody-isolate"
-  chmod 0750 "$PREFIX/bloody-isolate"
+else
+  fetch bloody-isolate-macos "$PREFIX/bloody-isolate.new" && mv "$PREFIX/bloody-isolate.new" "$PREFIX/bloody-isolate"
 fi
+chmod 0750 "$PREFIX/bloody-isolate"
 umask 077
 printf "PLATFORM_URL='%s'\nAGENT_TOKEN='%s'\n" "$PLATFORM_URL" "$token" > "$CONF_DIR/agent.conf"
 chmod 0600 "$CONF_DIR/agent.conf"

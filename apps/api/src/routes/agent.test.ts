@@ -126,6 +126,8 @@ describe("SCIAT Agent", () => {
     expect((await t.app.inject({ method: "GET", url: "/api/v1/agent/files/SciatAgentService.cs" })).body).toContain('ServiceName = "SCIATAgent"');
     expect((await t.app.inject({ method: "GET", url: "/api/v1/agent/files/..%2F..%2Fpackage.json" })).statusCode).toBe(404);
     expect((await t.app.inject({ method: "GET", url: "/api/v1/agent/files/constructor" })).statusCode).toBe(404);
+    // macOS isolation script (pf), installed at the same path as the Linux one.
+    expect((await t.app.inject({ method: "GET", url: "/api/v1/agent/files/bloody-isolate-macos" })).body).toContain('ANCHOR="com.apple/sciat.isolation"');
   });
 });
 
@@ -200,6 +202,26 @@ describe("SCIAT Agent isolation (agent-executed)", () => {
     await result(token, cmd.id, { status: "failed", output: "nft: permission denied" });
     expect(await action(req.body.id)).toMatchObject({ status: "failed", error: { code: "agent_failed", message: "nft: permission denied" } });
     expect((await agentRow()).status).toBe("isolated");
+  });
+
+  it("isolates macOS endpoints too (pf), with the same command", async () => {
+    const key = (await admin.get("/agents/enrollment")).body.accountKey;
+    const mac = (await enroll({ accountKey: key, organizationKey: "org-2", ...host("mac-iso-01", { platform: "macos", os: "macOS 15.1" }) })).json().token;
+    const macAsset = (await t.privileged.query("SELECT asset_id FROM agents WHERE hostname = 'mac-iso-01'")).rows[0].asset_id;
+    await heartbeat(mac, { ...beat("mac-iso-01"), platformIps: ["10.9.9.9"] });
+    const res = await admin.post("/response/actions", {
+      action: "isolate_endpoint",
+      organizationId: tenant.orgIds[1],
+      target: { kind: "asset", id: macAsset, label: "mac-iso-01" },
+      parameters: { mode: "lan" },
+      reason: "Info-stealer on this Mac, isolate it from the LAN now",
+      emergency: true,
+    });
+    expect(res.body).toMatchObject({ status: "running", executor: "sciat:agent" });
+    const cmd = (await heartbeat(mac, beat("mac-iso-01"))).json().commands[0];
+    expect(cmd.args.slice(0, 3)).toEqual(["isolate", "lan", "allow=10.9.9.9"]);
+    await result(mac, cmd.id, { status: "succeeded", output: "isolated\nmode=lan" });
+    expect(await action(res.body.id)).toMatchObject({ status: "succeeded" });
   });
 
   it("fails the action when the agent never collects the command", async () => {

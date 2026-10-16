@@ -4,7 +4,7 @@
 #   sciat-agent.ps1 run | once | status
 param([ValidateSet('run', 'once', 'status', 'inventory')][string]$Command = 'run')
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.2.0'
+$AgentVersion = '1.3.0'
 $Home_ = Join-Path $env:ProgramFiles 'SCIAT\Agent'
 $DataDir = Join-Path $env:ProgramData 'SCIAT\Agent'
 $Conf = Get-Content (Join-Path $DataDir 'agent.json') -Raw | ConvertFrom-Json
