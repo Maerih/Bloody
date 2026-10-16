@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -851,6 +851,42 @@ export const useSetRmmApproved = () =>
   useRmmGuardMutation(({ organizationId, approved }: { organizationId: string; approved: string[] }) => api.put<{ approved: string[] }>(`/rmm-guard/settings/${encodeURIComponent(organizationId)}`, { approved }));
 export const useBlockRmmTools = () =>
   useRmmGuardMutation((body: { organizationId: string; tools: string[] }) => api.post<{ created: number; skipped: number; appControl: AppControlMode }>("/rmm-guard/block", body));
+
+// ─── External Exposure (ESPM) ───────────────────────────────────────────────
+
+export interface ExposureOverview {
+  organizationId: string;
+  authorization: ExposureAuthorization | null;
+  targets: ExposureTarget[];
+  findings: ExposureFinding[];
+  scans: ExposureScan[];
+  portsChecked: Array<{ port: number; service: string; severity: ExposureSeverity }>;
+}
+
+export function useExposureOverview(organizationId: string | null) {
+  return useQuery<ExposureOverview, ApiError>({
+    queryKey: ["exposure", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/exposure/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+    // Follow a running scan until it finishes.
+    refetchInterval: (q) => (q.state.data?.scans[0]?.status === "running" ? 3000 : false),
+  });
+}
+
+function useExposureMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation<TResult, ApiError, TVars>({ mutationFn: fn, onSuccess: () => void qc.invalidateQueries({ queryKey: ["exposure"] }) });
+}
+export const useAuthorizeExposure = () =>
+  useExposureMutation(({ organizationId, ...body }: { organizationId: string; reference: string; expiresAt: string; attest: true }) =>
+    api.put<ExposureAuthorization>(`/exposure/authorization/${encodeURIComponent(organizationId)}`, body),
+  );
+export const useRevokeExposure = () => useExposureMutation((organizationId: string) => api.delete(`/exposure/authorization/${encodeURIComponent(organizationId)}`));
+export const useAddExposureTarget = () => useExposureMutation((body: { organizationId: string; ip: string; note?: string }) => api.post("/exposure/targets", body));
+export const useDecideExposureTarget = () =>
+  useExposureMutation(({ id, status }: { id: string; status: "confirmed" | "ignored" }) => api.patch(`/exposure/targets/${encodeURIComponent(id)}`, { status }));
+export const useRemoveExposureTarget = () => useExposureMutation((id: string) => api.delete(`/exposure/targets/${encodeURIComponent(id)}`));
+export const useStartExposureScan = () => useExposureMutation((organizationId: string) => api.post<ExposureScan>("/exposure/scans", { organizationId }));
 
 // ─── Microsoft 365 hardening (ITDR) ────────────────────────────────────────
 

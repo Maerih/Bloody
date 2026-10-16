@@ -67,6 +67,12 @@ const BY_EVENT: Record<AutomationEvent, TemplateVariable[]> = {
     { name: "action.reason", description: "Written justification" },
     { name: "action.requestedBy", description: "Responder who used break-glass" },
   ],
+  "exposure.port_open": [
+    { name: "exposure.ip", description: "Public address" },
+    { name: "exposure.port", description: "Port found open" },
+    { name: "exposure.service", description: "Service usually on that port" },
+    { name: "exposure.hostnames", description: "Computers behind the address" },
+  ],
   "rmm.unapproved_detected": [
     { name: "agent.hostname", description: "Endpoint hostname" },
     { name: "tool.name", description: "Remote-access tool found" },

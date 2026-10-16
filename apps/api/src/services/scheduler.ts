@@ -43,6 +43,8 @@ export interface SchedulerDeps {
   responses?: { expireAgentCommands(tenantId: string): Promise<number> };
   /** Daily Microsoft 365 re-assessment. */
   m365?: { assessDue(tenantId: string): Promise<number> };
+  /** Daily External Exposure rescans. */
+  exposure?: { scanDue(tenantId: string): Promise<number> };
   log: PipelineLogger;
   intervalSeconds: number;
   now: () => number;
@@ -252,6 +254,9 @@ export class Scheduler {
       });
       await guard(`m365:${t.id}`, async () => {
         await this.deps.m365?.assessDue(t.id);
+      });
+      await guard(`exposure:${t.id}`, async () => {
+        await this.deps.exposure?.scanDue(t.id);
       });
       await guard(`trials:${t.id}`, async () => {
         result.trialNotices += await this.trialNotices(t.id, now);

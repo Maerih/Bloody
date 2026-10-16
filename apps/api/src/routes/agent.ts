@@ -175,7 +175,11 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
     const token = bearer(request);
     const body = parse(HeartbeatBody, request.body);
     const res = await svc.heartbeat(token, body);
-    const policy = await s.db.withTenant(res.tenantId, (tx) => s.appControl.policy(tx, res.organizationId));
+    const policy = await s.db.withTenant(res.tenantId, async (tx) => {
+      // External Exposure: the address the agent reaches us from is its network's public address.
+      await s.exposure.observe(tx, res.tenantId, res.organizationId, res.agentId, request.ip);
+      return s.appControl.policy(tx, res.organizationId);
+    });
     return {
       pollSeconds: res.pollSeconds,
       // App Control: the agent downloads the policy again when this changes.

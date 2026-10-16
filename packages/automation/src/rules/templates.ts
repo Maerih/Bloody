@@ -213,6 +213,28 @@ export const DEFAULT_RULE_TEMPLATES: Record<AutomationEvent, RuleTemplatePreset>
     ],
     throttleMinutes: 1440,
   },
+  "exposure.port_open": {
+    event: "exposure.port_open",
+    name: "Risky service exposed to the internet",
+    description: "External Exposure found a dangerous service (RDP, SMB, a database, ...) reachable on one of the organization's public addresses.",
+    audience: "soc",
+    subject: "{{exposure.service}} exposed on {{exposure.ip}}:{{exposure.port}}",
+    body: [
+      "**{{exposure.service}}** is reachable from the internet on **{{exposure.ip}}:{{exposure.port}}** ({{organization.name}}).",
+      "Computers behind this address: {{exposure.hostnames}}",
+      "Why it matters: {{exposure.risk}}",
+      "What to do: {{exposure.fix}}",
+    ].join("\n\n"),
+    variables: [
+      { path: "exposure.ip", description: "Public address" },
+      { path: "exposure.port", description: "Port found open" },
+      { path: "exposure.service", description: "Service usually on that port" },
+      { path: "exposure.hostnames", description: "SCIAT Agents seen behind the address" },
+      { path: "exposure.risk", description: "Why it matters" },
+      { path: "exposure.fix", description: "Recommended fix" },
+    ],
+    throttleMinutes: 1440,
+  },
   "agent.unresponsive": {
     event: "agent.unresponsive",
     name: "Agent unresponsive",

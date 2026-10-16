@@ -51,6 +51,7 @@ import { AppControlService } from "./services/app-control.js";
 import { HostInventoryService } from "./services/host-inventory.js";
 import { M365Service, systemDnsResolver } from "./services/m365.js";
 import { RmmGuardService } from "./services/rmm-guard.js";
+import { ExposureService, tcpProbe, type PortProbe } from "./services/external-exposure.js";
 import { NotificationService, type EmailTransport } from "./services/notifications.js";
 import { playbookTriggerHandler } from "./services/playbook-triggers.js";
 import { ReportService } from "./services/reports.js";
@@ -85,6 +86,8 @@ export interface AppDeps {
   dns?: import("@bloody/adapters").DnsResolver;
   /** DNS validation for outbound endpoints (false disables — tests with fake hosts only). */
   hostResolver?: ((hostname: string) => Promise<string[]>) | false;
+  /** TCP reachability check for External Exposure scans (tests inject a fake). */
+  portProbe?: PortProbe;
   /** OpenTelemetry span exporter override (tests inject an in-memory exporter). */
   spanExporter?: SpanExporter;
   /** Notification transports (tests inject capturing transports). */
@@ -260,7 +263,8 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   });
   const appControl = new AppControlService(now);
   const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
-  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+  const exposure = new ExposureService({ db, events: domainEvents, probe: deps.portProbe ?? tcpProbe, now });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, exposure, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
   const services: AppServices = {
     config,
@@ -289,6 +293,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     agentEnrollment: new AgentEnrollmentService({ db, box: secrets, inventory, quota, now }),
     appControl,
     rmmGuard: new RmmGuardService(appControl),
+    exposure,
     hostInventory: new HostInventoryService(now),
     m365,
     paymentProviders,
