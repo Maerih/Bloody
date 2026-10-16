@@ -924,7 +924,7 @@ export const useRemoveHardeningException = () =>
 export interface AwarenessOverview {
   organizationId: string;
   canEmail: boolean;
-  summary: { learners: number; enrolments: number; completed: number; completionRate: number | null; overdue: number; averageScore: number | null };
+  summary: { learners: number; enrolments: number; completed: number; completionRate: number | null; overdue: number; averageScore: number | null; highRisk: number; averageRisk: number | null };
   learners: AwarenessLearner[];
   assignments: AwarenessAssignment[];
 }

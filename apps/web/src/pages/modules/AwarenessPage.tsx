@@ -1,5 +1,5 @@
 import { renderPhish, type AwarenessAssignment, type AwarenessEnrolment, type AwarenessLearner, type PhishCampaign, type PhishTarget } from "@bloody/contracts";
-import { BookOpen, Clock, Fish, Link2, Mail, Plus, ShieldCheck, Trash2, UserPlus, Users } from "lucide-react";
+import { BookOpen, Clock, Fish, Link2, Mail, Plus, ShieldCheck, Trash2, UserPlus, UserRoundX, Users } from "lucide-react";
 import { useState } from "react";
 import { errorMessage } from "../../api/client";
 import {
@@ -234,8 +234,9 @@ function Overview() {
             <ErrorState compact error={overview.error} onRetry={() => void overview.refetch()} />
           ) : o ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 <StatTile label="Learners" value={o.summary.learners} icon={Users} href="/awareness/learners" />
+                <StatTile label="High-risk people" value={o.summary.highRisk} icon={UserRoundX} tone={o.summary.highRisk ? "high" : "healthy"} href="/awareness/learners" hint={o.summary.averageRisk === null ? undefined : `Average human risk ${o.summary.averageRisk}/100`} />
                 <StatTile label="Completion" value={o.summary.completionRate ?? 0} format={(v) => (o.summary.completionRate === null ? "—" : `${v}%`)} tone={o.summary.completionRate === null ? "default" : o.summary.completionRate >= 80 ? "healthy" : "medium"} />
                 <StatTile label="Average quiz score" value={o.summary.averageScore ?? 0} format={(v) => (o.summary.averageScore === null ? "—" : `${v}%`)} />
                 <StatTile label="Overdue" value={o.summary.overdue} icon={Clock} tone={o.summary.overdue ? "high" : "healthy"} />
@@ -303,6 +304,44 @@ function AddLearnerDialog({ organizationId, onClose }: { organizationId: string;
   );
 }
 
+const RISK_TONE = { low: "success", medium: "warning", high: "danger" } as const;
+
+function RiskBadge({ learner }: { learner: AwarenessLearner }) {
+  return (
+    <Badge size="xs" tone={RISK_TONE[learner.risk.level]} title={learner.risk.reasons.map((r) => `${r.points > 0 ? "+" : ""}${r.points} ${r.text}`).join("\n")}>
+      {learner.risk.score} · {learner.risk.level}
+    </Badge>
+  );
+}
+
+function LearnerDrawer({ learner, onClose }: { learner: AwarenessLearner; onClose: () => void }) {
+  return (
+    <Drawer open onClose={onClose} title={learner.name} subtitle={learner.email} width="md">
+      <div className="space-y-4 p-4 text-sm">
+        <div className="flex items-center gap-3">
+          <span className="text-3xl font-semibold">{learner.risk.score}</span>
+          <div>
+            <RiskBadge learner={learner} />
+            <p className="mt-1 text-xs text-fg-muted">Human risk, 0–100: how likely this person is to be fooled, from the last 12 months.</p>
+          </div>
+        </div>
+        <ul className="divide-y divide-line rounded border border-line">
+          {learner.risk.reasons.map((r) => (
+            <li key={r.text} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span>{r.text}</span>
+              <span className={r.points > 0 ? "font-semibold text-sev-critical" : "font-semibold text-healthy"}>
+                {r.points > 0 ? "+" : ""}
+                {r.points}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-fg-muted">Lower it by finishing assigned training, scoring well on quizzes, and not clicking phishing simulations.</p>
+      </div>
+    </Drawer>
+  );
+}
+
 function Learners() {
   const session = useSession();
   const [organizationId, setOrganizationId] = useOrg();
@@ -310,11 +349,19 @@ function Learners() {
   const importer = useImportLearners();
   const remove = useRemoveLearner();
   const [adding, setAdding] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
   const canWrite = organizationId ? session.can("org:write", organizationId) : false;
   const o: AwarenessOverview | undefined = overview.data;
+  const opened = openId ? o?.learners.find((l) => l.id === openId) : undefined;
   const columns: DataTableColumn<AwarenessLearner>[] = [
     { id: "name", header: "Name", accessor: (l) => l.name, hideable: false, cell: (l) => <span className="font-medium">{l.name}</span> },
     { id: "email", header: "Email", accessor: (l) => l.email },
+    {
+      id: "risk",
+      header: "Human risk",
+      accessor: (l) => l.risk.score,
+      cell: (l) => <RiskBadge learner={l} />,
+    },
     { id: "source", header: "Source", accessor: (l) => (l.source === "directory" ? "Directory" : "Added by hand") },
     { id: "done", header: "Completed", align: "right", accessor: (l) => l.completed, cell: (l) => `${l.completed} of ${l.assigned}` },
     { id: "score", header: "Average score", align: "right", accessor: (l) => l.averageScore, cell: (l) => (l.averageScore === null ? "—" : `${l.averageScore}%`) },
@@ -323,7 +370,7 @@ function Learners() {
       header: "",
       exportable: false,
       sortable: false,
-      cell: (l) => (canWrite ? <Button size="xs" variant="ghost" icon={Trash2} aria-label={`Remove ${l.name}`} onClick={() => remove.mutate(l.id)} /> : null),
+      cell: (l) => (canWrite ? <Button size="xs" variant="ghost" icon={Trash2} aria-label={`Remove ${l.name}`} onClick={(e) => (e.stopPropagation(), remove.mutate(l.id))} /> : null),
     },
   ];
   return (
@@ -351,6 +398,7 @@ function Learners() {
             rows={o?.learners}
             loading={overview.isPending}
             getRowId={(l) => l.id}
+            onRowClick={(l) => setOpenId(l.id)}
             searchable
             exportFileName="awareness-learners"
             emptyState={<EmptyState compact title="No learners yet" description="Import the organization's users from its connected directory (Entra ID, Okta, Google) or add people by hand." />}
@@ -360,6 +408,7 @@ function Learners() {
         )}
       </div>
       {adding && organizationId ? <AddLearnerDialog organizationId={organizationId} onClose={() => setAdding(false)} /> : null}
+      {opened ? <LearnerDrawer learner={opened} onClose={() => setOpenId(null)} /> : null}
     </Card>
   );
 }

@@ -31,11 +31,17 @@ export async function awarenessRoutes(app: FastifyInstance, s: AppServices): Pro
     requirePermission(request, "org:read", organizationId);
     return s.db.withTenant(auth.tenantId, async (tx) => {
       await assertOrganization(tx, organizationId);
+      const learners = await s.awareness.learners(tx, organizationId);
+      const summary = await s.awareness.summary(tx, organizationId);
       return {
         organizationId,
         canEmail: s.awareness.canEmail,
-        summary: await s.awareness.summary(tx, organizationId),
-        learners: await s.awareness.learners(tx, organizationId),
+        summary: {
+          ...summary,
+          highRisk: learners.filter((l) => l.risk.level === "high").length,
+          averageRisk: learners.length ? Math.round(learners.reduce((n, l) => n + l.risk.score, 0) / learners.length) : null,
+        },
+        learners,
         assignments: await s.awareness.assignments(tx, organizationId),
       };
     });

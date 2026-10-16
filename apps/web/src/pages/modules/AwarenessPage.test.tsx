@@ -3,14 +3,14 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ORG_A } from "../../test/fixtures";
 import { mockApi, renderApp, renderWithSession } from "../../test/utils";
-import { AwarenessOverviewSection, AwarenessPhishingSection } from "./AwarenessPage";
+import { AwarenessLearnersSection, AwarenessOverviewSection, AwarenessPhishingSection } from "./AwarenessPage";
 
 const NOW = new Date().toISOString();
 const lessons = { passMark: 75, items: LESSONS.map(({ key, title, minutes, summary, quiz }) => ({ key, title, minutes, summary, questions: quiz.length })) };
 const overview = {
   organizationId: ORG_A,
   canEmail: true,
-  summary: { learners: 2, enrolments: 2, completed: 1, completionRate: 50, overdue: 0, averageScore: 88 },
+  summary: { learners: 2, enrolments: 2, completed: 1, completionRate: 50, overdue: 0, averageScore: 88, highRisk: 1, averageRisk: 45 },
   learners: [],
   assignments: [
     {
@@ -120,5 +120,26 @@ describe("phishing simulations", () => {
     expect(screen.getByText(PHISH_TEMPLATES[0]!.redFlags[0]!)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Take the 6-minute lesson/ })).toHaveAttribute("href", "https://sciat.example/learn/l_x");
     expect(calls.some((c) => c.method === "POST")).toBe(true);
+  });
+});
+
+describe("human risk", () => {
+  it("shows each person's score and explains it", async () => {
+    mockApi({
+      "/awareness/overview": {
+        ...overview,
+        learners: [
+          { id: "l1", name: "Amina Mushi", email: "amina@kb.example", source: "directory", createdAt: NOW, assigned: 1, completed: 0, averageScore: null, risk: { score: 60, level: "high", reasons: [{ points: 25, text: "Clicked 1 phishing simulation" }, { points: 20, text: "Baseline for everyone" }, { points: 15, text: "No training completed in the last 12 months" }] } },
+          { id: "l2", name: "Joseph Mrema", email: "joseph@kb.example", source: "manual", createdAt: NOW, assigned: 1, completed: 1, averageScore: 95, risk: { score: 0, level: "low", reasons: [{ points: 20, text: "Baseline for everyone" }] } },
+        ],
+      },
+    });
+    renderWithSession(<AwarenessLearnersSection />);
+    expect(await screen.findByText("60 · high")).toBeInTheDocument();
+    expect(screen.getByText("0 · low")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Amina Mushi"));
+    const drawer = await screen.findByRole("dialog");
+    expect(within(drawer).getByText("Clicked 1 phishing simulation")).toBeInTheDocument();
+    expect(within(drawer).getByText("+25")).toBeInTheDocument();
   });
 });

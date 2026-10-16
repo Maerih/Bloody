@@ -46,3 +46,19 @@ describe("phishing templates", () => {
     }
   });
 });
+
+describe("human risk", () => {
+  it("is explainable and moves with behaviour", async () => {
+    const { humanRisk } = await import("./awareness.js");
+    const none = { phishClicks: 0, phishSpotted: 0, completedTraining: 0, overdueTraining: 0, averageScore: null };
+    expect(humanRisk(none)).toMatchObject({ score: 35, level: "medium" });
+    const good = humanRisk({ phishClicks: 0, phishSpotted: 3, completedTraining: 2, overdueTraining: 0, averageScore: 95 });
+    expect(good).toMatchObject({ score: 0, level: "low" });
+    const bad = humanRisk({ phishClicks: 2, phishSpotted: 0, completedTraining: 0, overdueTraining: 1, averageScore: 60 });
+    expect(bad).toMatchObject({ score: 100, level: "high" });
+    expect(bad.reasons[0]).toEqual({ points: 50, text: "Clicked 2 phishing simulations" });
+    const one = humanRisk({ ...none, phishClicks: 1, completedTraining: 1 });
+    expect(one).toMatchObject({ score: 40, level: "medium" });
+    expect(one.reasons.reduce((n, r) => n + r.points, 0)).toBe(40);
+  });
+});

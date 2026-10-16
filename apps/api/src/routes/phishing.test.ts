@@ -104,3 +104,16 @@ describe("phishing simulations", () => {
     expect((await otherAdmin.get(`/awareness/phishing/campaigns?organizationId=${org}`)).status).toBe(404);
   });
 });
+
+describe("human risk", () => {
+  it("rises for people who click and is explained", async () => {
+    const o = (await admin.get(`/awareness/overview?organizationId=${org}`)).body;
+    const amina = o.learners.find((l: { email: string }) => l.email === "amina@kb.example");
+    const joseph = o.learners.find((l: { email: string }) => l.email === "joseph@kb.example");
+    expect(amina.risk).toMatchObject({ score: 60, level: "high" });
+    expect(amina.risk.reasons[0]).toEqual({ points: 25, text: "Clicked 1 phishing simulation" });
+    expect(joseph.risk).toMatchObject({ score: 30, level: "low" });
+    expect(joseph.risk.reasons.map((r: { text: string }) => r.text)).toContain("Did not fall for 1 simulation");
+    expect(o.summary).toMatchObject({ highRisk: 1, averageRisk: 45 });
+  });
+});

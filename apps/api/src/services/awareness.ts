@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createSmtpTransport } from "@bloody/automation";
 import {
   gradeQuiz,
+  humanRisk,
   lessonByKey,
   lessonForLearner,
   type AwarenessAssignment,
@@ -109,7 +110,13 @@ export class AwarenessService {
       `SELECT l.*,
               (SELECT count(*)::int FROM sat_enrolments e WHERE e.learner_id = l.id) AS assigned,
               (SELECT count(*)::int FROM sat_enrolments e WHERE e.learner_id = l.id AND e.completed_at IS NOT NULL) AS completed,
-              (SELECT round(avg(p.best_score))::int FROM sat_progress p JOIN sat_enrolments e ON e.id = p.enrolment_id WHERE e.learner_id = l.id) AS avg_score
+              (SELECT round(avg(p.best_score))::int FROM sat_progress p JOIN sat_enrolments e ON e.id = p.enrolment_id WHERE e.learner_id = l.id) AS avg_score,
+              -- Human-risk facts, last 12 months.
+              (SELECT count(*)::int FROM sat_phish_targets t WHERE t.learner_id = l.id AND t.clicked_at > now() - interval '365 days') AS phish_clicks,
+              (SELECT count(*)::int FROM sat_phish_targets t WHERE t.learner_id = l.id AND t.clicked_at IS NULL AND t.sent_at > now() - interval '365 days') AS phish_spotted,
+              (SELECT count(*)::int FROM sat_enrolments e WHERE e.learner_id = l.id AND e.completed_at > now() - interval '365 days') AS completed_recent,
+              (SELECT count(*)::int FROM sat_enrolments e JOIN sat_assignments a ON a.id = e.assignment_id
+                 WHERE e.learner_id = l.id AND e.completed_at IS NULL AND a.due_at < now()) AS overdue
          FROM sat_learners l WHERE l.organization_id = $1 AND l.active ORDER BY l.name`,
       [organizationId],
     );
@@ -122,6 +129,13 @@ export class AwarenessService {
       assigned: Number(r.assigned),
       completed: Number(r.completed),
       averageScore: r.avg_score === null ? null : Number(r.avg_score),
+      risk: humanRisk({
+        phishClicks: Number(r.phish_clicks),
+        phishSpotted: Number(r.phish_spotted),
+        completedTraining: Number(r.completed_recent),
+        overdueTraining: Number(r.overdue),
+        averageScore: r.avg_score === null ? null : Number(r.avg_score),
+      }),
     }));
   }
 

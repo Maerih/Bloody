@@ -318,6 +318,7 @@ export interface AwarenessLearner {
   assigned: number;
   completed: number;
   averageScore: number | null;
+  risk: HumanRisk;
 }
 
 export interface AwarenessEnrolment {
@@ -477,4 +478,42 @@ export interface PhishCampaign {
   launchedAt: string;
   launchedBy: string | null;
   targets: PhishTarget[];
+}
+
+// ─── Human risk ────────────────────────────────────────────────────────────
+
+/** What a person did in the last 12 months (training and phishing simulations). */
+export interface HumanRiskFacts {
+  phishClicks: number;
+  phishSpotted: number;
+  completedTraining: number;
+  overdueTraining: number;
+  averageScore: number | null;
+}
+
+export type HumanRiskLevel = "low" | "medium" | "high";
+
+export interface HumanRisk {
+  score: number;
+  level: HumanRiskLevel;
+  /** Each contribution in plain language, largest first. */
+  reasons: Array<{ points: number; text: string }>;
+}
+
+/**
+ * Transparent 0–100 score (higher = more likely to be fooled). Starts at 20 and moves with
+ * behaviour: clicking simulations weighs most; spotting them, finishing training and strong quiz
+ * results bring it down. Every point is explained.
+ */
+export function humanRisk(f: HumanRiskFacts): HumanRisk {
+  const reasons: Array<{ points: number; text: string }> = [{ points: 20, text: "Baseline for everyone" }];
+  if (f.phishClicks) reasons.push({ points: Math.min(50, 25 * f.phishClicks), text: `Clicked ${f.phishClicks} phishing simulation${f.phishClicks === 1 ? "" : "s"}` });
+  if (f.phishSpotted) reasons.push({ points: -Math.min(15, 5 * f.phishSpotted), text: `Did not fall for ${f.phishSpotted} simulation${f.phishSpotted === 1 ? "" : "s"}` });
+  if (f.completedTraining === 0) reasons.push({ points: 15, text: "No training completed in the last 12 months" });
+  else reasons.push({ points: -Math.min(10, 5 * f.completedTraining), text: `Completed ${f.completedTraining} training assignment${f.completedTraining === 1 ? "" : "s"}` });
+  if (f.overdueTraining) reasons.push({ points: Math.min(20, 10 * f.overdueTraining), text: `${f.overdueTraining} training assignment${f.overdueTraining === 1 ? "" : "s"} overdue` });
+  if (f.averageScore !== null && f.averageScore >= 90) reasons.push({ points: -10, text: `Strong quiz results (${f.averageScore}%)` });
+  else if (f.averageScore !== null && f.averageScore < PASS_MARK) reasons.push({ points: 10, text: `Weak quiz results (${f.averageScore}%)` });
+  const score = Math.max(0, Math.min(100, reasons.reduce((n, r) => n + r.points, 0)));
+  return { score, level: score >= 60 ? "high" : score >= 35 ? "medium" : "low", reasons: reasons.sort((a, b) => Math.abs(b.points) - Math.abs(a.points)) };
 }
