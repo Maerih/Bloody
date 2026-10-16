@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { HostInventory } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -772,3 +772,48 @@ export function useAntivirusOverview(organizationId?: string | null, options: { 
     staleTime: 60_000,
   });
 }
+
+// ─── App Control (ESPM) ─────────────────────────────────────────────────────
+
+export interface AppControlOverview {
+  organizationId: string;
+  mode: AppControlMode;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  rules: AppControlRule[];
+  stats: { agents: number; blocked24h: number; audited24h: number; programs: number };
+}
+
+export function useAppControlOverview(organizationId: string | null) {
+  return useQuery<AppControlOverview, ApiError>({
+    queryKey: ["app-control", organizationId ?? "", "overview"],
+    queryFn: ({ signal }) => api.get("/app-control/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+  });
+}
+
+export function useAppControlInventory(organizationId: string | null) {
+  return useQuery<{ items: AppInventoryItem[] }, ApiError>({
+    queryKey: ["app-control", organizationId ?? "", "inventory"],
+    queryFn: ({ signal }) => api.get("/app-control/inventory", { signal, query: { organizationId: organizationId ?? undefined, limit: 1000 } }),
+    enabled: Boolean(organizationId),
+  });
+}
+
+export function useAppControlEvents(organizationId: string | null) {
+  return useQuery<{ items: AppControlEvent[] }, ApiError>({
+    queryKey: ["app-control", organizationId ?? "", "events"],
+    queryFn: ({ signal }) => api.get("/app-control/events", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+    refetchInterval: 30_000,
+  });
+}
+
+function useAppControlMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation<TResult, ApiError, TVars>({ mutationFn: fn, onSuccess: () => void qc.invalidateQueries({ queryKey: ["app-control"] }) });
+}
+export const useSetAppControlMode = () =>
+  useAppControlMutation(({ organizationId, mode }: { organizationId: string; mode: AppControlMode }) => api.put(`/app-control/settings/${encodeURIComponent(organizationId)}`, { mode }));
+export const useAddAppControlRule = () => useAppControlMutation((rule: AppControlRuleInput) => api.post<AppControlRule>("/app-control/rules", rule));
+export const useDeleteAppControlRule = () => useAppControlMutation((id: string) => api.delete(`/app-control/rules/${encodeURIComponent(id)}`));

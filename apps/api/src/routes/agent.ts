@@ -85,6 +85,23 @@ const HeartbeatBody = z
     dnsServers: ipsOnly,
   })
   .strict();
+const AppControlEventsBody = z
+  .object({
+    events: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(300),
+          path: z.string().max(1000).optional(),
+          sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
+          publisher: z.string().max(300).optional(),
+          ruleId: z.string().uuid().optional(),
+          verdict: z.enum(["blocked", "audited"]),
+          occurredAt: z.string().datetime(),
+        }),
+      )
+      .max(200),
+  })
+  .strict();
 const ResultBody = z.object({ status: z.enum(["succeeded", "failed"]), output: z.string().max(20_000).default("") }).strict();
 
 /**
@@ -158,8 +175,11 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
     const token = bearer(request);
     const body = parse(HeartbeatBody, request.body);
     const res = await svc.heartbeat(token, body);
+    const policy = await s.db.withTenant(res.tenantId, (tx) => s.appControl.policy(tx, res.organizationId));
     return {
       pollSeconds: res.pollSeconds,
+      // App Control: the agent downloads the policy again when this changes.
+      appControlEtag: policy.etag,
       serverTime: new Date(s.now()).toISOString(),
       commands: res.commands,
       // Same commands as plain lines ("<id> <args…>") for agents without a JSON parser.
@@ -171,7 +191,14 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
   app.post("/agent/inventory", { bodyLimit: 8 * 1024 * 1024, config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request) => {
     const token = bearer(request);
     const report = parse(HostInventoryReport, request.body);
-    const res = await svc.withAgent(token, async (tx, agent) => ({ ...agent, ...(await s.hostInventory.record(tx, agent.agentId, report)) }));
+    const res = await svc.withAgent(token, async (tx, agent) => {
+      const recorded = await s.hostInventory.record(tx, agent.agentId, report);
+      // Programs seen running feed App Control's application list (one row per executable path).
+      const programs = new Map<string, { name: string; path: string }>();
+      for (const p of report.processes) if (p.path) programs.set(p.path, { name: p.name, path: p.path });
+      await s.appControl.recordInventory(tx, agent.tenantId, agent.organizationId, agent.agentId, [...programs.values()].slice(0, 1000));
+      return { ...agent, ...recorded };
+    });
     if (res.after === "unhealthy" && res.before !== "unhealthy") {
       s.domainEvents.publish({
         tenantId: res.tenantId,
@@ -185,6 +212,27 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
       });
     }
     return { ok: true, antivirusStatus: res.after, nextInSeconds: 1800 };
+  });
+
+  // App Control policy for the agent's organization. format=lines is for the bash agent:
+  //   etag <etag> / mode <off|audit|enforce> / rule <id> <allow|block> <kind> <platform> <value…>
+  app.get("/agent/app-control", { config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request, reply) => {
+    const token = bearer(request);
+    const { format } = parse(z.object({ format: z.enum(["json", "lines"]).default("json") }), request.query);
+    const policy = await svc.withAgent(token, (tx, agent) => s.appControl.policy(tx, agent.organizationId));
+    if (format === "json") return policy;
+    const lines = [`etag ${policy.etag}`, `mode ${policy.mode}`, ...policy.rules.map((r) => `rule ${r.id} ${r.action} ${r.kind} ${r.platform} ${r.value}`)];
+    return reply.header("content-type", "text/plain; charset=utf-8").send(`${lines.join("\n")}\n`);
+  });
+
+  app.post("/agent/app-control/events", { config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request) => {
+    const token = bearer(request);
+    const { events } = parse(AppControlEventsBody, request.body);
+    const stored = await svc.withAgent(token, async (tx, agent) => {
+      const { rows } = await tx.query<Row>("SELECT hostname FROM agents WHERE id = $1", [agent.agentId]);
+      return s.appControl.recordEvents(tx, agent.tenantId, agent.organizationId, agent.agentId, String(rows[0]?.hostname ?? "unknown"), events);
+    });
+    return { stored };
   });
 
   app.post("/agent/commands/:id/result", { config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request) => {

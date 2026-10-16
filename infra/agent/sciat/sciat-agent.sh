@@ -95,7 +95,7 @@ curl_pin() {
   fi
 }
 api() { # api <path> <json body>
-  local pin=(); mapfile -t pin < <(curl_pin)
+  local pin=() l; while IFS= read -r l; do pin+=("$l"); done < <(curl_pin)
   curl -fsS --max-time 20 "${pin[@]}" -X POST "$PLATFORM_URL/api/v1$1" \
     -H "authorization: Bearer $AGENT_TOKEN" -H "content-type: application/json" --data-binary "$2"
 }
@@ -275,15 +275,123 @@ inventory_json() {
 
 send_inventory() {
   local f; f="$(mktemp)"; inventory_json > "$f"
-  local pin=(); mapfile -t pin < <(curl_pin)
+  local pin=() l; while IFS= read -r l; do pin+=("$l"); done < <(curl_pin)
   curl -fsS --max-time 60 "${pin[@]}" -X POST "$PLATFORM_URL/api/v1/agent/inventory" \
     -H "authorization: Bearer $AGENT_TOKEN" -H "content-type: application/json" --data-binary "@$f"
   local rc=$?; rm -f "$f"; return $rc
 }
 INVENTORY_EVERY=1800
 
+# ---- App Control -----------------------------------------------------------------------------
+# Policy lines from GET /agent/app-control?format=lines (etag / mode / rule …). Core OS processes
+# and the agent itself are never stopped (keep in sync with PROTECTED_PROGRAMS in contracts).
+AC_POLICY="$STATE_DIR/app-control.policy"
+AC_PROTECTED=" system smss.exe csrss.exe wininit.exe winlogon.exe services.exe lsass.exe lsaiso.exe svchost.exe explorer.exe dwm.exe fontdrvhost.exe conhost.exe powershell.exe sciatagent.exe msmpeng.exe registry init systemd systemd-journald systemd-logind systemd-udevd dbus-daemon sshd login agetty sudo bash sh dash curl nft launchd kernel_task loginwindow sciat-agent "
+AC_PLATFORM=linux; [ "$(uname -s)" = Darwin ] && AC_PLATFORM=macos
+AC_MODE=off AC_ETAG="" AC_LOADED=""
+AC_RULES=()            # "action kind platform pattern ruleId"
+# App Control enforcement reads /proc (Linux) and needs bash 4 associative arrays.
+if [ "$AC_PLATFORM" = linux ] && [ "${BASH_VERSINFO[0]}" -ge 4 ]; then
+  declare -A AC_SEEN=()  # pid:start → already reported
+  declare -A AC_HASH=()  # path:mtime → sha256
+  AC_SUPPORTED=1
+else
+  AC_SUPPORTED=0
+fi
+
+ac_sync() { # ac_sync <heartbeat response>: download the policy when its etag changed
+  local etag; etag="$(printf '%s' "$1" | grep -o '"appControlEtag":"[0-9a-f]*"' | cut -d'"' -f4)"
+  [ -n "$etag" ] || return 0
+  [ -r "$AC_POLICY" ] && [ "$(head -1 "$AC_POLICY")" = "etag $etag" ] && return 0
+  local pin=() l; while IFS= read -r l; do pin+=("$l"); done < <(curl_pin)
+  local tmp; tmp="$(mktemp)"
+  if curl -fsS --max-time 20 "${pin[@]}" "$PLATFORM_URL/api/v1/agent/app-control?format=lines" -H "authorization: Bearer $AGENT_TOKEN" -o "$tmp"; then
+    mv "$tmp" "$AC_POLICY"; chmod 600 "$AC_POLICY"; log "app control policy updated ($etag)"
+  else rm -f "$tmp"; fi
+}
+
+# Lower-case shell pattern from a rule value where only * is special.
+ac_pattern() { local v="${1,,}"; v="${v//\\/\\\\}"; v="${v//\?/\\?}"; v="${v//\[/\\[}"; v="${v//\]/\\]}"; printf '%s' "$v"; }
+
+ac_load() {
+  [ "$AC_SUPPORTED" = 1 ] && [ -r "$AC_POLICY" ] || { AC_MODE=off; return; }
+  local stamp; stamp="$(stat -c %Y "$AC_POLICY" 2>/dev/null || stat -f %m "$AC_POLICY")"
+  [ "$stamp" = "$AC_LOADED" ] && return
+  AC_LOADED="$stamp" AC_MODE=off AC_RULES=()
+  local word id action kind platform value
+  while read -r word id action kind platform value; do
+    case "$word" in
+      etag) AC_ETAG="$id" ;;
+      mode) [[ "$id" =~ ^(off|audit|enforce)$ ]] && AC_MODE="$id" ;;
+      rule)
+        [[ "$platform" == any || "$platform" == "$AC_PLATFORM" ]] || continue
+        [[ "$action" =~ ^(allow|block)$ && "$kind" =~ ^(name|path|sha256)$ ]] || continue
+        AC_RULES+=("$action"$'\t'"$kind"$'\t'"$(ac_pattern "$value")"$'\t'"$id") ;;
+    esac
+  done < "$AC_POLICY"
+}
+
+ac_sha256() { # sets AC_SHA; cached by path + mtime (kept in this shell, not a subshell)
+  local p="$1" m; m="$(stat -c %Y "$p" 2>/dev/null)" || { AC_SHA=""; return; }
+  local k="$p:$m"
+  [ -n "${AC_HASH[$k]:-}" ] || AC_HASH[$k]="$(sha256sum "$p" 2>/dev/null | awk '{print $1}')"
+  AC_SHA="${AC_HASH[$k]}"
+}
+
+# Sets AC_VERDICT (allow|block|"") and AC_RULE for one program; allow beats block.
+ac_decide() {
+  local name="${1,,}" path="${2,,}" rawpath="$2" hashed=0 r action kind pat id
+  AC_VERDICT="" AC_RULE=""
+  for r in "${AC_RULES[@]}"; do
+    IFS=$'\t' read -r action kind pat id <<< "$r"
+    case "$kind" in
+      name) [[ "$name" == $pat || "${path##*/}" == $pat ]] || continue ;;
+      path) [[ -n "$path" && "$path" == $pat ]] || continue ;;
+      sha256) [ "$hashed" = 1 ] || { ac_sha256 "$rawpath"; hashed=1; }; [ "$AC_SHA" = "$pat" ] || continue ;;
+    esac
+    if [ "$action" = allow ]; then AC_VERDICT=allow AC_RULE="$id"; return; fi
+    [ -n "$AC_RULE" ] || { AC_VERDICT=block AC_RULE="$id"; }
+  done
+}
+
+ac_tick() {
+  [ "$AC_SUPPORTED" = 1 ] || return 0
+  ac_load
+  { [ "$AC_MODE" = off ] || [ ${#AC_RULES[@]} -eq 0 ]; } && return 0
+  local events=() d pid exe name stat rest ppid gpp start verdict f
+  for d in /proc/[0-9]*; do
+    pid="${d#/proc/}"
+    { [ "$pid" -le 2 ] || [ "$pid" = "$$" ]; } && continue
+    exe="$(readlink "$d/exe" 2>/dev/null)" || continue      # kernel threads have no executable
+    [ -n "$exe" ] || continue
+    name="${exe##*/}"; name="${name% (deleted)}"
+    [[ "$AC_PROTECTED" == *" ${name,,} "* ]] && continue
+    # /proc/<pid>/stat: fields after "(comm) " are state, ppid, …; starttime is the 20th of them.
+    stat="$(< "$d/stat")" 2>/dev/null || continue
+    read -r -a f <<< "${stat##*) }"; ppid="${f[1]}" start="${f[19]}"
+    # Never touch the agent's own helpers (curl, sha256sum… started by this script).
+    gpp=""; [ -r "/proc/$ppid/stat" ] && { stat="$(< "/proc/$ppid/stat")"; read -r -a f <<< "${stat##*) }"; gpp="${f[1]}"; }
+    { [ "$ppid" = "$$" ] || [ "$gpp" = "$$" ]; } && continue
+    ac_decide "$name" "$exe"
+    [ "$AC_VERDICT" = block ] || continue
+    # Remembered per mode: a program audited earlier is still stopped once enforcement starts.
+    [ -n "${AC_SEEN[$pid:$start:$AC_MODE]:-}" ] && continue
+    AC_SEEN[$pid:$start:$AC_MODE]=1
+    verdict=audited
+    if [ "$AC_MODE" = enforce ] && kill -9 "$pid" 2>/dev/null; then verdict=blocked; fi
+    log "app control: $verdict $exe (pid $pid, rule $AC_RULE)"
+    events+=("{\"name\":$(js "$name"),\"path\":$(js "$exe"),\"ruleId\":$(js "$AC_RULE"),\"verdict\":\"$verdict\",\"occurredAt\":\"$(date -u +%FT%TZ)\"}")
+  done
+  [ ${#AC_SEEN[@]} -gt 5000 ] && AC_SEEN=()
+  if [ ${#events[@]} -gt 0 ]; then
+    local IFS=,
+    api /agent/app-control/events "{\"events\":[${events[*]:0:200}]}" >/dev/null || log "could not report app control events"
+  fi
+  return 0
+}
+
 case "${1:-run}" in
-  once) resp="$(checkin)" && { printf '%s\n' "$resp"; run_commands "$resp" || true; send_inventory >/dev/null || log "inventory upload failed"; } ;;
+  once) resp="$(checkin)" && { printf '%s\n' "$resp"; run_commands "$resp" || true; ac_sync "$resp"; ac_tick; send_inventory >/dev/null || log "inventory upload failed"; } ;;
   inventory) inventory_json; echo ;;
   status)
     echo "SCIAT Agent $AGENT_VERSION"
@@ -301,6 +409,7 @@ case "${1:-run}" in
         delay="${poll:-60}"
         # Ran a command: check in again soon so the platform sees the new state.
         if run_commands "$resp"; then delay=5; fi
+        ac_sync "$resp"
         if [ $(( $(date +%s) - last_inventory )) -ge "$INVENTORY_EVERY" ]; then
           if send_inventory >/dev/null 2>&1; then last_inventory="$(date +%s)"; else log "inventory upload failed"; last_inventory=$(( $(date +%s) - INVENTORY_EVERY + 300 )); fi
         fi
@@ -310,7 +419,13 @@ case "${1:-run}" in
         delay=$(( 60 * (failures < 10 ? failures : 10) ))
         [ $((failures % 5)) -eq 1 ] && log "check-in failed ($failures in a row): ${resp:0:200}"
       fi
-      sleep "$delay"
+      # Sleep in 10-second slices, applying App Control between them.
+      local_end=$(( $(date +%s) + delay ))
+      while [ "$(date +%s)" -lt "$local_end" ]; do
+        ac_tick
+        rem=$(( local_end - $(date +%s) )); [ "$rem" -gt 10 ] && rem=10; [ "$rem" -lt 1 ] && rem=1
+        sleep "$rem"
+      done
     done
     ;;
   *) echo "usage: sciat-agent [run|once|status|inventory]" >&2; exit 2 ;;

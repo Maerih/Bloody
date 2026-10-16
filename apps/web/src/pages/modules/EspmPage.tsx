@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useAttackPaths } from "../../api/hooks";
 import type { DataTableColumn } from "../../components/DataTable";
 import { AssetsTable } from "../../features/assets/AssetsTable";
+import { AppControlView } from "../../features/app-control/AppControlView";
 import { AttackPathsView } from "../../features/attackPaths/AttackPathsView";
 import { ExposureBreakdown } from "../../features/exposure/ExposureBreakdown";
 import { ModuleWorkspace } from "../../features/modules/ModuleWorkspace";
@@ -65,6 +66,7 @@ export default function EspmPage() {
         "crown-jewels": () => <CrownJewels />,
         findings: () => <VulnerabilitiesTable filters={{ status: ["open", "in_remediation"] }} emptyTitle="No open exposure findings" savedViewsKey="espm-findings" />,
         remediation: () => <AttackPathsView focus="remediation" />,
+        "app-control": () => <AppControlView />,
       }}
     />
   );

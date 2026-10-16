@@ -77,13 +77,19 @@ export async function appControlRoutes(app: FastifyInstance, s: AppServices): Pr
     const auth = requireAuth(request);
     const q = parse(InventoryQuery, request.query);
     requirePermission(request, "asset:read", q.organizationId);
-    return s.db.withTenant(auth.tenantId, async (tx) => ({ items: await ac.inventory(tx, q.organizationId, q.q, q.limit) }));
+    return s.db.withTenant(auth.tenantId, async (tx) => {
+      await assertOrganization(tx, q.organizationId);
+      return { items: await ac.inventory(tx, q.organizationId, q.q, q.limit) };
+    });
   });
 
   app.get("/app-control/events", { config: espm }, async (request) => {
     const auth = requireAuth(request);
     const q = parse(EventsQuery, request.query);
     requirePermission(request, "asset:read", q.organizationId);
-    return s.db.withTenant(auth.tenantId, async (tx) => ({ items: await ac.events(tx, q.organizationId, q.limit) }));
+    return s.db.withTenant(auth.tenantId, async (tx) => {
+      await assertOrganization(tx, q.organizationId);
+      return { items: await ac.events(tx, q.organizationId, q.limit) };
+    });
   });
 }

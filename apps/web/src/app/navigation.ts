@@ -273,6 +273,7 @@ export const RAIL_MODULES: RailModule[] = [
       { label: "Crown Jewels", path: "/espm/crown-jewels", icon: Crown, description: "Business-critical assets and their exposure" },
       { label: "Exposure Findings", path: "/espm/findings", icon: ScanSearch },
       { label: "Remediation Plan", path: "/espm/remediation", icon: ClipboardCheck, description: "Fixes ranked by paths broken" },
+      { label: "App Control", path: "/espm/app-control", icon: AppWindow, permission: "asset:read", description: "Allow or block programs on endpoints with the SCIAT Agent" },
     ],
   },
   {

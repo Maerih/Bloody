@@ -182,8 +182,102 @@ function Send-Inventory {
 }
 $InventoryEverySeconds = 1800
 
+# ---- App Control -----------------------------------------------------------------------------
+# Policy from GET /agent/app-control (JSON). Core OS processes and the agent itself are never
+# stopped (keep in sync with PROTECTED_PROGRAMS in contracts).
+$AcProtected = @('system', 'smss.exe', 'csrss.exe', 'wininit.exe', 'winlogon.exe', 'services.exe', 'lsass.exe', 'lsaiso.exe', 'svchost.exe',
+  'explorer.exe', 'dwm.exe', 'fontdrvhost.exe', 'conhost.exe', 'powershell.exe', 'sciatagent.exe', 'msmpeng.exe', 'registry')
+$AcPolicyFile = Join-Path $DataDir 'app-control.json'
+$script:AcPolicy = $null
+$script:AcSeen = @{}
+$script:AcHash = @{}
+$script:AcPublisher = @{}
+
+function Sync-AppControl($Response) {
+  $etag = "$($Response.appControlEtag)"
+  if (-not $etag) { return }
+  if ($script:AcPolicy -and $script:AcPolicy.etag -eq $etag) { return }
+  if (-not $script:AcPolicy -and (Test-Path $AcPolicyFile)) {
+    try { $script:AcPolicy = Get-Content $AcPolicyFile -Raw | ConvertFrom-Json } catch { }
+    if ($script:AcPolicy -and $script:AcPolicy.etag -eq $etag) { return }
+  }
+  $p = Invoke-RestMethod -Method Get -Uri "$($Conf.platformUrl)/api/v1/agent/app-control" -TimeoutSec 20 -Headers @{ authorization = "Bearer $($Conf.agentToken)" }
+  $p | ConvertTo-Json -Depth 4 | Set-Content -Path $AcPolicyFile -Encoding UTF8
+  $script:AcPolicy = $p
+  Write-AgentLog "App Control policy updated ($etag, mode $($p.mode))"
+}
+
+# Only * is a wildcard in rule values; -like is case-insensitive.
+function Test-AcWildcard([string]$Pattern, [string]$Value) {
+  if (-not $Value) { return $false }
+  $escaped = [Management.Automation.WildcardPattern]::Escape($Pattern) -replace '`\*', '*'
+  return $Value -like $escaped
+}
+
+function Get-AcHash([string]$Path) {
+  try { $key = "$Path|$((Get-Item -LiteralPath $Path -ErrorAction Stop).LastWriteTimeUtc.Ticks)" } catch { return $null }
+  if (-not $script:AcHash.ContainsKey($key)) { $script:AcHash[$key] = $(try { (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() } catch { $null }) }
+  return $script:AcHash[$key]
+}
+
+function Get-AcPublisher([string]$Path) {
+  if (-not $script:AcPublisher.ContainsKey($Path)) {
+    $script:AcPublisher[$Path] = $(try {
+      $sig = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+      if ($sig.Status -eq 'Valid' -and $sig.SignerCertificate) { ($sig.SignerCertificate.Subject -split ',' | Where-Object { $_.Trim() -like 'CN=*' } | Select-Object -First 1).Trim().Substring(3) } else { $null }
+    } catch { $null })
+  }
+  return $script:AcPublisher[$Path]
+}
+
+function Get-AcDecision([string]$Name, [string]$Path) {
+  $block = $null
+  foreach ($r in @($script:AcPolicy.rules)) {
+    if ($r.platform -ne 'any' -and $r.platform -ne 'windows') { continue }
+    $hit = switch ($r.kind) {
+      'name' { (Test-AcWildcard $r.value $Name) -or ($Path -and (Test-AcWildcard $r.value (Split-Path -Leaf $Path))) }
+      'path' { Test-AcWildcard $r.value $Path }
+      'sha256' { $Path -and ((Get-AcHash $Path) -eq "$($r.value)".ToLowerInvariant()) }
+      'publisher' { $Path -and (Test-AcWildcard $r.value (Get-AcPublisher $Path)) }
+      default { $false }
+    }
+    if (-not $hit) { continue }
+    if ($r.action -eq 'allow') { return @{ verdict = 'allow'; rule = $r.id } }
+    if (-not $block) { $block = @{ verdict = 'block'; rule = $r.id } }
+  }
+  return $block
+}
+
+function Invoke-AppControl {
+  $p = $script:AcPolicy
+  if (-not $p -or $p.mode -eq 'off' -or @($p.rules).Count -eq 0) { return }
+  $events = @()
+  foreach ($proc in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
+    $id = [int]$proc.ProcessId
+    if ($id -le 4 -or $id -eq $PID) { continue }
+    $name = "$($proc.Name)"
+    if ($AcProtected -contains $name.ToLowerInvariant()) { continue }
+    if ([int]$proc.ParentProcessId -eq $PID) { continue }   # the agent's own helpers
+    $d = Get-AcDecision $name "$($proc.ExecutablePath)"
+    if (-not $d -or $d.verdict -ne 'block') { continue }
+    $key = "$id|$($proc.CreationDate)|$($p.mode)"
+    if ($script:AcSeen.ContainsKey($key)) { continue }
+    $script:AcSeen[$key] = $true
+    $verdict = 'audited'
+    if ($p.mode -eq 'enforce') { try { Stop-Process -Id $id -Force -ErrorAction Stop; $verdict = 'blocked' } catch { } }
+    Write-AgentLog "App Control: $verdict $($proc.ExecutablePath) (pid $id, rule $($d.rule))" 'Warning'
+    $e = @{ name = $name; ruleId = "$($d.rule)"; verdict = $verdict; occurredAt = (Get-Date).ToUniversalTime().ToString('s') + 'Z' }
+    if ($proc.ExecutablePath) { $e.path = "$($proc.ExecutablePath)" }
+    $events += $e
+  }
+  if ($script:AcSeen.Count -gt 5000) { $script:AcSeen = @{} }
+  if ($events.Count -gt 0) {
+    try { Invoke-Api '/agent/app-control/events' @{ events = @($events | Select-Object -First 200) } | Out-Null } catch { Write-AgentLog "could not report App Control events: $($_.Exception.Message)" 'Warning' }
+  }
+}
+
 switch ($Command) {
-  'once' { $r = Invoke-Checkin; $r | ConvertTo-Json -Compress -Depth 4; Invoke-Commands $r | Out-Null; try { Send-Inventory | Out-Null } catch { Write-AgentLog "inventory upload failed: $($_.Exception.Message)" 'Warning' } }
+  'once' { $r = Invoke-Checkin; $r | ConvertTo-Json -Compress -Depth 4; Invoke-Commands $r | Out-Null; try { Sync-AppControl $r; Invoke-AppControl } catch { Write-AgentLog "App Control: $($_.Exception.Message)" 'Warning' }; try { Send-Inventory | Out-Null } catch { Write-AgentLog "inventory upload failed: $($_.Exception.Message)" 'Warning' } }
   'inventory' { @{ software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory); processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory } | ConvertTo-Json -Depth 5 }
   'status' {
     "SCIAT Agent $AgentVersion"
@@ -203,6 +297,7 @@ switch ($Command) {
         $delay = if ($resp.pollSeconds) { [int]$resp.pollSeconds } else { 60 }
         # Ran a command: check in again soon so the platform sees the new state.
         if (Invoke-Commands $resp) { $delay = 5 }
+        try { Sync-AppControl $resp } catch { Write-AgentLog "App Control policy download failed: $($_.Exception.Message)" 'Warning' }
         if (((Get-Date) - $lastInventory).TotalSeconds -ge $InventoryEverySeconds) {
           try { Send-Inventory | Out-Null; $lastInventory = Get-Date }
           catch { Write-AgentLog "inventory upload failed: $($_.Exception.Message)" 'Warning'; $lastInventory = (Get-Date).AddSeconds(300 - $InventoryEverySeconds) }
@@ -213,7 +308,12 @@ switch ($Command) {
         $delay = 60 * [Math]::Min($failures, 10)
         if ($failures % 5 -eq 1) { Write-AgentLog "check-in failed ($failures in a row): $($_.Exception.Message)" 'Warning' }
       }
-      Start-Sleep -Seconds $delay
+      # Sleep in 10-second slices, applying App Control between them.
+      $until = (Get-Date).AddSeconds($delay)
+      while ((Get-Date) -lt $until) {
+        try { Invoke-AppControl } catch { Write-AgentLog "App Control: $($_.Exception.Message)" 'Warning' }
+        Start-Sleep -Seconds ([Math]::Max(1, [Math]::Min(10, [int]($until - (Get-Date)).TotalSeconds)))
+      }
     }
   }
 }

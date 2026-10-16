@@ -195,6 +195,7 @@ export function api(app: FastifyInstance, auth: Auth) {
     get: <T = Json>(url: string, headers?: Record<string, string>) => call<T>(app, "GET", url, { auth, ...(headers ? { headers } : {}) }),
     post: <T = Json>(url: string, body?: unknown, headers?: Record<string, string>) => call<T>(app, "POST", url, { auth, body: body ?? {}, ...(headers ? { headers } : {}) }),
     patch: <T = Json>(url: string, body?: unknown) => call<T>(app, "PATCH", url, { auth, body: body ?? {} }),
+    put: <T = Json>(url: string, body?: unknown) => call<T>(app, "PUT", url, { auth, body: body ?? {} }),
     delete: <T = Json>(url: string) => call<T>(app, "DELETE", url, { auth }),
   };
 }
