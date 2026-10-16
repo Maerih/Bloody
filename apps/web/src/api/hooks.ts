@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -918,6 +918,65 @@ export const useRemoveHardeningException = () =>
   useAttackReductionMutation(({ organizationId, key }: { organizationId: string; key: string }) =>
     api.delete(`/attack-reduction/exceptions/${encodeURIComponent(organizationId)}/${encodeURIComponent(key)}`),
   );
+
+// ─── Security Awareness Training ────────────────────────────────────────────
+
+export interface AwarenessOverview {
+  organizationId: string;
+  canEmail: boolean;
+  summary: { learners: number; enrolments: number; completed: number; completionRate: number | null; overdue: number; averageScore: number | null };
+  learners: AwarenessLearner[];
+  assignments: AwarenessAssignment[];
+}
+export interface AwarenessLessonInfo {
+  key: string;
+  title: string;
+  minutes: number;
+  summary: string;
+  questions: number;
+}
+
+export function useAwarenessOverview(organizationId: string | null) {
+  return useQuery<AwarenessOverview, ApiError>({
+    queryKey: ["awareness", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/awareness/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+  });
+}
+export function useAwarenessLessons() {
+  return useQuery<{ passMark: number; items: AwarenessLessonInfo[] }, ApiError>({ queryKey: ["awareness", "lessons"], queryFn: ({ signal }) => api.get("/awareness/lessons", { signal }), staleTime: Infinity });
+}
+function useAwarenessMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation<TResult, ApiError, TVars>({ mutationFn: fn, onSuccess: () => void qc.invalidateQueries({ queryKey: ["awareness"] }) });
+}
+export const useAddLearner = () => useAwarenessMutation((body: { organizationId: string; name: string; email: string }) => api.post("/awareness/learners", body));
+export const useImportLearners = () => useAwarenessMutation((organizationId: string) => api.post<{ added: number }>("/awareness/learners/import", { organizationId }));
+export const useRemoveLearner = () => useAwarenessMutation((id: string) => api.delete(`/awareness/learners/${encodeURIComponent(id)}`));
+export const useCreateAssignment = () =>
+  useAwarenessMutation((body: AwarenessAssignmentInput) => api.post<{ id: string; links: Array<{ enrolmentId: string; name: string; email: string; url: string }> }>("/awareness/assignments", body));
+export const useSendInvitations = () => useAwarenessMutation((assignmentId: string) => api.post<{ sent: number; failed: number }>(`/awareness/assignments/${encodeURIComponent(assignmentId)}/invite`, {}));
+export const useLearnerLink = () => useAwarenessMutation((enrolmentId: string) => api.post<{ url: string }>(`/awareness/enrolments/${encodeURIComponent(enrolmentId)}/link`, {}));
+
+export interface LearnerLessonView extends LessonForLearner {
+  progress: { bestScore: number; passed: boolean; attempts: number } | null;
+}
+export interface LearnerView {
+  learner: { name: string };
+  organization: { name: string };
+  assignment: { title: string; dueAt: string | null; completedAt: string | null };
+  lessons: LearnerLessonView[];
+}
+export function useLearnerView(token: string) {
+  return useQuery<LearnerView, ApiError>({ queryKey: ["learn", token], queryFn: ({ signal }) => api.get(`/learn/${encodeURIComponent(token)}`, { signal }) });
+}
+export function useSubmitQuiz(token: string) {
+  const qc = useQueryClient();
+  return useMutation<QuizResult & { completed: boolean }, ApiError, { lesson: string; answers: Record<string, number> }>({
+    mutationFn: ({ lesson, answers }) => api.post(`/learn/${encodeURIComponent(token)}/lessons/${encodeURIComponent(lesson)}/quiz`, { answers }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["learn", token] }),
+  });
+}
 
 // ─── Microsoft 365 hardening (ITDR) ────────────────────────────────────────
 

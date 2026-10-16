@@ -23,6 +23,7 @@ import { sandboxRoutes } from "./sandbox.js";
 import { rmmGuardRoutes } from "./rmm-guard.js";
 import { exposureRoutes } from "./external-exposure.js";
 import { attackReductionRoutes } from "./attack-reduction.js";
+import { awarenessRoutes } from "./awareness.js";
 import { hostInventoryRoutes } from "./host-inventory.js";
 import { aiRoutes } from "./ai.js";
 import { billingRoutes } from "./billing.js";
@@ -79,5 +80,6 @@ export async function registerRoutes(app: FastifyInstance, services: AppServices
   await rmmGuardRoutes(app, services);
   await exposureRoutes(app, services);
   await attackReductionRoutes(app, services);
+  await awarenessRoutes(app, services);
   await msspAdminRoutes(app, services);
 }

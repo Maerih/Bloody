@@ -24,6 +24,7 @@ export const MODULES = [
   { key: "soar", short: "SOAR", name: "Security Orchestration, Automation & Response", group: "respond" },
   { key: "email", short: "MAIL", name: "Email Security", group: "detect" },
   { key: "deception", short: "DECOY", name: "Deception", group: "detect" },
+  { key: "awareness", short: "SAT", name: "Security Awareness Training", group: "respond" },
   { key: "ai_soc", short: "AI", name: "AI SOC Analyst", group: "core" },
 ] as const;
 

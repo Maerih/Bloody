@@ -8,6 +8,7 @@ import { AuthenticatedApp, AuthRedirectBridge, FullPageStatus } from "./layout/A
 
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
+const LearnPage = lazy(() => import("./pages/LearnPage"));
 
 /** Opt into React Router v7 behaviour now (transition-wrapped updates, splat-relative paths). */
 export const ROUTER_FUTURE = { v7_startTransition: true, v7_relativeSplatPath: true } as const;
@@ -48,6 +49,15 @@ export function AppRoutes() {
           element={
             <Suspense fallback={<FullPageStatus>{null}</FullPageStatus>}>
               <LoginPage />
+            </Suspense>
+          }
+        />
+        {/* Security awareness learners: the personal link is the credential, no account. */}
+        <Route
+          path="/learn/:token"
+          element={
+            <Suspense fallback={<FullPageStatus>{null}</FullPageStatus>}>
+              <LearnPage />
             </Suspense>
           }
         />

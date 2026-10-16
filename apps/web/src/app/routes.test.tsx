@@ -23,7 +23,7 @@ describe("route table", () => {
 
   it("defines a flyout for every rail module, each with sub-pages", () => {
     const shorts = RAIL_MODULES.map((m) => m.short);
-    expect(shorts).toEqual(["Home", "EDR", "ITDR", "NDR", "SIEM", "XDR", "ASM", "ESPM", "ISPM", "CSPM", "CIEM", "SSPM", "VM", "K8S", "CTI", "DFIR", "SOAR", "MAIL", "DECOY", "AI", "Trials", "Hub"]);
+    expect(shorts).toEqual(["Home", "EDR", "ITDR", "NDR", "SIEM", "XDR", "ASM", "ESPM", "ISPM", "CSPM", "CIEM", "SSPM", "VM", "K8S", "CTI", "DFIR", "SOAR", "MAIL", "DECOY", "SAT", "AI", "Trials", "Hub"]);
     for (const m of RAIL_MODULES) expect(m.items.length).toBeGreaterThan(1);
     const edr = RAIL_MODULES.find((m) => m.id === "edr")!;
     expect(edr.items.map((i) => i.label)).toEqual(expect.arrayContaining(["EDR Dashboard", "Persistent Footholds", "Process Insights", "Managed Antivirus", "Ransomware Canaries", "External Recon"]));

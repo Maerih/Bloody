@@ -8,6 +8,7 @@ import type { M365Service } from "./services/m365.js";
 import type { RmmGuardService } from "./services/rmm-guard.js";
 import type { ExposureService } from "./services/external-exposure.js";
 import type { AttackReductionService } from "./services/attack-reduction.js";
+import type { AwarenessService } from "./services/awareness.js";
 import type { PaymentProvider } from "./billing/providers.js";
 import type { AttackPathEngine, RiskEngine } from "@bloody/engines";
 import type { ExternalAuthProvider } from "./auth/oidc.js";
@@ -74,6 +75,7 @@ export interface AppServices {
   rmmGuard: RmmGuardService;
   exposure: ExposureService;
   attackReduction: AttackReductionService;
+  awareness: AwarenessService;
   /** Payment gateways the operator configured (bank transfer when bank details are set). */
   paymentProviders: Map<PaymentProviderKey, PaymentProvider>;
   intel: IntelService;
