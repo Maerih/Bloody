@@ -27,7 +27,7 @@ const secret = () => randomBytes(32).toString("base64url");
 const sameHash = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 export const AGENT_POLL_SECONDS = 60;
-export const SCIAT_AGENT_VERSION = "1.1.0";
+export const SCIAT_AGENT_VERSION = "1.2.0";
 
 export interface EnrollInput {
   accountKey: string;

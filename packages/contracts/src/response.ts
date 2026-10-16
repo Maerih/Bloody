@@ -156,6 +156,7 @@ export const AUTOMATION_EVENTS = [
   "antivirus.unhealthy",
   "rmm.unapproved_detected",
   "exposure.port_open",
+  "hardening.regressed",
   "indicator.matched",
   "vulnerability.kev_detected",
   "report.generated",

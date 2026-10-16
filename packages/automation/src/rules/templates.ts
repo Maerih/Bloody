@@ -213,6 +213,22 @@ export const DEFAULT_RULE_TEMPLATES: Record<AutomationEvent, RuleTemplatePreset>
     ],
     throttleMinutes: 1440,
   },
+  "hardening.regressed": {
+    event: "hardening.regressed",
+    name: "Endpoint hardening got weaker",
+    description: "Attack Reduction saw a security setting that was in place switch off on an endpoint (for example SMBv1 turned back on, or WDigest storing passwords).",
+    audience: "soc",
+    subject: "Hardening weakened on {{agent.hostname}}",
+    body: [
+      "Settings that were in place on **{{agent.hostname}}** ({{organization.name}}) are no longer: {{hardening.checks}}",
+      "Attackers often weaken these settings right after getting in (for example turning WDigest on to harvest passwords). Check who changed them, then restore them (ESPM → Attack Reduction shows the fix).",
+    ].join("\n\n"),
+    variables: [
+      { path: "agent.hostname", description: "Host name" },
+      { path: "hardening.checks", description: "Checks that now fail, with details" },
+    ],
+    throttleMinutes: 240,
+  },
   "exposure.port_open": {
     event: "exposure.port_open",
     name: "Risky service exposed to the internet",

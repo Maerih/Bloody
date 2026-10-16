@@ -196,14 +196,23 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
     const token = bearer(request);
     const report = parse(HostInventoryReport, request.body);
     const res = await svc.withAgent(token, async (tx, agent) => {
-      const prev = (await tx.query<Row>("SELECT software, processes FROM agent_inventory WHERE agent_id = $1", [agent.agentId])).rows[0];
+      const prev = (await tx.query<Row>("SELECT software, processes, hardening, users, firewall FROM agent_inventory WHERE agent_id = $1", [agent.agentId])).rows[0];
+      const platform = String((await tx.query<Row>("SELECT platform FROM agents WHERE id = $1", [agent.agentId])).rows[0]?.platform ?? "");
       const recorded = await s.hostInventory.record(tx, agent.agentId, report);
       const newRmm = await s.rmmGuard.newlyUnapproved(tx, agent.organizationId, prev ? { software: (prev.software as never) ?? [], processes: (prev.processes as never) ?? [] } : null, report);
       // Programs seen running feed App Control's application list (one row per executable path).
       const programs = new Map<string, { name: string; path: string }>();
       for (const p of report.processes) if (p.path) programs.set(p.path, { name: p.name, path: p.path });
       await s.appControl.recordInventory(tx, agent.tenantId, agent.organizationId, agent.agentId, [...programs.values()].slice(0, 1000));
-      return { ...agent, ...recorded, newRmm };
+      // Attack Reduction: hardening that got weaker since the previous report.
+      const regressed = await s.attackReduction.regressions(
+        tx,
+        agent.organizationId,
+        platform,
+        prev ? { hardening: (prev.hardening as Record<string, unknown>) ?? {}, users: (prev.users as never) ?? [], firewall: (prev.firewall as never) ?? null } : null,
+        { hardening: report.hardening, users: report.users, firewall: report.firewall },
+      );
+      return { ...agent, ...recorded, newRmm, regressed };
     });
     for (const tool of res.newRmm) {
       s.domainEvents.publish({
@@ -215,6 +224,21 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
         subject: { kind: "agent", id: res.agentId, label: `${tool.name} on ${res.hostname}` },
         dedupKey: `agent:${res.agentId}:rmm:${tool.key}`,
         data: { agent: { id: res.agentId, hostname: res.hostname }, tool: { key: tool.key, name: tool.name, evidence: tool.evidence.join("; ") } },
+      });
+    }
+    if (res.regressed.length) {
+      s.domainEvents.publish({
+        tenantId: res.tenantId,
+        organizationId: res.organizationId,
+        event: "hardening.regressed",
+        occurredAt: new Date(s.now()).toISOString(),
+        severity: "medium",
+        subject: { kind: "agent", id: res.agentId, label: res.hostname },
+        dedupKey: `agent:${res.agentId}:hardening:${res.regressed.map((r) => r.key).sort().join(",")}`,
+        data: {
+          agent: { id: res.agentId, hostname: res.hostname },
+          hardening: { checks: res.regressed.map((r) => (r.detail ? `${r.title} (${r.detail})` : r.title)).join("; "), keys: res.regressed.map((r) => r.key) },
+        },
       });
     }
     if (res.after === "unhealthy" && res.before !== "unhealthy") {

@@ -9,7 +9,7 @@
 #   sciat-agent inventory  # print the host inventory (software, services, users, processes, ports, AV)
 set -uo pipefail
 
-AGENT_VERSION="1.1.0"
+AGENT_VERSION="1.2.0"
 CONF="${SCIAT_AGENT_CONF:-/etc/sciat-agent/agent.conf}"
 [ "$(uname -s)" = Darwin ] && CONF="${SCIAT_AGENT_CONF:-/Library/Application Support/SCIAT/agent.conf}"
 STATE_DIR="$(dirname "$CONF")"
@@ -268,9 +268,44 @@ inv_firewall() {
   printf '{"enabled":%s,"detail":%s}' "$on" "$( [ -n "$detail" ] && js "$detail" || echo null)"
 }
 
+# ---- Attack Reduction: hardening facts (graded by the platform; keys match contracts) ----------
+fact_bool() { if "$@" >/dev/null 2>&1; then printf true; else printf false; fi; }
+sshd_value() { # $1 = lower-case sshd option, $2 = OpenSSH default → effective value, or "none"
+  command -v sshd >/dev/null 2>&1 || [ -x /usr/sbin/sshd ] || { printf none; return; }
+  local v; v="$( (sshd -T 2>/dev/null || /usr/sbin/sshd -T 2>/dev/null) | awk -v k="$1" '$1 == k { print tolower($2); exit }')"
+  if [ -z "$v" ] && [ -r /etc/ssh/sshd_config ]; then
+    v="$(grep -iE "^[[:space:]]*$1[[:space:]]" /etc/ssh/sshd_config 2>/dev/null | head -1 | awk '{ print tolower($2) }')"
+  fi
+  printf '%s' "${v:-$2}"
+}
+inv_hardening() {
+  local out=""
+  add() { out="${out:+$out,}\"$1\":$2"; }
+  if [ "$(uname -s)" = Darwin ]; then
+    add filevault_on "$(fact_bool sh -c 'fdesetup status | grep -q "FileVault is On"')"
+    add gatekeeper_on "$(fact_bool sh -c 'spctl --status 2>&1 | grep -q "assessments enabled"')"
+    add sip_on "$(fact_bool sh -c 'csrutil status | grep -q "enabled"')"
+    local cu; cu="$(defaults read /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall 2>/dev/null)"
+    add auto_security_updates "$([ "$cu" = 0 ] && printf false || printf true)"
+    add ssh_enabled "$(fact_bool launchctl list com.openssh.sshd)"
+    add guest_enabled "$(fact_bool sh -c '[ "$(defaults read /Library/Preferences/com.apple.loginwindow GuestEnabled 2>/dev/null)" = 1 ]')"
+  else
+    add ssh_permit_root_login "$(js "$(sshd_value permitrootlogin prohibit-password)")"
+    add ssh_password_auth "$(js "$(sshd_value passwordauthentication yes)")"
+    [ -r /proc/sys/kernel/randomize_va_space ] && add aslr "$(tr -dc 0-9 < /proc/sys/kernel/randomize_va_space)"
+    [ -r /etc/passwd ] && add uid0_accounts "$(js "$(awk -F: '$3 == 0 { print $1 }' /etc/passwd | paste -sd, -)")"
+    if command -v apt-config >/dev/null 2>&1; then
+      add auto_security_updates "$(fact_bool sh -c 'apt-config dump 2>/dev/null | grep -q "APT::Periodic::Unattended-Upgrade \"1\""')"
+    elif command -v systemctl >/dev/null 2>&1 && { command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; }; then
+      add auto_security_updates "$(fact_bool sh -c 'systemctl is-enabled dnf-automatic.timer || systemctl is-enabled dnf-automatic-install.timer || systemctl is-enabled yum-cron')"
+    fi
+  fi
+  printf '{%s}' "$out"
+}
+
 inventory_json() {
-  printf '{"software":%s,"services":%s,"users":%s,"processes":%s,"ports":%s,"antivirus":%s,"firewall":%s}' \
-    "$(inv_software)" "$(inv_services)" "$(inv_users)" "$(inv_processes)" "$(inv_ports)" "$(inv_antivirus)" "$(inv_firewall)"
+  printf '{"software":%s,"services":%s,"users":%s,"processes":%s,"ports":%s,"antivirus":%s,"firewall":%s,"hardening":%s}' \
+    "$(inv_software)" "$(inv_services)" "$(inv_users)" "$(inv_processes)" "$(inv_ports)" "$(inv_antivirus)" "$(inv_firewall)" "$(inv_hardening)"
 }
 
 send_inventory() {

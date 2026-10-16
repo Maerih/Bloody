@@ -55,6 +55,7 @@ import {
   Monitor,
   MonitorSmartphone,
   ScreenShare,
+  ShieldMinus,
   Network,
   Package,
   Plug,
@@ -278,6 +279,7 @@ export const RAIL_MODULES: RailModule[] = [
       { label: "App Control", path: "/espm/app-control", icon: AppWindow, permission: "asset:read", description: "Allow or block programs on endpoints with the SCIAT Agent" },
       { label: "RMM Guard", path: "/espm/rmm-guard", icon: ScreenShare, permission: "asset:read", description: "Unapproved remote-access and RMM tools on endpoints" },
       { label: "External Exposure", path: "/espm/external-exposure", icon: Radar, permission: "asset:read", description: "Risky services reachable on the organization's public addresses" },
+      { label: "Attack Reduction", path: "/espm/attack-reduction", icon: ShieldMinus, permission: "asset:read", description: "Endpoint hardening against credential theft, old protocols and weak settings" },
     ],
   },
   {

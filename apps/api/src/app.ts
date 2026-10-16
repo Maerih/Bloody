@@ -51,6 +51,7 @@ import { AppControlService } from "./services/app-control.js";
 import { HostInventoryService } from "./services/host-inventory.js";
 import { M365Service, systemDnsResolver } from "./services/m365.js";
 import { RmmGuardService } from "./services/rmm-guard.js";
+import { AttackReductionService } from "./services/attack-reduction.js";
 import { ExposureService, tcpProbe, type PortProbe } from "./services/external-exposure.js";
 import { NotificationService, type EmailTransport } from "./services/notifications.js";
 import { playbookTriggerHandler } from "./services/playbook-triggers.js";
@@ -294,6 +295,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     appControl,
     rmmGuard: new RmmGuardService(appControl),
     exposure,
+    attackReduction: new AttackReductionService(),
     hostInventory: new HostInventoryService(now),
     m365,
     paymentProviders,

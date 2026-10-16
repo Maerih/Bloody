@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HardeningFacts } from "./attack-reduction.js";
 import { IsoDateTime, Uuid } from "./common.js";
 
 /**
@@ -75,6 +76,8 @@ export const HostInventoryReport = z
     ports: z.array(HostPort).max(2000).default([]),
     antivirus: z.array(AntivirusProduct).max(20).default([]),
     firewall: HostFirewall.nullish().transform((v) => v ?? null),
+    /** Attack Reduction facts (agent 1.2+). */
+    hardening: HardeningFacts.default({}),
   })
   .strict();
 export type HostInventoryReport = z.output<typeof HostInventoryReport>;

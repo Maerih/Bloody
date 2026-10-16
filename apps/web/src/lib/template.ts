@@ -67,6 +67,10 @@ const BY_EVENT: Record<AutomationEvent, TemplateVariable[]> = {
     { name: "action.reason", description: "Written justification" },
     { name: "action.requestedBy", description: "Responder who used break-glass" },
   ],
+  "hardening.regressed": [
+    { name: "agent.hostname", description: "Endpoint hostname" },
+    { name: "hardening.checks", description: "Settings that were switched off" },
+  ],
   "exposure.port_open": [
     { name: "exposure.ip", description: "Public address" },
     { name: "exposure.port", description: "Port found open" },

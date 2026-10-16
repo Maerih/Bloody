@@ -4,7 +4,7 @@
 #   sciat-agent.ps1 run | once | status
 param([ValidateSet('run', 'once', 'status', 'inventory')][string]$Command = 'run')
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '1.1.0'
+$AgentVersion = '1.2.0'
 $Home_ = Join-Path $env:ProgramFiles 'SCIAT\Agent'
 $DataDir = Join-Path $env:ProgramData 'SCIAT\Agent'
 $Conf = Get-Content (Join-Path $DataDir 'agent.json') -Raw | ConvertFrom-Json
@@ -172,10 +172,53 @@ function Get-FirewallInventory {
   @{ enabled = ($on.Count -eq $profiles.Count); detail = $(if ($on.Count) { "on: $($on -join ', ')" } else { 'all profiles off' }) }
 }
 
+# ---- Attack Reduction: hardening facts (graded by the platform; keys match contracts) --------
+# A fact that cannot be read is left out, and the platform shows that check as "unknown".
+function Get-RegValue([string]$Path, [string]$Name) {
+  try { (Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop).$Name } catch { $null }
+}
+function Add-Fact([hashtable]$Facts, [string]$Name, [scriptblock]$Get) {
+  try { $v = & $Get; if ($null -ne $v) { $Facts[$Name] = $v } } catch { }
+}
+function Get-HardeningFacts {
+  $f = @{}
+  $lsa = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
+  $sys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
+  $smb = $null
+  try { $smb = Get-SmbServerConfiguration -ErrorAction Stop } catch { }
+  if ($smb) { $f.smb1_enabled = [bool]$smb.EnableSMB1Protocol; $f.smb_signing_required = [bool]$smb.RequireSecuritySignature }
+  Add-Fact $f 'llmnr_disabled' { $v = Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' 'EnableMulticast'; [bool]($null -ne $v -and [int]$v -eq 0) }
+  Add-Fact $f 'netbios_enabled_adapters' { @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=true' -ErrorAction Stop | Where-Object { $_.TcpipNetbiosOptions -ne 2 }).Count }
+  $f.wdigest_use_logon_credential = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' 'UseLogonCredential'
+  Add-Fact $f 'lsa_run_as_ppl' { $v = Get-RegValue $lsa 'RunAsPPL'; if ($null -eq $v) { 0 } else { [int]$v } }
+  Add-Fact $f 'lm_compat_level' { $v = Get-RegValue $lsa 'LmCompatibilityLevel'; if ($null -eq $v) { 3 } else { [int]$v } }
+  Add-Fact $f 'credential_guard_running' { $dg = Get-CimInstance -Namespace 'root\Microsoft\Windows\DeviceGuard' -ClassName Win32_DeviceGuard -ErrorAction Stop; [bool](@($dg.SecurityServicesRunning) -contains 1) }
+  Add-Fact $f 'rdp_enabled' { $v = Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' 'fDenyTSConnections'; [bool]($null -ne $v -and [int]$v -eq 0) }
+  Add-Fact $f 'rdp_nla' { [int](Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' 'UserAuthentication') -eq 1 }
+  Add-Fact $f 'powershell_v2_enabled' { (Get-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -ErrorAction Stop).State -eq 'Enabled' }
+  Add-Fact $f 'ps_scriptblock_logging' { [int](Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging' 'EnableScriptBlockLogging') -eq 1 }
+  Add-Fact $f 'uac_enabled' { $v = Get-RegValue $sys 'EnableLUA'; ($null -eq $v) -or ([int]$v -eq 1) }
+  Add-Fact $f 'uac_admin_prompt' { $v = Get-RegValue $sys 'ConsentPromptBehaviorAdmin'; if ($null -eq $v) { 5 } else { [int]$v } }
+  Add-Fact $f 'autorun_disabled' { [int](Get-RegValue 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' 'NoDriveTypeAutoRun') -eq 255 }
+  Add-Fact $f 'bitlocker_os_protected' { "$((Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction Stop).ProtectionStatus)" -eq 'On' }
+  Add-Fact $f 'asr_rules' {
+    $mp = Get-MpPreference -ErrorAction Stop
+    $ids = @($mp.AttackSurfaceReductionRules_Ids); $acts = @($mp.AttackSurfaceReductionRules_Actions); $pairs = @()
+    for ($i = 0; $i -lt $ids.Count; $i++) { if ($ids[$i]) { $pairs += "$($ids[$i])=$($acts[$i])" } }
+    $pairs -join ','
+  }
+  Add-Fact $f 'last_patch_days' {
+    $last = Get-HotFix -ErrorAction Stop | Where-Object { $_.InstalledOn } | Sort-Object InstalledOn -Descending | Select-Object -First 1
+    if ($last) { [int]((Get-Date) - $last.InstalledOn).TotalDays }
+  }
+  $f
+}
+
 function Send-Inventory {
   $body = @{
     software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory)
     processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory
+    hardening = Get-HardeningFacts
   }
   Invoke-RestMethod -Method Post -Uri "$($Conf.platformUrl)/api/v1/agent/inventory" -TimeoutSec 60 `
     -Headers @{ authorization = "Bearer $($Conf.agentToken)" } -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes(($body | ConvertTo-Json -Depth 5 -Compress)))
@@ -278,7 +321,7 @@ function Invoke-AppControl {
 
 switch ($Command) {
   'once' { $r = Invoke-Checkin; $r | ConvertTo-Json -Compress -Depth 4; Invoke-Commands $r | Out-Null; try { Sync-AppControl $r; Invoke-AppControl } catch { Write-AgentLog "App Control: $($_.Exception.Message)" 'Warning' }; try { Send-Inventory | Out-Null } catch { Write-AgentLog "inventory upload failed: $($_.Exception.Message)" 'Warning' } }
-  'inventory' { @{ software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory); processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory } | ConvertTo-Json -Depth 5 }
+  'inventory' { @{ software = @(Get-InstalledSoftware); services = @(Get-ServiceInventory); users = @(Get-UserInventory); processes = @(Get-ProcessInventory); ports = @(Get-PortInventory); antivirus = @(Get-AntivirusInventory); firewall = Get-FirewallInventory; hardening = Get-HardeningFacts } | ConvertTo-Json -Depth 5 }
   'status' {
     "SCIAT Agent $AgentVersion"
     "platform: $($Conf.platformUrl)"

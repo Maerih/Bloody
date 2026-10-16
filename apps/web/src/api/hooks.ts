@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -887,6 +887,37 @@ export const useDecideExposureTarget = () =>
   useExposureMutation(({ id, status }: { id: string; status: "confirmed" | "ignored" }) => api.patch(`/exposure/targets/${encodeURIComponent(id)}`, { status }));
 export const useRemoveExposureTarget = () => useExposureMutation((id: string) => api.delete(`/exposure/targets/${encodeURIComponent(id)}`));
 export const useStartExposureScan = () => useExposureMutation((organizationId: string) => api.post<ExposureScan>("/exposure/scans", { organizationId }));
+
+// ─── Attack Reduction (ESPM) ────────────────────────────────────────────────
+
+export interface AttackReductionOverview {
+  organizationId: string;
+  catalog: HardeningCheckInfo[];
+  score: number | null;
+  checks: AttackReductionCheckSummary[];
+  endpoints: AttackReductionEndpoint[];
+}
+
+export function useAttackReductionOverview(organizationId: string | null) {
+  return useQuery<AttackReductionOverview, ApiError>({
+    queryKey: ["attack-reduction", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/attack-reduction/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+  });
+}
+
+function useAttackReductionMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation<TResult, ApiError, TVars>({ mutationFn: fn, onSuccess: () => void qc.invalidateQueries({ queryKey: ["attack-reduction"] }) });
+}
+export const useSetHardeningException = () =>
+  useAttackReductionMutation(({ organizationId, key, reason }: { organizationId: string; key: string; reason: string }) =>
+    api.put(`/attack-reduction/exceptions/${encodeURIComponent(organizationId)}/${encodeURIComponent(key)}`, { reason }),
+  );
+export const useRemoveHardeningException = () =>
+  useAttackReductionMutation(({ organizationId, key }: { organizationId: string; key: string }) =>
+    api.delete(`/attack-reduction/exceptions/${encodeURIComponent(organizationId)}/${encodeURIComponent(key)}`),
+  );
 
 // ─── Microsoft 365 hardening (ITDR) ────────────────────────────────────────
 

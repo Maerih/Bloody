@@ -7,6 +7,7 @@ import { AssetsTable } from "../../features/assets/AssetsTable";
 import { AppControlView } from "../../features/app-control/AppControlView";
 import { AttackPathsView } from "../../features/attackPaths/AttackPathsView";
 import { ExposureBreakdown } from "../../features/exposure/ExposureBreakdown";
+import { AttackReductionView } from "../../features/attack-reduction/AttackReductionView";
 import { ExternalExposureView } from "../../features/external-exposure/ExternalExposureView";
 import { RmmGuardView } from "../../features/rmm-guard/RmmGuardView";
 import { ModuleWorkspace } from "../../features/modules/ModuleWorkspace";
@@ -71,6 +72,7 @@ export default function EspmPage() {
         "app-control": () => <AppControlView />,
         "rmm-guard": () => <RmmGuardView />,
         "external-exposure": () => <ExternalExposureView />,
+        "attack-reduction": () => <AttackReductionView />,
       }}
     />
   );

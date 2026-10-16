@@ -17,11 +17,11 @@ export class HostInventoryService {
     const agent = rows[0]!;
     const at = new Date(this.now()).toISOString();
     await tx.query(
-      `INSERT INTO agent_inventory (agent_id, tenant_id, organization_id, asset_id, collected_at, software, services, users, processes, ports, antivirus, firewall)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb)
+      `INSERT INTO agent_inventory (agent_id, tenant_id, organization_id, asset_id, collected_at, software, services, users, processes, ports, antivirus, firewall, hardening)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb)
        ON CONFLICT (agent_id) DO UPDATE SET organization_id = EXCLUDED.organization_id, asset_id = EXCLUDED.asset_id, collected_at = EXCLUDED.collected_at,
          software = EXCLUDED.software, services = EXCLUDED.services, users = EXCLUDED.users, processes = EXCLUDED.processes,
-         ports = EXCLUDED.ports, antivirus = EXCLUDED.antivirus, firewall = EXCLUDED.firewall`,
+         ports = EXCLUDED.ports, antivirus = EXCLUDED.antivirus, firewall = EXCLUDED.firewall, hardening = EXCLUDED.hardening`,
       [
         agentId,
         agent.tenant_id,
@@ -35,6 +35,7 @@ export class HostInventoryService {
         JSON.stringify(report.ports),
         JSON.stringify(report.antivirus),
         report.firewall ? JSON.stringify(report.firewall) : null,
+        JSON.stringify(report.hardening),
       ],
     );
     const after = antivirusStatusOf(report.antivirus);
@@ -64,6 +65,7 @@ export class HostInventoryService {
       ports: arr(r.ports),
       antivirus,
       firewall: (r.firewall as HostInventory["firewall"]) ?? null,
+      hardening: (r.hardening as HostInventory["hardening"]) ?? {},
       antivirusStatus: antivirusStatusOf(antivirus),
       antivirusIssues: antivirusIssues(antivirus),
     };
