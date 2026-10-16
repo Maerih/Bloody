@@ -53,6 +53,7 @@ import { M365Service, systemDnsResolver } from "./services/m365.js";
 import { RmmGuardService } from "./services/rmm-guard.js";
 import { FootholdsService } from "./services/footholds.js";
 import { PatchingService } from "./services/patching.js";
+import { PostureSnapshotService } from "./services/posture-snapshots.js";
 import { AttackReductionService } from "./services/attack-reduction.js";
 import { AwarenessMailer, AwarenessService } from "./services/awareness.js";
 import { PhishingService } from "./services/phishing.js";
@@ -270,7 +271,8 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
   const awareness = new AwarenessService({ db, mailer: new AwarenessMailer(config.smtp, deps.emailTransport ?? null), publicUrl: config.http.publicUrl, now });
   const exposure = new ExposureService({ db, events: domainEvents, probe: deps.portProbe ?? tcpProbe, now });
-  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, exposure, awareness, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+  const postureSnapshots = new PostureSnapshotService({ db, dataSource: reports.dataSource, now });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, exposure, awareness, postureSnapshots, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
   const services: AppServices = {
     config,

@@ -47,6 +47,8 @@ export interface SchedulerDeps {
   awareness?: { remindDue(tenantId: string): Promise<number> };
   /** Daily External Exposure rescans. */
   exposure?: { scanDue(tenantId: string): Promise<number> };
+  /** Daily endpoint posture snapshots (report trends). */
+  postureSnapshots?: { snapshotDue(tenantId: string): Promise<number> };
   log: PipelineLogger;
   intervalSeconds: number;
   now: () => number;
@@ -262,6 +264,9 @@ export class Scheduler {
       });
       await guard(`exposure:${t.id}`, async () => {
         await this.deps.exposure?.scanDue(t.id);
+      });
+      await guard(`posture-snapshots:${t.id}`, async () => {
+        await this.deps.postureSnapshots?.snapshotDue(t.id);
       });
       await guard(`trials:${t.id}`, async () => {
         result.trialNotices += await this.trialNotices(t.id, now);

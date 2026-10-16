@@ -129,3 +129,37 @@ describe("endpoint security posture report", () => {
     expect((await otherAdmin.post("/reports/generate", { type: "endpoint_posture", format: "json", periodDays: 30, organizationId: org })).status).toBeGreaterThanOrEqual(400);
   });
 });
+
+describe("daily endpoint posture snapshots", () => {
+  it("records one snapshot per organization per day and reports a past period from it", async () => {
+    const { PostureSnapshotService } = await import("../services/posture-snapshots.js");
+    const snaps = new PostureSnapshotService({ db: t.services.db, dataSource: t.services.reports.dataSource, now: () => Date.now() });
+    expect(await snaps.snapshotDue(tenant.tenantId)).toBe(1);
+    expect(await snaps.snapshotDue(tenant.tenantId)).toBe(0); // once a day
+    expect(await snaps.snapshotDue(other.tenantId)).toBe(0); // no SCIAT Agent there
+    const stored = await t.privileged.query("SELECT fact FROM endpoint_posture_snapshots WHERE organization_id = $1", [org]);
+    expect(stored.rows[0].fact).toMatchObject({ endpoints: 3, unsupportedOs: [expect.objectContaining({ hostname: "kb-ws-10" })] });
+    expect(stored.rows[0].fact.organizationId).toBeUndefined();
+    // Pretend it was recorded 40 days ago with worse patching, and a later day with better.
+    await t.privileged.query(
+      `UPDATE endpoint_posture_snapshots SET day = current_date - 40, fact = jsonb_set(fact, '{patching}', '{"current":0,"behind":1,"breached":2,"unknown":0,"securityUpdates":9,"rebootPending":0}') WHERE organization_id = $1`,
+      [org],
+    );
+    await t.privileged.query(
+      `INSERT INTO endpoint_posture_snapshots (organization_id, day, tenant_id, fact) SELECT organization_id, current_date - 35, tenant_id, jsonb_set(fact, '{patching,current}', '1') FROM endpoint_posture_snapshots WHERE organization_id = $1`,
+      [org],
+    );
+    // A report for the period that ended 33 days ago describes it from the snapshot.
+    const to = new Date(Date.now() - 33 * 86_400_000);
+    const past = await t.services.reports.dataSource.endpointPosture({ tenantId: tenant.tenantId, organizationIds: [org], from: new Date(to.getTime() - 30 * 86_400_000), to });
+    expect(past).toHaveLength(1);
+    expect(past[0]).toMatchObject({ organizationId: org, asOf: new Date(Date.now() - 35 * 86_400_000).toISOString().slice(0, 10), patching: { current: 1, breached: 2 } });
+    const trend = await t.services.reports.dataSource.endpointPostureTrend({ tenantId: tenant.tenantId, organizationIds: [org], from: new Date(to.getTime() - 30 * 86_400_000), to });
+    expect(trend.map((p) => p.patchCompliance)).toEqual([0, 25]);
+    // The current report compares with the previous period's snapshot.
+    const r = (await admin.post("/reports/generate", { type: "endpoint_posture", format: "json", periodDays: 30, organizationId: org })).body;
+    expect(r.summary.kpis.find((k: { key: string }) => k.key === "patch_compliance").delta).toMatchObject({ previous: 25 });
+    // Another account sees none of it.
+    expect(await t.services.reports.dataSource.endpointPosture({ tenantId: other.tenantId, organizationIds: [org], from: new Date(to.getTime() - 30 * 86_400_000), to })).toEqual([]);
+  });
+});

@@ -282,6 +282,8 @@ export interface AwarenessFact {
  */
 export interface EndpointPostureFact {
   organizationId: string;
+  /** Day the figures describe (YYYY-MM-DD): today when computed live, else the recorded snapshot's day. */
+  asOf: string;
   /** Computers with the SCIAT Agent enrolled. */
   endpoints: number;
   /** Computers that sent a host inventory. */
@@ -297,8 +299,24 @@ export interface EndpointPostureFact {
   weakestChecks: Array<{ title: string; failing: number }>;
   footholds: { suspicious: number; malicious: number; top: Array<{ name: string; kind: string; level: string; reason: string; endpoints: number }> };
   unapprovedRemoteAccess: Array<{ tool: string; endpoints: number }>;
-  /** Computers with the most problems, worst first. */
+  /** Computers with at least one open problem. */
+  needingAttention: number;
+  /** Computers with the most problems, worst first (at most 25). */
   atRisk: Array<{ hostname: string; os: string | null; issues: string[] }>;
+}
+
+/** One day of endpoint posture across the requested scope, from the daily snapshots. */
+export interface EndpointPostureTrendPoint {
+  /** YYYY-MM-DD (UTC). */
+  date: string;
+  /** Patch compliance, percent (null when no computer reported update status). */
+  patchCompliance: number | null;
+  /** Computers with working antivirus, percent. */
+  antivirusProtected: number | null;
+  hardeningScore: number | null;
+  unsupportedOs: number;
+  /** Computers with at least one open problem. */
+  needingAttention: number;
 }
 
 export interface ReportDataSource {
@@ -325,7 +343,14 @@ export interface ReportDataSource {
   /** Full post-incident detail; null when not found in the tenant/scope. */
   incidentDetail(q: ReportQuery, incidentId: string): Promise<IncidentDetail | null>;
   awareness(q: ReportQuery): Promise<AwarenessFact[]>;
+  /**
+   * Endpoint posture per organization at the end of the period: computed live for a period that
+   * ends today (or yesterday), else from the daily snapshot recorded then (organizations without
+   * one are left out).
+   */
   endpointPosture(q: ReportQuery): Promise<EndpointPostureFact[]>;
+  /** Daily endpoint posture over the period, from the snapshots recorded each day. */
+  endpointPostureTrend(q: ReportQuery): Promise<EndpointPostureTrendPoint[]>;
 }
 
 /** Thrown when a data source returns a row outside the requested tenant/organization scope. */
@@ -383,6 +408,7 @@ export function scopedDataSource(ds: ReportDataSource): ReportDataSource {
     billing: async (q) => check(await ds.billing(q), q, "billing"),
     awareness: async (q) => check(await ds.awareness(q), q, "awareness"),
     endpointPosture: async (q) => check(await ds.endpointPosture(q), q, "endpointPosture"),
+    endpointPostureTrend: (q) => ds.endpointPostureTrend(q),
     incidentDetail: async (q, id) => {
       const d = await ds.incidentDetail(q, id);
       if (d && !inScope(q.organizationIds, d.incident.organizationId)) throw new ReportScopeError("incidentDetail: incident outside the requested scope");

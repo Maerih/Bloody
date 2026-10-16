@@ -254,6 +254,23 @@ describe("endpoint posture report", () => {
     expect(r.methodology.map((t) => t.term)).toEqual(expect.arrayContaining(["Patch compliance", "Persistent foothold"]));
   });
 
+  it("compares with the previous period's snapshot and charts the daily trend", async () => {
+    const r = await build("endpoint_posture", { orgs: [ORG_A] });
+    // Previous period: 9 of 19 up to date (47%) → 74% now.
+    expect(kpiOf(r, "patch_compliance").delta).not.toBeNull();
+    expect(kpiOf(r, "patch_compliance").delta).toMatchObject({ previous: 47, direction: "up", sentiment: "good" });
+    const trend = r.sections.find((s) => s.id === "trend")!.blocks;
+    expect(trend[0]).toMatchObject({ kind: "chart", chart: { id: "posture-trend", categories: expect.arrayContaining([expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)]) } });
+    expect(trend[1]).toMatchObject({ kind: "table" });
+  });
+
+  it("says the trend starts building when nothing was recorded yet", async () => {
+    const { EmptyReportDataSource: Empty } = await import("../test-support/fake-datasource.js");
+    const r = await build("endpoint_posture", { orgs: [ORG_A], ds: new Empty() });
+    expect(r.sections.find((s) => s.id === "trend")!.blocks[0]).toMatchObject({ kind: "callout", title: "Trend starts building now" });
+    expect(kpiOf(r, "patch_compliance").delta).toBeNull();
+  });
+
   it("asks for the agent when no computer runs it", async () => {
     const { EmptyReportDataSource: Empty } = await import("../test-support/fake-datasource.js");
     const r = await build("endpoint_posture", { orgs: [ORG_A], ds: new Empty() });

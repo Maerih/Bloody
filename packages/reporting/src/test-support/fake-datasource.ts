@@ -7,6 +7,7 @@ import type { RiskFactor, Severity } from "@bloody/contracts";
 import type {
   AwarenessFact,
   EndpointPostureFact,
+  EndpointPostureTrendPoint,
   AlertStats,
   AnalystActivityFact,
   AttackPathStats,
@@ -395,22 +396,37 @@ export class FakeReportDataSource implements ReportDataSource {
 
   async endpointPosture(q: ReportQuery): Promise<EndpointPostureFact[]> {
     this.log("endpointPosture", q);
+    const cur = isCurrent(q);
     return this.orgs(q).map((o) => ({
       organizationId: o,
+      asOf: q.to.toISOString().slice(0, 10),
       endpoints: 20,
       reporting: 19,
       offline: 1,
       antivirus: { protected: 17, unhealthy: 1, unmanaged: 1 },
-      patching: { current: 14, behind: 3, breached: 2, unknown: 1, securityUpdates: 23, rebootPending: 2 },
+      patching: cur ? { current: 14, behind: 3, breached: 2, unknown: 1, securityUpdates: 23, rebootPending: 2 } : { current: 9, behind: 6, breached: 4, unknown: 1, securityUpdates: 51, rebootPending: 5 },
       unsupportedOs: [{ hostname: "kb-ws-07", os: "Microsoft Windows 10 Pro 10.0.19045", product: "Windows 10", endsOn: "2025-10-14" }],
       hardeningScore: 74,
       weakestChecks: [{ title: "SMBv1 is disabled", failing: 4 }],
       footholds: { suspicious: 2, malicious: 1, top: [{ name: "UpdateCheck", kind: "Scheduled task", level: "malicious", reason: "Encoded or obfuscated PowerShell", endpoints: 1 }] },
       unapprovedRemoteAccess: [{ tool: "AnyDesk", endpoints: 2 }],
+      needingAttention: 2,
       atRisk: [
         { hostname: "kb-ws-07", os: "Microsoft Windows 10 Pro 10.0.19045", issues: ["Windows 10 no longer gets security updates", "Antivirus off or out of date", "Malicious persistence"] },
         { hostname: "kb-ws-12", os: "Microsoft Windows 11 Pro 10.0.26200", issues: ["12 security updates outstanding for 41 days"] },
       ],
+    }));
+  }
+
+  async endpointPostureTrend(q: ReportQuery): Promise<EndpointPostureTrendPoint[]> {
+    this.log("endpointPostureTrend", q);
+    return [0, 1, 2, 3].map((i) => ({
+      date: new Date(q.from.getTime() + i * 7 * 86_400_000).toISOString().slice(0, 10),
+      patchCompliance: 47 + i * 9,
+      antivirusProtected: 85 + i,
+      hardeningScore: 70 + i,
+      unsupportedOs: 1,
+      needingAttention: 6 - i,
     }));
   }
 
@@ -493,6 +509,9 @@ export class EmptyReportDataSource extends FakeReportDataSource {
     return [];
   }
   override async endpointPosture(): Promise<EndpointPostureFact[]> {
+    return [];
+  }
+  override async endpointPostureTrend(): Promise<EndpointPostureTrendPoint[]> {
     return [];
   }
   override async usage(): Promise<UsageFact[]> {

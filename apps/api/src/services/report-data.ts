@@ -5,6 +5,7 @@ import type {
   AwarenessFact,
   AnalystActivityFact,
   EndpointPostureFact,
+  EndpointPostureTrendPoint,
   AttackPathStats,
   BillingFact,
   ComplianceControlFact,
@@ -754,6 +755,55 @@ export class SqlReportDataSource implements ReportDataSource {
    * as the console compute it, so the report and the screens agree.
    */
   async endpointPosture(q: ReportQuery): Promise<EndpointPostureFact[]> {
+    const asOf = new Date(Math.min(Date.now(), q.to.getTime() - 1)).toISOString().slice(0, 10);
+    // A period that ended before yesterday is described by the snapshots recorded then.
+    if (asOf < new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)) {
+      return this.tx(q, async (tx) => {
+        const rows = await this.sql(
+          tx,
+          q,
+          `SELECT DISTINCT ON (s.organization_id) s.organization_id, s.day, s.fact
+             FROM endpoint_posture_snapshots s JOIN organizations o ON o.id = s.organization_id
+            WHERE ${org("s.organization_id")} AND s.day <= :as_of::date
+            ORDER BY s.organization_id, s.day DESC`,
+          { as_of: asOf },
+        );
+        return rows.map((r) => ({ ...(r.fact as Omit<EndpointPostureFact, "organizationId" | "asOf">), organizationId: String(r.organization_id), asOf: String(r.day instanceof Date ? r.day.toISOString().slice(0, 10) : r.day).slice(0, 10) }));
+      });
+    }
+    return this.livePosture(q);
+  }
+
+  /** Daily posture over the period from the snapshots, aggregated across the requested organizations. */
+  async endpointPostureTrend(q: ReportQuery): Promise<EndpointPostureTrendPoint[]> {
+    return this.tx(q, async (tx) => {
+      const rows = await this.sql(
+        tx,
+        q,
+        `SELECT to_char(s.day, 'YYYY-MM-DD') AS day, s.fact FROM endpoint_posture_snapshots s
+          WHERE ${org("s.organization_id")} AND s.day >= :from::date AND s.day < :to::timestamptz::date + 1
+          ORDER BY s.day`,
+      );
+      const byDay = new Map<string, Array<Omit<EndpointPostureFact, "organizationId" | "asOf">>>();
+      for (const r of rows) byDay.set(String(r.day), [...(byDay.get(String(r.day)) ?? []), r.fact as Omit<EndpointPostureFact, "organizationId" | "asOf">]);
+      const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : null);
+      return [...byDay].map(([date, facts]) => {
+        const sum = (f: (x: (typeof facts)[number]) => number) => facts.reduce((n, x) => n + f(x), 0);
+        const scored = facts.filter((x) => x.hardeningScore !== null);
+        return {
+          date,
+          patchCompliance: pct(sum((x) => x.patching.current), sum((x) => x.patching.current + x.patching.behind + x.patching.breached)),
+          antivirusProtected: pct(sum((x) => x.antivirus.protected), sum((x) => x.antivirus.protected + x.antivirus.unhealthy + x.antivirus.unmanaged)),
+          hardeningScore: scored.length ? Math.round(scored.reduce((n, x) => n + x.hardeningScore! * Math.max(1, x.reporting), 0) / scored.reduce((n, x) => n + Math.max(1, x.reporting), 0)) : null,
+          unsupportedOs: sum((x) => x.unsupportedOs.length),
+          needingAttention: sum((x) => x.needingAttention ?? x.atRisk.length),
+        };
+      });
+    });
+  }
+
+  /** Posture computed now from the agents' latest reports. */
+  async livePosture(q: ReportQuery): Promise<EndpointPostureFact[]> {
     const at = Math.min(Date.now(), q.to.getTime());
     const patching = new PatchingService(() => at);
     const footholds = new FootholdsService(() => at);
@@ -788,6 +838,7 @@ export class SqlReportDataSource implements ReportDataSource {
         const failing = h.checks.filter((c) => c.failing > 0 && !c.exception).sort((a, b) => b.failing - a.failing);
         out.push({
           organizationId,
+          asOf: new Date(at).toISOString().slice(0, 10),
           endpoints: agents.rows.length,
           reporting: agents.rows.filter((a) => a.reported).length,
           offline: agents.rows.filter((a) => !a.last_checkin_at || at - new Date(String(a.last_checkin_at)).getTime() > 86_400_000).length,
@@ -812,6 +863,7 @@ export class SqlReportDataSource implements ReportDataSource {
             })),
           },
           unapprovedRemoteAccess: unapproved.map((x) => ({ tool: x.tool.name, endpoints: x.endpoints.length })),
+          needingAttention: issues.size,
           atRisk: [...issues]
             .map(([agentId, list]) => ({ hostname: hostname.get(agentId) ?? byId.get(agentId)?.hostname ?? agentId, os: byId.get(agentId)?.os ?? null, issues: [...new Set(list)] }))
             .sort((a, b) => b.issues.length - a.issues.length || a.hostname.localeCompare(b.hostname))

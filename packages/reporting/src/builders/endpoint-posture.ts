@@ -1,13 +1,30 @@
 import { formatNumber, formatPercent } from "../format.js";
 import { kpi, percent, sumBy } from "../metrics.js";
 import type { Recommendation } from "../model.js";
-import { narrative, plural, table } from "./blocks.js";
+import { chart, lineChart, narrative, plural, table } from "./blocks.js";
+import type { EndpointPostureFact } from "../datasource.js";
 import type { BuildContext, BuilderResult } from "./context.js";
+
+/** Headline figures for a set of organizations (also used for the previous period). */
+function headline(cur: readonly EndpointPostureFact[]) {
+  const round = (v: number | null) => (v === null ? null : Math.round(v));
+  const scored = cur.filter((o) => o.hardeningScore !== null);
+  const av = sumBy(cur, (o) => o.antivirus.protected + o.antivirus.unhealthy + o.antivirus.unmanaged);
+  return {
+    compliance: round(percent(sumBy(cur, (o) => o.patching.current), sumBy(cur, (o) => o.patching.current + o.patching.behind + o.patching.breached))),
+    avRate: av ? round(percent(sumBy(cur, (o) => o.antivirus.protected), av)) : null,
+    hardening: scored.length ? Math.round(sumBy(scored, (o) => o.hardeningScore! * Math.max(1, o.reporting)) / sumBy(scored, (o) => Math.max(1, o.reporting))) : null,
+    unsupported: sumBy(cur, (o) => o.unsupportedOs.length),
+    persistence: sumBy(cur, (o) => o.footholds.suspicious + o.footholds.malicious),
+  };
+}
 
 /** Endpoint security posture from the SCIAT Agent: patching, unsupported OS, antivirus, hardening, persistence. */
 export async function buildEndpointPosture(ctx: BuildContext): Promise<BuilderResult> {
-  const { ds, q, topN } = ctx;
-  const cur = await ds.endpointPosture(q);
+  const { ds, q, prev, topN } = ctx;
+  const [cur, before, trend] = await Promise.all([ds.endpointPosture(q), ds.endpointPosture(prev), ds.endpointPostureTrend(q)]);
+  // The previous period only compares when snapshots were recorded then.
+  const was = before.length ? headline(before) : null;
   const multiOrg = cur.length > 1;
   const endpoints = sumBy(cur, (o) => o.endpoints);
   const reporting = sumBy(cur, (o) => o.reporting);
@@ -21,21 +38,20 @@ export async function buildEndpointPosture(ctx: BuildContext): Promise<BuilderRe
   const securityUpdates = sumBy(cur, (o) => o.patching.securityUpdates);
   const rebootPending = sumBy(cur, (o) => o.patching.rebootPending);
   const unsupported = cur.flatMap((o) => o.unsupportedOs.map((u) => ({ ...u, org: ctx.orgName(o.organizationId) })));
-  const scored = cur.filter((o) => o.hardeningScore !== null);
-  const hardening = scored.length ? Math.round(sumBy(scored, (o) => o.hardeningScore! * Math.max(1, o.reporting)) / sumBy(scored, (o) => Math.max(1, o.reporting))) : null;
   const suspicious = sumBy(cur, (o) => o.footholds.suspicious);
   const malicious = sumBy(cur, (o) => o.footholds.malicious);
   const rmm = cur.flatMap((o) => o.unapprovedRemoteAccess.map((r) => ({ ...r, org: ctx.orgName(o.organizationId) })));
-  const round = (v: number | null) => (v === null ? null : Math.round(v));
-  const compliance = round(percent(patchCurrent, patchGraded));
-  const avRate = round(percent(avProtected, avProtected + avUnhealthy + avUnmanaged));
+  const now = headline(cur);
+  const compliance = now.compliance;
+  const avRate = now.avRate;
+  const hardening = now.hardening;
 
   const kpis = [
-    kpi({ key: "patch_compliance", label: "Patch compliance", value: compliance, unit: "percent", betterWhen: "higher", thresholds: { good: 90, warn: 70 }, explanation: `${formatNumber(patchCurrent)} of ${plural(patchGraded, "computer", "computers")} that reported update status ${patchCurrent === 1 ? "is" : "are"} up to date.` }),
-    kpi({ key: "unsupported_os", label: "Unsupported operating systems", value: unsupported.length, unit: "count", betterWhen: "lower", thresholds: { good: 0, warn: 0 }, explanation: "Computers whose operating system no longer gets security updates." }),
-    kpi({ key: "antivirus", label: "Antivirus protected", value: avRate, unit: "percent", betterWhen: "higher", thresholds: { good: 98, warn: 90 }, explanation: `${plural(avProtected, "computer has", "computers have")} working antivirus with real-time protection and current definitions.` }),
-    kpi({ key: "hardening", label: "Hardening score", value: hardening, unit: "score", betterWhen: "higher", thresholds: { good: 85, warn: 70 }, explanation: "Average Attack Reduction score over computers that reported hardening facts." }),
-    kpi({ key: "footholds", label: "Suspicious persistence", value: suspicious + malicious, unit: "count", betterWhen: "lower", thresholds: { good: 0, warn: 0 }, explanation: "Autostart entries rated suspicious and not reviewed, plus entries marked malicious." }),
+    kpi({ key: "patch_compliance", label: "Patch compliance", value: compliance, unit: "percent", previous: was?.compliance ?? null, betterWhen: "higher", thresholds: { good: 90, warn: 70 }, explanation: `${formatNumber(patchCurrent)} of ${plural(patchGraded, "computer", "computers")} that reported update status ${patchCurrent === 1 ? "is" : "are"} up to date.` }),
+    kpi({ key: "unsupported_os", label: "Unsupported operating systems", value: unsupported.length, unit: "count", previous: was?.unsupported ?? null, betterWhen: "lower", thresholds: { good: 0, warn: 0 }, explanation: "Computers whose operating system no longer gets security updates." }),
+    kpi({ key: "antivirus", label: "Antivirus protected", value: avRate, unit: "percent", previous: was?.avRate ?? null, betterWhen: "higher", thresholds: { good: 98, warn: 90 }, explanation: `${plural(avProtected, "computer has", "computers have")} working antivirus with real-time protection and current definitions.` }),
+    kpi({ key: "hardening", label: "Hardening score", value: hardening, unit: "score", previous: was?.hardening ?? null, betterWhen: "higher", thresholds: { good: 85, warn: 70 }, explanation: "Average Attack Reduction score over computers that reported hardening facts." }),
+    kpi({ key: "footholds", label: "Suspicious persistence", value: suspicious + malicious, unit: "count", previous: was?.persistence ?? null, betterWhen: "lower", thresholds: { good: 0, warn: 0 }, explanation: "Autostart entries rated suspicious and not reviewed, plus entries marked malicious." }),
   ];
 
   const recommendations: Recommendation[] = [];
@@ -63,7 +79,7 @@ export async function buildEndpointPosture(ctx: BuildContext): Promise<BuilderRe
     .sort((a, b) => b.failing - a.failing)
     .slice(0, topN);
   const footholds = cur.flatMap((o) => o.footholds.top.map((f) => ({ ...f, org: ctx.orgName(o.organizationId) }))).slice(0, topN);
-  const asOf = new Date(Math.min(Date.now(), q.to.getTime())).toISOString().slice(0, 10);
+  const asOf = cur.map((o) => o.asOf).sort()[0] ?? new Date(Math.min(Date.now(), q.to.getTime())).toISOString().slice(0, 10);
   const org = multiOrg ? [{ key: "org", label: "Organization" }] : [];
 
   return {
@@ -94,6 +110,34 @@ export async function buildEndpointPosture(ctx: BuildContext): Promise<BuilderRe
             reporting < endpoints ? `${plural(endpoints - reporting, "computer has", "computers have")} not sent a full report yet and ${endpoints - reporting === 1 ? "is" : "are"} not included in every figure.` : null,
           ]),
           { kind: "recommendations", items: recommendations, emptyMessage: "Endpoints are in good shape; keep patching and reviewing new findings." },
+        ],
+      },
+      {
+        id: "trend",
+        title: "Trend",
+        description: "Daily figures recorded by the platform over the period.",
+        blocks: [
+          trend.length >= 2
+            ? chart(
+                lineChart(
+                  "posture-trend",
+                  "Patch compliance, antivirus and hardening",
+                  trend.map((t) => t.date),
+                  [
+                    { key: "patch", name: "Patch compliance %", values: trend.map((t) => t.patchCompliance) },
+                    { key: "av", name: "Antivirus protected %", values: trend.map((t) => t.antivirusProtected) },
+                    { key: "hardening", name: "Hardening score", values: trend.map((t) => t.hardeningScore) },
+                  ],
+                  "score",
+                  { subtitle: "0-100, higher is better" },
+                ),
+              )
+            : { kind: "callout" as const, tone: "info" as const, title: "Trend starts building now", text: "The platform records these figures once a day; the next reports will show how they change." },
+          ...(trend.length >= 2
+            ? [
+                table("posture-trend-table", "Computers needing attention", [{ key: "date", label: "Day", format: "date" as const }, { key: "attention", label: "Computers needing attention", format: "number" as const, align: "right" as const }, { key: "unsupported", label: "Unsupported OS", format: "number" as const, align: "right" as const }], trend.filter((_, i) => i === 0 || i === trend.length - 1 || i % Math.max(1, Math.round(trend.length / 6)) === 0).map((t) => ({ date: t.date, attention: t.needingAttention, unsupported: t.unsupportedOs }))),
+              ]
+            : []),
         ],
       },
       {
