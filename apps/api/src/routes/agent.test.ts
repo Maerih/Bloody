@@ -60,6 +60,31 @@ describe("SCIAT Agent", () => {
     expect(stored.rows[0].agent_token_hash).not.toContain(token.split("_")[3]);
   });
 
+  it("follows the isolation state the computer reports (isolated or released on the computer itself)", async () => {
+    const res = await enroll({ accountKey, organizationKey: "org-2", ...host("ws-iso-local") });
+    const { token: tok, agentId } = res.json();
+    const state = async () => (await t.privileged.query("SELECT status, isolation FROM agents WHERE id = $1", [agentId])).rows[0];
+    expect((await heartbeat(tok, { ...beat("ws-iso-local"), isolation: { state: "isolated", mode: "lan" } })).statusCode).toBe(200);
+    expect(await state()).toMatchObject({ status: "isolated", isolation: { mode: "lan", source: "endpoint", actionId: null } });
+    const audit = async () => (await t.privileged.query("SELECT action FROM audit_log WHERE tenant_id = $1 AND details->>'agentId' = $2 ORDER BY seq", [tenant.tenantId, agentId])).rows.map((r) => r.action);
+    expect(await audit()).toEqual(["agent.isolation_reported"]);
+    // Shown on the computer's page as isolated.
+    const assetId = (await t.privileged.query("SELECT asset_id FROM agents WHERE id = $1", [agentId])).rows[0].asset_id;
+    expect((await admin.get(`/assets/${assetId}`)).body.agents[0]).toMatchObject({ status: "isolated", isolation: { mode: "lan" } });
+
+    // Released on the computer: a fresh isolation is not undone at once (a release may race the report)…
+    await heartbeat(tok, { ...beat("ws-iso-local"), isolation: { state: "not_isolated" } });
+    expect((await state()).status).toBe("isolated");
+    // …but a settled one is.
+    await t.privileged.query("UPDATE agents SET isolation = isolation || jsonb_build_object('since', now() - interval '10 minutes') WHERE id = $1", [agentId]);
+    await heartbeat(tok, { ...beat("ws-iso-local"), isolation: { state: "not_isolated" } });
+    expect(await state()).toMatchObject({ status: "protected", isolation: null });
+    expect(await audit()).toEqual(["agent.isolation_reported", "agent.release_reported"]);
+    // A computer that does not report isolation (older agent) changes nothing.
+    await heartbeat(tok, beat("ws-iso-local"));
+    expect((await state()).status).toBe("protected");
+  });
+
   it("refuses bad keys, unknown organizations and keys of another account", async () => {
     expect((await enroll({ accountKey: accountKey.slice(0, -2) + "xx", organizationKey: "org-2", ...host("x1") })).statusCode).toBe(401);
     expect((await enroll({ accountKey: "nonsense-key-123", organizationKey: "org-2", ...host("x1") })).statusCode).toBe(401);

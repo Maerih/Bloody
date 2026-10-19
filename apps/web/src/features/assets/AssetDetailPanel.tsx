@@ -1,9 +1,10 @@
 import type { Asset, GraphNode } from "@bloody/contracts";
-import { Boxes, Bug, Fingerprint, Lock, Network, Route, Siren, Sparkles } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { Boxes, Bug, Fingerprint, Lock, LockOpen, Network, Route, Siren, SquareTerminal, Sparkles } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { errorMessage } from "../../api/client";
-import { useAsset, useAssetRisk, useAttackPaths, useGraphNeighbors, useGraphSearch } from "../../api/hooks";
+import { queryKeys, useAsset, useAssetRisk, useAttackPaths, useGraphNeighbors, useGraphSearch } from "../../api/hooks";
 import type { AssetDetail } from "../../api/types";
 import { useSession } from "../../app/session";
 import { Badge, SeverityBadge, StatusBadge } from "../../components/Badge";
@@ -23,6 +24,8 @@ import { hrefForEntity } from "../../lib/entityLinks";
 import { formatDate, humanize } from "../../lib/format";
 import { agentStatusLabel } from "../agents/AgentsTable";
 import { RequestActionDialog } from "../response/RequestActionDialog";
+import { ContainmentNote, isInFlight, useContainmentState } from "../agents/ContainmentState";
+import type { ResponseActionKey } from "@bloody/contracts";
 
 const ACCESS_EDGES = new Set(["has_access_to", "admin_of", "logged_into", "authenticates_as", "owns", "stores_credential_for"]);
 
@@ -77,7 +80,7 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
   const graphNode = useAssetGraphNode(session.can("graph:read", org) ? asset : undefined);
   const neighbors = useGraphNeighbors(graphNode.node?.id, { depth: 1, limit: 200 });
   const paths = useAttackPaths({ organizationId: org }, { enabled: session.can("risk:read", org) });
-  const [isolate, setIsolate] = useState(false);
+  const [respond, setRespond] = useState<{ actions: ResponseActionKey[]; defaultAction: ResponseActionKey } | null>(null);
 
   const identities = useMemo(() => {
     const g = neighbors.data;
@@ -99,7 +102,19 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
 
   const assetPaths = useMemo(() => pathsTouchingAsset(paths.data?.paths ?? [], asset.id), [paths.data, asset.id]);
   const isEndpoint = ["endpoint", "server", "domain_controller", "database", "cloud_instance"].includes(asset.kind);
-  const agent = asset.agents?.[0];
+  // The computer may have several agents (SCIAT, Wazuh…): show the isolated one, else the SCIAT Agent.
+  const agents = asset.agents ?? [];
+  const agent = agents.find((a) => a.status === "isolated") ?? agents.find((a) => a.engine === "sciat") ?? agents[0];
+  const isolated = agent?.status === "isolated";
+  const canRespond = isEndpoint && session.can("response:request", org);
+  const pending = useContainmentState(canRespond).get(asset.id);
+  const busy = isInFlight(pending);
+  // Refresh the computer when an isolate / release request finishes, so the state flips by itself.
+  const qc = useQueryClient();
+  const pendingKey = pending ? `${pending.id}:${pending.status}` : "";
+  useEffect(() => {
+    void qc.invalidateQueries({ queryKey: queryKeys.asset(asset.id) });
+  }, [pendingKey, qc, asset.id]);
   const canAi = session.isModuleEnabled("ai_soc") && session.can("ai:use", org);
 
   return (
@@ -109,7 +124,13 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
           <Badge tone="outline">{humanize(asset.kind)}</Badge>
           <Badge tone={asset.criticality === "crown_jewel" ? "danger" : asset.criticality === "high" ? "warning" : "neutral"}>{humanize(asset.criticality)}</Badge>
           {asset.internetFacing ? <Badge tone="warning">Internet-facing</Badge> : null}
-          {agent ? <StatusBadge status={agent.status === "protected" ? "active" : agent.status} /> : null}
+          {isolated && agent ? (
+            <Badge tone="danger" icon={Lock}>
+              {agentStatusLabel(agent)}
+            </Badge>
+          ) : agent ? (
+            <StatusBadge status={agent.status === "protected" ? "active" : agent.status} />
+          ) : null}
           <span className="text-sm text-fg-subtle">
             Last seen <RelativeTime value={asset.lastSeenAt} />
           </span>
@@ -126,12 +147,30 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
           <ButtonLink size="sm" icon={Siren} to={`/siem/search?q=${encodeURIComponent(`asset.id:${asset.id}`)}`}>
             Events
           </ButtonLink>
-          {isEndpoint && session.can("response:request", org) ? (
-            <Button size="sm" variant="danger" icon={Lock} onClick={() => setIsolate(true)}>
-              {agent?.status === "isolated" ? "Release / respond" : "Isolate endpoint"}
-            </Button>
+          {canRespond ? (
+            <>
+              {isolated ? (
+                <Button size="sm" variant="success" icon={LockOpen} disabled={busy} onClick={() => setRespond({ actions: ["release_endpoint"], defaultAction: "release_endpoint" })}>
+                  Release from isolation
+                </Button>
+              ) : (
+                <Button size="sm" variant="danger" icon={Lock} disabled={busy} onClick={() => setRespond({ actions: ["isolate_endpoint"], defaultAction: "isolate_endpoint" })}>
+                  Isolate endpoint
+                </Button>
+              )}
+              <Button size="sm" icon={SquareTerminal} onClick={() => setRespond({ actions: ["collect_evidence", "run_yara_scan", "kill_process", "quarantine_file"], defaultAction: "collect_evidence" })}>
+                Respond
+              </Button>
+            </>
           ) : null}
         </div>
+        {pending ? <ContainmentNote record={pending} /> : null}
+        {isolated && agent?.isolation ? (
+          <p className="text-xs text-fg-muted">
+            Isolated <RelativeTime value={agent.isolation.since} />
+            {agent.isolation.mode === "lan" ? " from the local network (internet still allowed)" : " from every network"}; it can still reach SCIAT, so it can be released from here.
+          </p>
+        ) : null}
       </div>
 
       <Section title="Risk explanation">
@@ -269,13 +308,13 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
         )}
       </Section>
 
-      {isolate ? (
+      {respond ? (
         <RequestActionDialog
           open
-          onClose={() => setIsolate(false)}
+          onClose={() => setRespond(null)}
           organizationId={org}
-          actions={["isolate_endpoint", "release_endpoint", "collect_evidence", "run_yara_scan", "kill_process", "quarantine_file"]}
-          defaultAction={agent?.status === "isolated" ? "release_endpoint" : "isolate_endpoint"}
+          actions={respond.actions}
+          defaultAction={respond.defaultAction}
           targets={{ asset: [{ id: asset.id, label: asset.hostname ?? asset.name }] }}
         />
       ) : null}

@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { writeAudit } from "../audit/audit.js";
 import type { Database, Queryable } from "../db/pool.js";
 import { HttpError } from "../http/errors.js";
 import type { Row } from "../repo/mappers.js";
@@ -179,6 +180,7 @@ export class AgentEnrollmentService {
     return this.withAgent(token, async (tx, { tenantId, agentId, organizationId }) => {
       const now = new Date(this.deps.now()).toISOString();
       const assets = await this.deps.inventory.resolveOrDiscoverHosts(tx, tenantId, organizationId, [{ hostname: input.hostname, os: input.os, ips: input.ips, lastSeenAt: now }]);
+      await this.reconcileIsolation(tx, tenantId, organizationId, agentId, input.isolation);
       await tx.query(
         // A computer renamed to a name another agent of the organization still holds keeps its
         // current name (renaming it would collide and fail every check-in).
@@ -221,6 +223,38 @@ export class AgentEnrollmentService {
         .map((r) => ({ id: String(r.id), kind: r.kind as AgentCommand["kind"], args: (r.args as string[]).map(String) }));
       return { pollSeconds: AGENT_POLL_SECONDS, agentId, tenantId, organizationId, commands };
     });
+  }
+
+  /**
+   * The computer's own report wins: isolated there but not here (a lost command result, or
+   * isolated on the computer itself) is recorded as isolated; released there while no isolate /
+   * release command is outstanding (released on the computer itself) clears it. Audited.
+   */
+  private async reconcileIsolation(tx: Queryable, tenantId: string, organizationId: string, agentId: string, reported: HeartbeatInput["isolation"]): Promise<void> {
+    if (reported?.state !== "isolated" && reported?.state !== "not_isolated") return;
+    const mode = reported.mode === "lan" ? "lan" : "full";
+    const { rows } = await tx.query<Row>(
+      `UPDATE agents SET isolation = CASE WHEN $2 = 'isolated' THEN jsonb_build_object('mode', $3::text, 'since', now(), 'actionId', NULL, 'source', 'endpoint') ELSE NULL END
+        WHERE id = $1 AND status <> 'pending'
+          AND (($2 = 'isolated' AND isolation IS NULL)
+            OR ($2 = 'not_isolated' AND isolation IS NOT NULL
+                AND coalesce((isolation->>'since')::timestamptz, now()) < now() - interval '2 minutes'
+                AND NOT EXISTS (SELECT 1 FROM agent_commands c WHERE c.agent_id = agents.id AND c.status IN ('pending', 'delivered'))))
+        RETURNING asset_id`,
+      [agentId, reported.state, mode],
+    );
+    if (!rows[0]) return;
+    await writeAudit(
+      tx,
+      { tenantId, actorKind: "service", actorId: `agent:${agentId}`, actorLabel: "SCIAT Agent", ip: null, userAgent: null, requestId: null },
+      {
+        action: reported.state === "isolated" ? "agent.isolation_reported" : "agent.release_reported",
+        organizationId,
+        targetKind: "asset",
+        targetId: (rows[0].asset_id as string | null) ?? null,
+        details: { agentId, mode: reported.state === "isolated" ? mode : null },
+      },
+    );
   }
 
   /** Result of a command; returns the response action to complete (once). */
