@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError, buildUrl, filenameFromDisposition, readCookie, setUnauthorizedHandler } from "./client";
+import { api, ApiError, buildUrl, filenameFromDisposition, readCookie, setStepUpHandler, setUnauthorizedHandler } from "./client";
 import { normalizeSearchResponse } from "./hooks";
 import { mockApi } from "../test/utils";
 
 afterEach(() => {
   document.cookie = "bloody_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
   setUnauthorizedHandler(null);
+  setStepUpHandler(null);
 });
 
 describe("buildUrl", () => {
@@ -55,6 +56,32 @@ describe("api client", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     const err = (await api.get("/x").catch((e: unknown) => e)) as ApiError;
     expect(err.isNetworkError).toBe(true);
+  });
+
+  it("asks for an authenticator code once on step-up, then re-sends the request", async () => {
+    const stepUp = { status: 403, body: { error: { code: "mfa_step_up_required", message: "Confirm it is you" } } };
+    const responses = [stepUp, { status: 201, body: { id: "k1" } }, stepUp, stepUp];
+    const fetch = vi.fn(async () => {
+      const r = responses.shift()!;
+      return new Response(JSON.stringify(r.body), { status: r.status, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const handler = vi.fn().mockResolvedValue(true);
+    setStepUpHandler(handler);
+    await expect(api.post("/api-keys", { name: "k" })).resolves.toEqual({ id: "k1" });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    // Still refused after confirming: the error surfaces instead of prompting forever.
+    const err = (await api.post("/api-keys", { name: "k" }).catch((e: unknown) => e)) as ApiError;
+    expect(err.code).toBe("mfa_step_up_required");
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("surfaces the step-up error when the person cancels", async () => {
+    mockApi({ "POST /users/u1/password": { status: 403, body: { error: { code: "mfa_step_up_required", message: "Confirm it is you" } } } });
+    setStepUpHandler(vi.fn().mockResolvedValue(false));
+    await expect(api.post("/users/u1/password", { password: "x" })).rejects.toMatchObject({ code: "mfa_step_up_required" });
   });
 
   it("resolves 204 to undefined", async () => {

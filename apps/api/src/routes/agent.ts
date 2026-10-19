@@ -14,6 +14,7 @@ import type { Row } from "../repo/mappers.js";
 import { SCIAT_AGENT_VERSION } from "../services/agent-enrollment.js";
 import { IdParam } from "../http/params.js";
 import { parse } from "./util.js";
+import { requireRecentMfa } from "../auth/step-up.js";
 
 /** Files the platform serves to endpoints: name → path below infra/agent. Nothing else is reachable. */
 const AGENT_FILES: Record<string, { file: string; type: string }> = {
@@ -173,6 +174,7 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
   });
 
   app.post("/agents/enrollment/regenerate", { config: { audit: false } }, async (request) => {
+    await requireRecentMfa(request, s);
     const auth = requireAuth(request);
     requirePermission(request, "settings:write", null);
     return s.db.withTenant(auth.tenantId, async (tx) => {

@@ -12,6 +12,7 @@ import { IdParam, Limit, decodeCursor, likePattern } from "../http/params.js";
 import type { Row } from "../repo/mappers.js";
 import { hashPassword, passwordPolicyErrors, PASSWORD_MAX_LENGTH } from "../security/passwords.js";
 import { keysetClause, orderBy, pageRows, parse } from "./util.js";
+import { requireRecentMfa } from "../auth/step-up.js";
 
 const Binding = z.object({ role: RoleKey, organizationId: Uuid.nullable() });
 const Email = z
@@ -231,6 +232,8 @@ export async function userRoutes(app: FastifyInstance, s: AppServices): Promise<
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     const patch = parse(PatchUserBody, request.body);
+    // Disabling or re-enabling an account is a dangerous change.
+    if (patch.status !== undefined && id !== auth.principal.id) await requireRecentMfa(request, s);
     return s.db.withTenant(auth.tenantId, async (tx) => {
       const { row, bindings } = await loadManagedUser(tx, auth, id);
       if (id === auth.principal.id && patch.status === "disabled") throw badRequest("You cannot disable your own account");
@@ -261,6 +264,7 @@ export async function userRoutes(app: FastifyInstance, s: AppServices): Promise<
 
   // POST /users/:id/password — administrative password (re)set; activates invited users.
   app.post("/users/:id/password", { config: { audit: false } }, async (request, reply) => {
+    await requireRecentMfa(request, s);
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     const { password } = parse(z.object({ password: z.string().min(1).max(PASSWORD_MAX_LENGTH) }).strict(), request.body);
@@ -289,6 +293,7 @@ export async function userRoutes(app: FastifyInstance, s: AppServices): Promise<
 
   // POST /users/:id/roles { role, organizationId } — grant (only roles the caller could hold itself).
   app.post("/users/:id/roles", { config: { audit: false } }, async (request, reply) => {
+    await requireRecentMfa(request, s);
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     const binding = parse(Binding.strict(), request.body);
@@ -311,6 +316,7 @@ export async function userRoutes(app: FastifyInstance, s: AppServices): Promise<
 
   // DELETE /users/:id/roles?role=&organizationId= — revoke one binding.
   app.delete("/users/:id/roles", { config: { audit: false } }, async (request, reply) => {
+    await requireRecentMfa(request, s);
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     const q = parse(z.object({ role: RoleKey, organizationId: Uuid.optional() }), request.query);

@@ -10,6 +10,8 @@ import { ApiError as ApiErrorEnvelope, API_VERSION } from "@bloody/contracts";
  *   `{ error: { code, message, requestId, details } }`.
  * - 401: the registered unauthorized handler runs (the app routes to /login and clears the
  *   query cache so no tenant data survives the session).
+ * - 403 `mfa_step_up_required` (a dangerous action and no authenticator check in the last few
+ *   minutes): the registered step-up handler asks for a code, then the request is sent once more.
  */
 
 export const API_BASE = `/api/${API_VERSION}`;
@@ -29,6 +31,8 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Do not invoke the global unauthorized handler on 401 (login, session probe). */
   skipAuthRedirect?: boolean;
+  /** Do not ask for an authenticator code on `mfa_step_up_required` (the verification call itself). */
+  skipStepUp?: boolean;
 }
 
 export class ApiError extends Error {
@@ -73,6 +77,28 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): () 
   return () => {
     if (unauthorizedHandler === handler) unauthorizedHandler = null;
   };
+}
+
+export const STEP_UP_REQUIRED = "mfa_step_up_required";
+/** Resolves true once the person has confirmed with their authenticator, false if they cancelled. */
+type StepUpHandler = () => Promise<boolean>;
+let stepUpHandler: StepUpHandler | null = null;
+let pendingStepUp: Promise<boolean> | null = null;
+
+/** Register the step-up prompt (the app mounts one dialog). Returns an unsubscribe. */
+export function setStepUpHandler(handler: StepUpHandler | null): () => void {
+  stepUpHandler = handler;
+  return () => {
+    if (stepUpHandler === handler) stepUpHandler = null;
+  };
+}
+
+/** One prompt at a time: requests that hit step-up together all wait for the same answer. */
+function stepUp(handler: StepUpHandler): Promise<boolean> {
+  pendingStepUp ??= handler().finally(() => {
+    pendingStepUp = null;
+  });
+  return pendingStepUp;
 }
 
 function defaultUnauthorized(): void {
@@ -177,7 +203,7 @@ function defaultMessage(status: number): string {
   }
 }
 
-async function send(path: string, opts: RequestOptions): Promise<Response> {
+async function send(path: string, opts: RequestOptions, retried = false): Promise<Response> {
   let res: Response;
   try {
     res = await globalThis.fetch(buildUrl(path, opts.query), buildInit(opts));
@@ -188,6 +214,7 @@ async function send(path: string, opts: RequestOptions): Promise<Response> {
   if (!res.ok) {
     const error = await parseError(res);
     if (res.status === 401 && !opts.skipAuthRedirect) (unauthorizedHandler ?? defaultUnauthorized)();
+    if (error.code === STEP_UP_REQUIRED && stepUpHandler && !opts.skipStepUp && !retried && (await stepUp(stepUpHandler))) return send(path, opts, true);
     throw error;
   }
   return res;

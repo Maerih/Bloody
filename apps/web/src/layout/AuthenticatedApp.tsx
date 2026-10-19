@@ -8,6 +8,7 @@ import { UiProvider } from "../app/ui";
 import { LogoMark } from "../components/Logo";
 import { ErrorState } from "../components/ErrorState";
 import { AppShell } from "./AppShell";
+import { StepUpDialog } from "./StepUpDialog";
 
 /**
  * Registers the global 401 handler: drop every cached query (no tenant data outlives the
@@ -66,6 +67,7 @@ export function AuthenticatedApp() {
     <SessionProvider me={me.data}>
       <UiProvider>
         <AppShell />
+        <StepUpDialog />
       </UiProvider>
     </SessionProvider>
   );

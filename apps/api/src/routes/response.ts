@@ -10,6 +10,7 @@ import { IdParam, Limit, csvOf, decodeCursor } from "../http/params.js";
 import type { Row } from "../repo/mappers.js";
 import { SELF_APPROVAL_REASON_MIN, toResponseAction } from "../services/response.js";
 import { keysetClause, orderBy, pageRows, parse, type KeysetSort } from "./util.js";
+import { requireRecentMfa } from "../auth/step-up.js";
 
 const RequestBody = z
   .object({
@@ -131,6 +132,7 @@ export async function responseRoutes(app: FastifyInstance, s: AppServices): Prom
       if (auth.principal.kind !== "user") throw forbidden("Emergency actions can only be requested by a signed-in person", "emergency_not_allowed");
       if (!EMERGENCY_ACTIONS.includes(body.action)) throw badRequest(`${body.action} cannot be executed as an emergency action (allowed: ${EMERGENCY_ACTIONS.join(", ")})`);
       requirePermission(request, "response:emergency", organizationId);
+      await requireRecentMfa(request, s);
       if (body.reason.length < EMERGENCY_REASON_MIN) throw badRequest(`An emergency action needs a written reason of at least ${EMERGENCY_REASON_MIN} characters`);
     }
     request.auditState.organizationId = organizationId;
@@ -251,6 +253,7 @@ export async function responseRoutes(app: FastifyInstance, s: AppServices): Prom
         );
         if (author === actorId(auth)) throw forbidden("You wrote this version of the playbook, so another person must approve its steps", "self_approval");
       }
+      await requireRecentMfa(request, s);
       const decided = await s.responses.decideApproval(auth.principal, id, decision, body.comment);
       return approvalView(decided, s.approvals.canDecide(auth.principal, decided));
     });

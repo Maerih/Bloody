@@ -210,7 +210,7 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
     const { code } = parse(CodeBody, request.body);
     await s.db.withTenant(auth.tenantId, async (tx) => {
       await s.auth.confirmTotpEnrollment(tx, auth, code);
-      if (auth.sessionId) await tx.query("UPDATE sessions SET mfa_verified = true WHERE id = $1", [auth.sessionId]);
+      if (auth.sessionId) await tx.query("UPDATE sessions SET mfa_verified = true, mfa_verified_at = now() WHERE id = $1", [auth.sessionId]);
       await recordAudit(tx, request, { action: "auth.mfa_enabled", targetKind: "user", targetId: auth.principal.id });
     });
     return { mfaEnabled: true };
@@ -234,7 +234,7 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
     const { code } = parse(CodeBody, request.body);
     const ok = await s.db.withTenant(auth.tenantId, async (tx) => {
       const valid = await s.auth.consumeTotp(tx, auth.tenantId, auth.principal.id, code);
-      if (valid) await tx.query("UPDATE sessions SET mfa_verified = true WHERE id = $1", [auth.sessionId]);
+      if (valid) await tx.query("UPDATE sessions SET mfa_verified = true, mfa_verified_at = now() WHERE id = $1", [auth.sessionId]);
       await recordAudit(tx, request, { action: "auth.mfa_step_up", targetKind: "session", targetId: auth.sessionId, outcome: valid ? "success" : "failure" });
       return valid;
     });

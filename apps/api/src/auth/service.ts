@@ -186,8 +186,8 @@ export class AuthService {
     const expiresAt = new Date(now + this.config.auth.sessionTtlHours * 3600_000).toISOString();
     const idleAt = new Date(Math.min(now + this.config.auth.sessionIdleMinutes * 60_000, Date.parse(expiresAt))).toISOString();
     const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO sessions (tenant_id, organization_id, user_id, secret_hash, auth_method, mfa_verified, ip, user_agent, idle_expires_at, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+      `INSERT INTO sessions (tenant_id, organization_id, user_id, secret_hash, auth_method, mfa_verified, mfa_verified_at, ip, user_agent, idle_expires_at, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $6 THEN now() END, $7, $8, $9, $10) RETURNING id`,
       [input.tenantId, input.organizationId, input.userId, sha256Hex(secret), input.method, input.mfaVerified, input.client.ip, input.client.userAgent?.slice(0, 500) ?? null, idleAt, expiresAt],
     );
     const sessionId = rows[0]!.id;

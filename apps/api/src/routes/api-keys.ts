@@ -9,6 +9,7 @@ import { forbidden, notFound } from "../http/errors.js";
 import { IdParam } from "../http/params.js";
 import type { Row } from "../repo/mappers.js";
 import { parse } from "./util.js";
+import { requireRecentMfa } from "../auth/step-up.js";
 
 const CreateKeyBody = z
   .object({
@@ -97,6 +98,7 @@ export async function apiKeyRoutes(app: FastifyInstance, s: AppServices): Promis
   });
 
   app.post("/api-keys", { config: { audit: false } }, async (request, reply) => {
+    await requireRecentMfa(request, s);
     const auth = requireAuth(request);
     const body = parse(CreateKeyBody, request.body);
     requirePermission(request, "apikey:write", body.organizationId);

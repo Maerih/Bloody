@@ -37,6 +37,7 @@ dependency audit and HTTP hardening checks. Proprietary — SCIAT AFRICA.
 | Low | The shared demo-sandbox account could change its password/MFA/profile/sessions (one visitor affecting all). | Refused for demo-only accounts. |
 | Low | OIDC accepted tokens without `email_verified` (accounts are linked by e-mail). | Requires `email_verified: true`; `OIDC_TRUST_UNVERIFIED_EMAIL=true` for IdPs that omit it. |
 | Low | `/metrics` was public without `METRICS_TOKEN` and labelled ingest metrics with API-key names; `/readyz` returned database error text. | Metrics need the token in production, labels are bounded, readiness returns a generic reason. |
+| Low | Sensitive actions did not require a recent second factor (a stolen session of an MFA user could grant roles or create API keys). | People with an authenticator must confirm a code within the last 10 minutes before granting/removing roles (users and teams), resetting a password, disabling a user, creating an API key, regenerating the agent account key, emergency response and approving/rejecting actions (`mfa_step_up_required`; the web app prompts and retries). |
 | Dependencies | nodemailer (15 advisories, 6 high), OpenTelemetry (DoS). | nodemailer 10.1, OpenTelemetry 2.12. |
 
 ## Accepted / open
@@ -49,9 +50,6 @@ dependency audit and HTTP hardening checks. Proprietary — SCIAT AFRICA.
   stored secret, rate-limited, secret never returned — kept so analysts can refresh it.
 - **Command Center shows identity names to roles without `identity:read`** (within their own
   organizations): by design for the summary view; revisit if customers object.
-- **MFA step-up is not enforced for sensitive actions** (sessions record `mfa_verified`, nothing
-  requires it yet): follow-up — require a recent MFA check for emergency actions, password resets
-  and role grants.
 - **Payment webhooks do not compare the paid amount with the invoice:** checkouts are created
   server-side at the invoice amount and webhooks are signature-verified; add the amount check per
   provider as a follow-up.

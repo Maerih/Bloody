@@ -10,6 +10,7 @@ import { forbidden, notFound } from "../http/errors.js";
 import { IdParam } from "../http/params.js";
 import type { Row } from "../repo/mappers.js";
 import { parse } from "./util.js";
+import { requireRecentMfa } from "../auth/step-up.js";
 
 const CreateTeamBody = z
   .object({
@@ -200,6 +201,7 @@ export async function teamRoutes(app: FastifyInstance, s: AppServices): Promise<
   });
 
   app.post("/teams/:id/roles", { config: { audit: false } }, async (request, reply) => {
+    await requireRecentMfa(request, s);
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     const binding = parse(Binding, request.body);
@@ -223,6 +225,7 @@ export async function teamRoutes(app: FastifyInstance, s: AppServices): Promise<
   });
 
   app.delete("/teams/:id/roles", { config: { audit: false } }, async (request, reply) => {
+    await requireRecentMfa(request, s);
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     const q = parse(z.object({ role: RoleKey, organizationId: Uuid.optional() }), request.query);
