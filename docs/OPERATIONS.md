@@ -73,7 +73,7 @@ are accepted for `JWT_SECRET`, `ENCRYPTION_KEY`, `ENCRYPTION_KEY_VERSION`,
 | `PUBLIC_URL`, `CORS_ORIGINS`, `COOKIE_SECURE`, `TRUST_PROXY` | Origin, CORS allow-list (never `*`), cookie flags, proxy trust | ConfigMap |
 | `RATE_LIMIT_PER_MINUTE`, `LOGIN_*`, `BODY_LIMIT_BYTES` | Abuse protection | Defaults |
 | `INGEST_MAX_BATCH`, `INGEST_BODY_LIMIT_BYTES`, `INGEST_MAX_EVENT_AGE_DAYS`, `PIPELINE_ENABLED` | Ingest limits; in-process analytics pipeline on/off | ConfigMap |
-| `SMTP_*` | Notification and report e-mail | ConfigMap plus secret |
+| `SMTP_*` | Platform default mail server. Optional: each account can set its own under Settings → Email server, which takes precedence | ConfigMap plus secret |
 | `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_REDIRECT_URI`, `OIDC_SCOPES` | SSO (the discovery `issuer` must equal `OIDC_ISSUER_URL` exactly) | ConfigMap plus secret |
 | `METRICS_TOKEN` | Bearer token required on `GET /api/v1/metrics` (≥ 16 chars) | Secret (optional) |
 | `MIGRATIONS_DIR` | Migration files inside the image | `/app/apps/api/migrations` |

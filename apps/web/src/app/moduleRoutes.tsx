@@ -50,6 +50,7 @@ const ApiCredentialsPage = lazy(() => import("../pages/settings/ApiCredentialsPa
 const BillingPage = lazy(() => import("../pages/settings/BillingPage"));
 const AuditLogPage = lazy(() => import("../pages/settings/AuditLogPage"));
 const DataArchivePage = lazy(() => import("../pages/settings/DataArchivePage"));
+const EmailServerPage = lazy(() => import("../pages/settings/EmailServerPage"));
 const PreferencesPage = lazy(() => import("../pages/PreferencesPage"));
 
 /** Wrap a settings section page in the settings frame (section nav + page). */
@@ -142,6 +143,7 @@ export const MODULE_ROUTES: AppRoute[] = [
   { path: "/settings/ai", element: settings(AiSettingsPage) },
   { path: "/settings/ai/policies", element: settings(AiSettingsPage) },
   { path: "/settings/notifications", element: settings(NotificationChannelsPage) },
+  { path: "/settings/email-server", element: settings(EmailServerPage) },
   { path: "/settings/billing", element: settings(BillingPage) },
   { path: "/billing", element: settings(BillingPage) },
   { path: "/settings/audit", element: settings(AuditLogPage) },

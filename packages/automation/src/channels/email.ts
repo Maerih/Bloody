@@ -50,6 +50,8 @@ export const SmtpSettings = z.object({
   fromAddress: z.string().email(),
   /** Pool connections for throughput (default true). */
   pool: z.boolean().default(true),
+  /** Name to verify the certificate against when `host` is an address resolved in advance. */
+  servername: z.string().optional(),
 });
 export type SmtpSettings = z.input<typeof SmtpSettings>;
 
@@ -62,7 +64,7 @@ export function createSmtpTransport(input: SmtpSettings): Transporter {
     secure: s.secure,
     requireTLS: !s.secure,
     ...(s.user ? { auth: { user: s.user, pass: s.password ?? "" } } : {}),
-    tls: { minVersion: "TLSv1.2", rejectUnauthorized: true },
+    tls: { minVersion: "TLSv1.2", rejectUnauthorized: true, ...(s.servername ? { servername: s.servername } : {}) },
     pool: s.pool,
     maxConnections: 5,
     connectionTimeout: 10_000,

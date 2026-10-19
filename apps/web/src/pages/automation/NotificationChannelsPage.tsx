@@ -10,8 +10,10 @@ import { Badge, StatusBadge } from "../../components/Badge";
 import { Button, ButtonLink, IconButton } from "../../components/Button";
 import { DataTable, type DataTableColumn } from "../../components/DataTable";
 import { EmptyState } from "../../components/EmptyState";
-import { Checkbox, Field, Input, Select, Textarea } from "../../components/Form";
+import { Checkbox, Field, Input, Select } from "../../components/Form";
 import { Dialog } from "../../components/Overlay";
+import { CopyButton } from "../../components/CopyButton";
+import { ChannelSettingsFields, buildConfig, initialSettings, validateSettings, type ChannelSettingsState } from "../../features/notifications/ChannelSettings";
 import { PageHeader } from "../../components/PageHeader";
 import { CHANNEL_ICONS } from "../../components/ScheduleReportDialog";
 
@@ -25,31 +27,15 @@ const KIND_LABELS: Record<NotificationChannelKind, string> = {
 };
 const CREATABLE: NotificationChannelKind[] = ["email", "slack", "teams", "webhook", "syslog"];
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-export function parseRecipients(text: string): { valid: string[]; invalid: string[] } {
-  const parts = text
-    .split(/[\s,;]+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-  const unique = [...new Set(parts.map((p) => p.toLowerCase()))];
-  return { valid: unique.filter((p) => EMAIL_RE.test(p)), invalid: unique.filter((p) => !EMAIL_RE.test(p)) };
-}
-
-/** Only https endpoints; the API additionally applies its SSRF guard. */
-export function isSafeWebhookUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname.length > 0 && !url.username && !url.password;
-  } catch {
-    return false;
-  }
-}
+export { isSafeWebhookUrl, parseRecipients } from "../../features/notifications/ChannelSettings";
 
 function targetSummary(c: NotificationChannel): string {
   const cfg = c.config as Record<string, unknown>;
-  if (c.kind === "email" && Array.isArray(cfg.to)) return (cfg.to as unknown[]).map(String).join(", ");
-  if (c.kind === "syslog" && typeof cfg.host === "string") return `${cfg.host}:${String(cfg.port ?? 514)}`;
+  if (c.kind === "email" && Array.isArray(cfg.to)) {
+    const smtp = cfg.smtp as { host?: string } | undefined;
+    return `${(cfg.to as unknown[]).map(String).join(", ")}${smtp?.host ? ` · via ${smtp.host}` : ""}`;
+  }
+  if (c.kind === "syslog" && typeof cfg.host === "string") return `${String(cfg.protocol ?? "tls").toUpperCase()} ${cfg.host}:${String(cfg.port ?? 514)}`;
   if (c.kind === "slack" || c.kind === "teams" || c.kind === "webhook") return "Endpoint configured (stored as secret)";
   return "—";
 }
@@ -222,79 +208,78 @@ export default function NotificationChannelsPage() {
   );
 }
 
-function existingConfig(c: NotificationChannel | null): { recipients: string; host: string; port: string } {
-  const cfg = (c?.config ?? {}) as Record<string, unknown>;
-  return {
-    recipients: Array.isArray(cfg.to) ? (cfg.to as unknown[]).map(String).join(", ") : "",
-    host: typeof cfg.host === "string" ? cfg.host : "",
-    port: cfg.port !== undefined ? String(cfg.port) : "514",
-  };
-}
-
 function ChannelDialog({ existing, onClose }: { existing: NotificationChannel | null; onClose: () => void }) {
   const session = useSession();
   const create = useCreateNotificationChannel();
   const update = useUpdateNotificationChannel();
-  const initial = existingConfig(existing);
+  const initial = useState(() => initialSettings(existing))[0];
   const [name, setName] = useState(existing?.name ?? "");
   const [kind, setKind] = useState<NotificationChannelKind>(existing?.kind ?? "email");
   const [scope, setScope] = useState<string>(existing ? (existing.organizationId ?? "") : (session.organizationId ?? ""));
-  const [recipients, setRecipients] = useState(initial.recipients);
-  const [url, setUrl] = useState("");
-  const [host, setHost] = useState(initial.host);
-  const [port, setPort] = useState(initial.port);
+  const [settings, setSettings] = useState<ChannelSettingsState>(initial.state);
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
   const [submitted, setSubmitted] = useState(false);
-  const isUrlKind = kind === "slack" || kind === "teams" || kind === "webhook";
-  /** Editing a URL channel without typing a new URL keeps the stored secret. */
-  const keepUrl = Boolean(existing) && isUrlKind && url.trim() === "";
+  const [signingSecret, setSigningSecret] = useState<string | null>(null);
   const m = existing ? update : create;
+  const set = <K extends keyof ChannelSettingsState>(k: K, v: ChannelSettingsState[K]) => setSettings((cur) => ({ ...cur, [k]: v }));
 
   const tenantWideAllowed = session.can("settings:write", null) || session.can("playbook:write", null);
-  const parsedRecipients = parseRecipients(recipients);
-  const portNum = Number(port);
+  const settingErrors = validateSettings(kind, settings, initial.stored, Boolean(existing));
   const errors = {
     name: name.trim() ? null : "Name is required",
-    recipients:
-      kind !== "email" ? null : parsedRecipients.invalid.length > 0 ? `Invalid address: ${parsedRecipients.invalid[0]}` : parsedRecipients.valid.length === 0 ? "Add at least one recipient" : null,
-    url: isUrlKind && !keepUrl ? (isSafeWebhookUrl(url.trim()) ? null : "Enter an https:// URL") : null,
-    host: kind === "syslog" ? (/^[a-zA-Z0-9.-]+$/.test(host.trim()) ? null : "Enter a hostname or IP") : null,
-    port: kind === "syslog" ? (Number.isInteger(portNum) && portNum > 0 && portNum < 65536 ? null : "Port 1–65535") : null,
     scope: !existing && scope === "" && !tenantWideAllowed ? "Choose an organization" : null,
   };
-  const valid = Object.values(errors).every((e) => e === null);
-
-  const config = (): Record<string, unknown> | undefined => {
-    switch (kind) {
-      case "email":
-        return { to: parsedRecipients.valid };
-      case "syslog":
-        return { host: host.trim(), port: portNum };
-      default:
-        return keepUrl ? undefined : { url: url.trim() };
-    }
-  };
+  const valid = Object.values(errors).every((e) => e === null) && Object.values(settingErrors).every((e) => !e);
 
   const submit = () => {
     setSubmitted(true);
     if (!valid) return;
-    const cfg = config();
+    const config = buildConfig(kind, settings);
     if (existing) {
-      update.mutate({ id: existing.id, patch: { name: name.trim(), enabled, ...(cfg ? { config: cfg } : {}) } }, { onSuccess: () => onClose() });
+      update.mutate({ id: existing.id, patch: { name: name.trim(), enabled, config } }, { onSuccess: () => onClose() });
     } else {
-      const input: CreateNotificationChannelInput = { name: name.trim(), kind, organizationId: scope || null, config: cfg ?? {}, enabled };
-      create.mutate(input, { onSuccess: () => onClose() });
+      const input: CreateNotificationChannelInput = { name: name.trim(), kind, organizationId: scope || null, config, enabled };
+      create.mutate(input, {
+        onSuccess: (res) => {
+          // A generated webhook signing secret is shown once, for the receiving system.
+          const generated = (res as { signingSecret?: string }).signingSecret;
+          if (generated) setSigningSecret(generated);
+          else onClose();
+        },
+      });
     }
   };
 
   const err = (k: keyof typeof errors) => (submitted ? errors[k] : null);
+
+  if (signingSecret) {
+    return (
+      <Dialog
+        open
+        onClose={onClose}
+        title="Webhook signing secret"
+        description="Give this secret to the receiving system to verify the X-Bloody-Signature header (HMAC-SHA256 over “timestamp.body”). It is shown only once."
+        footer={
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        }
+      >
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 break-all rounded border border-line bg-canvas px-2 py-1.5 font-mono text-xs">{signingSecret}</code>
+          <CopyButton value={signingSecret} label="Copy signing secret" />
+        </div>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog
       open
       onClose={onClose}
       title={existing ? `Edit ${existing.name}` : "Add notification channel"}
-      description="Webhook, Slack and Teams URLs are stored encrypted and never shown again."
+      size="lg"
+      description="URLs, passwords, signing secrets and certificates are stored encrypted and never shown again."
       footer={
         <>
           {m.isError ? (
@@ -332,29 +317,7 @@ function ChannelDialog({ existing, onClose }: { existing: NotificationChannel | 
             )}
           </Field>
         </div>
-        {kind === "email" ? (
-          <Field label="Recipients" required error={err("recipients")} hint="Delivered over the platform's SMTP relay. Separate addresses with commas or new lines.">
-            {(p) => <Textarea {...p} value={recipients} onChange={(e) => setRecipients(e.target.value)} placeholder="soc@example.com, ciso@example.com" />}
-          </Field>
-        ) : kind === "syslog" ? (
-          <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-3">
-            <Field label="Host" required error={err("host")}>
-              {(p) => <Input {...p} value={host} onChange={(e) => setHost(e.target.value)} placeholder="siem.example.internal" />}
-            </Field>
-            <Field label="Port" required error={err("port")}>
-              {(p) => <Input {...p} inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} />}
-            </Field>
-          </div>
-        ) : (
-          <Field
-            label={`${KIND_LABELS[kind]} URL`}
-            required={!existing}
-            error={err("url")}
-            hint={existing ? "Stored encrypted. Leave blank to keep the current URL, or paste a new one to replace it." : "Write-only. Private and link-local addresses are rejected by the server."}
-          >
-            {(p) => <Input {...p} type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={existing ? "••• stored" : "https://"} autoComplete="off" />}
-          </Field>
-        )}
+        <ChannelSettingsFields kind={kind} state={settings} set={set} stored={initial.stored} editing={Boolean(existing)} errors={submitted ? settingErrors : {}} />
         <Field label="Scope" error={err("scope")} hint={existing ? "Scope is fixed after creation." : "Organization channels only receive that organization's notifications."}>
           {(p) => (
             <Select {...p} value={scope} disabled={Boolean(existing)} onChange={(e) => setScope(e.target.value)}>

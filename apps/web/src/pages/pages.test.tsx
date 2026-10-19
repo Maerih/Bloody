@@ -150,13 +150,30 @@ describe("Reports & automations", () => {
     renderApp("/soar/channels?create=1");
     const dialog = await screen.findByRole("dialog", { name: "Add notification channel" });
     fireEvent.change(within(dialog).getByLabelText(/^Name/), { target: { value: "SOC on-call" } });
-    fireEvent.change(within(dialog).getByLabelText(/^Recipients/), { target: { value: "soc@x.test, bad-address" } });
+    fireEvent.change(within(dialog).getByLabelText(/^To/), { target: { value: "soc@x.test, bad-address" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Add channel" }));
     expect(await within(dialog).findByText("Invalid address: bad-address")).toBeInTheDocument();
-    fireEvent.change(within(dialog).getByLabelText(/^Recipients/), { target: { value: "soc@x.test\nCISO@x.test" } });
+    fireEvent.change(within(dialog).getByLabelText(/^To/), { target: { value: "soc@x.test\nCISO@x.test" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Add channel" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/notifications/channels")).toBe(true));
-    expect(calls.find((c) => c.method === "POST")!.body).toEqual({ name: "SOC on-call", kind: "email", organizationId: null, config: { to: ["soc@x.test", "ciso@x.test"] }, enabled: true });
+    expect(calls.find((c) => c.method === "POST")!.body).toEqual({ name: "SOC on-call", kind: "email", organizationId: null, config: { to: ["soc@x.test", "ciso@x.test"], cc: [], bcc: [], smtp: null }, enabled: true });
+  });
+
+  it("creates a webhook with headers and shows the generated signing secret once", async () => {
+    const { calls } = baseApi({ "/notifications/channels": [], "POST /notifications/channels": { id: "new", signingSecret: "whsec_test123" } });
+    renderApp("/soar/channels?create=1");
+    const dialog = await screen.findByRole("dialog", { name: "Add notification channel" });
+    fireEvent.change(within(dialog).getByLabelText(/^Name/), { target: { value: "SOAR hook" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Type/), { target: { value: "webhook" } });
+    fireEvent.change(within(dialog).getByLabelText(/^URL/), { target: { value: "https://soar.example.com/hook" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Extra headers/), { target: { value: "Authorization: Bearer x" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add channel" }));
+    expect(await within(dialog).findByText(/Authorization is set by SCIAT/)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText(/^Extra headers/), { target: { value: "X-Tenant: acme" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Authorization header/), { target: { value: "Bearer tok" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add channel" }));
+    expect(await screen.findByText("whsec_test123")).toBeInTheDocument();
+    expect(calls.find((c) => c.method === "POST")!.body).toMatchObject({ kind: "webhook", config: { url: "https://soar.example.com/hook", authorization: "Bearer tok", headers: { "X-Tenant": "acme" }, includeData: true } });
   });
 
   it("creates an automation rule from a recommended template", async () => {
@@ -190,5 +207,30 @@ describe("Reports & automations", () => {
     expect(coerceConditionValue("gte", "7.5")).toBe(7.5);
     expect(coerceConditionValue("eq", "true")).toBe(true);
     expect(coerceConditionValue("exists", "x")).toBeUndefined();
+  });
+});
+
+describe("Settings → Email server", () => {
+  const platformView = { source: "platform", account: null, platform: { host: "relay.sciat.example", port: 587, encryption: "starttls", fromAddress: "noreply@sciat.example" } };
+
+  it("fills a provider preset, requires the password and saves the server", async () => {
+    const saved = { ...platformView, source: "account", account: { host: "smtp.office365.com", port: 587, encryption: "starttls", username: "soc@acme.example", hasPassword: true, fromAddress: "soc@acme.example", fromName: "Acme SOC", updatedAt: "2026-10-19T10:00:00Z", updatedBy: "Admin" } };
+    const { calls } = baseApi({ "/settings/email-server": platformView, "PUT /settings/email-server": saved });
+    renderApp("/settings/email-server");
+    expect(await screen.findByText(/relay\.sciat\.example:587/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^Provider/), { target: { value: "m365" } });
+    expect(screen.getByLabelText(/^SMTP server/)).toHaveValue("smtp.office365.com");
+    fireEvent.change(screen.getByLabelText(/^User name/), { target: { value: "soc@acme.example" } });
+    fireEvent.change(screen.getByLabelText(/^From address/), { target: { value: "soc@acme.example" } });
+    fireEvent.change(screen.getByLabelText(/^From name/), { target: { value: "Acme SOC" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save mail server" }));
+    expect(await screen.findByText("Enter the password")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: "app-pass" } });
+    fireEvent.change(screen.getByLabelText(/^Encryption/), { target: { value: "tls" } });
+    expect(screen.getByLabelText(/^Port/)).toHaveValue("465");
+    fireEvent.click(screen.getByRole("button", { name: "Save mail server" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(calls.find((c) => c.method === "PUT")!.body).toEqual({ host: "smtp.office365.com", port: 465, encryption: "tls", username: "soc@acme.example", password: "app-pass", fromAddress: "soc@acme.example", fromName: "Acme SOC" });
+    expect(await screen.findByText(/smtp\.office365\.com:587/)).toBeInTheDocument();
   });
 });

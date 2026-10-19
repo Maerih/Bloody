@@ -17,6 +17,7 @@ import { searchRoutes } from "./search.js";
 import { teamRoutes } from "./teams.js";
 import { userRoutes } from "./users.js";
 import { agentRoutes } from "./agent.js";
+import { mailServerRoutes } from "./mail-server.js";
 import { appControlRoutes } from "./app-control.js";
 import { m365Routes } from "./m365.js";
 import { sandboxRoutes } from "./sandbox.js";
@@ -75,6 +76,7 @@ export async function registerRoutes(app: FastifyInstance, services: AppServices
   await commercialRoutes(app, services);
   await billingRoutes(app, services);
   await agentRoutes(app, services);
+  await mailServerRoutes(app, services);
   await hostInventoryRoutes(app, services);
   await appControlRoutes(app, services);
   await m365Routes(app, services);

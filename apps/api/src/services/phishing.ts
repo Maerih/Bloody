@@ -3,6 +3,7 @@ import type { Database, Queryable } from "../db/pool.js";
 import { HttpError, notFound } from "../http/errors.js";
 import type { Row } from "../repo/mappers.js";
 import { makeLinkToken, parseLinkToken, sameHash, type AwarenessService } from "./awareness.js";
+import { MailServerUnavailableError } from "./mail-server.js";
 
 const iso = (v: unknown) => (v ? new Date(String(v)).toISOString() : null);
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -48,7 +49,7 @@ export class PhishingService {
   /** Create the campaign and send it now. Needs a configured SMTP relay. */
   async launch(tenantId: string, input: PhishCampaignInput, actor: string): Promise<{ id: string; recipients: number; sent: number; failed: number }> {
     const { mailer } = this.deps.awareness;
-    if (!mailer.configured) throw new HttpError(409, "smtp_not_configured", "Phishing simulations need the platform SMTP relay (SMTP_HOST)");
+    if (!(await mailer.configured(tenantId))) throw new MailServerUnavailableError("Phishing simulations need a mail server (Settings → Email server)");
     const template = phishTemplate(input.template)!;
     const created = await this.deps.db.withTenant(tenantId, async (tx) => {
       const org = await tx.query<Row>("SELECT name FROM organizations WHERE id = $1", [input.organizationId]);
@@ -84,7 +85,7 @@ export class PhishingService {
         .map((p) => `<p>${p.replace(/\n/g, "<br>").replace(esc(t.url), `<a href="${esc(t.url)}">${esc(t.url)}</a>`)}</p>`)
         .join("");
       try {
-        await mailer.send({ name: t.name, email: t.email }, mail.subject, mail.text, html, {
+        await mailer.send(tenantId, { name: t.name, email: t.email }, mail.subject, mail.text, html, {
           fromName: template.fromName,
           // Lets mail gateways recognise (and allowlist) authorized simulations.
           headers: { "X-SCIAT-Simulation": `phishing; campaign=${created.campaignId}` },

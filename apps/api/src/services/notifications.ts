@@ -13,7 +13,6 @@ import {
   SyslogSender,
   TeamsSender,
   WebhookSender,
-  createSmtpTransport,
   generateWebhookSecret,
   resolveBranding,
   type AuditEntry,
@@ -41,7 +40,7 @@ import {
 } from "@bloody/automation";
 import { z } from "zod";
 import { writeAudit, type AuditActor } from "../audit/audit.js";
-import type { SmtpConfig } from "../config.js";
+import type { MailServerService } from "./mail-server.js";
 import type { Database, Queryable } from "../db/pool.js";
 import { HttpError, badRequest } from "../http/errors.js";
 import type { PipelineLogger } from "../pipeline/analytics.js";
@@ -249,13 +248,10 @@ const ChannelSmtp = z
 
 class TenantEmailSender implements NotificationSender {
   readonly kind = "email" as const;
-  private readonly transports = new Map<string, EmailTransport>();
-  private platformTransport: EmailTransport | null = null;
 
   constructor(
     private readonly deps: {
-      platform: SmtpConfig | null;
-      override: EmailTransport | null;
+      mailServer: MailServerService;
       secrets: SecretResolver;
       branding: BrandingResolver;
       appBaseUrl: string;
@@ -270,6 +266,13 @@ class TenantEmailSender implements NotificationSender {
     if (smtp !== undefined) {
       const s = ChannelSmtp.safeParse(smtp);
       if (!s.success) issues.push(...s.error.issues.map((i) => ({ path: `smtp.${i.path.join(".")}`, message: i.message })));
+      else {
+        try {
+          this.deps.mailServer.checkHost(s.data.host);
+        } catch (err) {
+          issues.push({ path: "smtp.host", message: err instanceof Error ? err.message : "mail server not allowed" });
+        }
+      }
     }
     return { ok: issues.length === 0, issues };
   }
@@ -280,21 +283,22 @@ class TenantEmailSender implements NotificationSender {
     let from: { address: string; name?: string };
     if (smtp) {
       const s = ChannelSmtp.parse(smtp);
-      const key = createHash("sha256").update(`${channel.id}:${JSON.stringify(s)}`).digest("hex");
       const password = s.passwordRef ? await this.deps.secrets.resolve(channel.tenantId, s.passwordRef) : undefined;
-      transport = this.transports.get(key) ?? createSmtpTransport({ host: s.host, port: s.port, secure: s.secure, ...(s.user ? { user: s.user } : {}), ...(password ? { password } : {}), fromAddress: s.fromAddress, pool: false });
-      this.transports.set(key, transport);
+      try {
+        transport = await this.deps.mailServer.transportFor({ host: s.host, port: s.port, secure: s.secure, user: s.user, password, fromAddress: s.fromAddress }, false);
+      } catch (err) {
+        throw new DeliveryError("smtp_host_blocked", err instanceof Error ? err.message : "mail server not allowed", { retryable: false });
+      }
       from = { address: s.fromAddress, ...(s.fromName ? { name: s.fromName } : {}) };
-    } else if (this.deps.override) {
-      transport = this.deps.override;
-      from = { address: this.deps.platform?.from ?? "notifications@sciat.local", name: this.deps.platform?.fromName ?? "SCIAT AFRICA Security Operations" };
-    } else if (this.deps.platform) {
-      const p = this.deps.platform;
-      this.platformTransport ??= createSmtpTransport({ host: p.host, port: p.port, secure: p.secure, ...(p.user ? { user: p.user } : {}), ...(p.password ? { password: p.password } : {}), fromAddress: p.from, pool: true });
-      transport = this.platformTransport;
-      from = { address: p.from, name: p.fromName };
     } else {
-      throw new DeliveryError("smtp_not_configured", "No SMTP relay is configured: set SMTP_HOST for the platform or an smtp block on the channel", { retryable: false });
+      let account: Awaited<ReturnType<MailServerService["resolve"]>>;
+      try {
+        account = await this.deps.mailServer.resolve(channel.tenantId);
+      } catch (err) {
+        throw new DeliveryError("smtp_host_blocked", err instanceof Error ? err.message : "mail server not allowed", { retryable: false });
+      }
+      if (!account) throw new DeliveryError("smtp_not_configured", "No mail server is set up: add one under Settings → Email server, or on this channel", { retryable: false });
+      ({ transport, from } = account);
     }
     return new EmailSender({ transport, from, branding: this.deps.branding, appBaseUrl: this.deps.appBaseUrl, clock: { now: () => new Date(this.deps.now()) } });
   }
@@ -386,12 +390,11 @@ export interface NotificationServiceDeps {
   secretStore: SecretStore;
   events: DomainEventBus;
   log: PipelineLogger;
-  smtp: SmtpConfig | null;
+  mailServer: MailServerService;
   publicUrl: string;
   now: () => number;
   httpTransport?: HttpTransport | undefined;
   syslogTransport?: SyslogTransport | undefined;
-  emailTransport?: EmailTransport | undefined;
 }
 
 export class NotificationService {
@@ -414,7 +417,7 @@ export class NotificationService {
     const clock = { now: () => new Date(deps.now()) };
     const http = deps.httpTransport ?? new NodeHttpTransport({ timeoutMs: 10_000 });
     this.registry = new ChannelRegistry([
-      new TenantEmailSender({ platform: deps.smtp, override: deps.emailTransport ?? null, secrets, branding: this.branding, appBaseUrl: deps.publicUrl, now: deps.now }),
+      new TenantEmailSender({ mailServer: deps.mailServer, secrets, branding: this.branding, appBaseUrl: deps.publicUrl, now: deps.now }),
       new WebhookSender({ http, secrets, clock, branding: this.branding }),
       new SlackSender({ http, secrets, clock, branding: this.branding }),
       new TeamsSender({ http, secrets, clock, branding: this.branding }),
@@ -567,6 +570,10 @@ export class NotificationService {
       out.smtp = smtp;
     } else if (input.kind === "email" && input.config.smtp === undefined && prior.smtp) {
       out.smtp = prior.smtp;
+    }
+    // Back to the account's mail server: the channel's own password is no longer needed.
+    if (input.kind === "email" && input.config.smtp === null && typeof (prior.smtp as Record<string, unknown> | undefined)?.passwordRef === "string") {
+      released.push((prior.smtp as Record<string, string>).passwordRef!);
     }
     const check = this.registry.validate(input.kind, out);
     if (!check.ok) throw new HttpError(400, "invalid_channel_config", `Invalid ${input.kind} channel configuration`, check.issues);

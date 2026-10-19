@@ -1,5 +1,4 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { createSmtpTransport } from "@bloody/automation";
 import {
   gradeQuiz,
   humanRisk,
@@ -12,11 +11,10 @@ import {
   type LessonForLearner,
   type QuizResult,
 } from "@bloody/contracts";
-import type { SmtpConfig } from "../config.js";
+import { MailServerUnavailableError, type MailServerService } from "./mail-server.js";
 import type { Database, Queryable } from "../db/pool.js";
 import { HttpError, notFound } from "../http/errors.js";
 import type { Row } from "../repo/mappers.js";
-import type { EmailTransport } from "./notifications.js";
 
 const iso = (v: unknown) => (v ? new Date(String(v)).toISOString() : null);
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -50,25 +48,18 @@ export interface LearnerView {
   lessons: Array<LessonForLearner & { progress: { bestScore: number; passed: boolean; attempts: number } | null }>;
 }
 
-/** Sends training invitations through the platform SMTP relay (null when none is configured). */
+/** Sends training invitations and simulations through the account's mail server. */
 export class AwarenessMailer {
-  private transport: EmailTransport | null;
-  constructor(
-    private readonly smtp: SmtpConfig | null,
-    override: EmailTransport | null,
-  ) {
-    this.transport =
-      override ??
-      (smtp ? createSmtpTransport({ host: smtp.host, port: smtp.port, secure: smtp.secure, ...(smtp.user ? { user: smtp.user } : {}), ...(smtp.password ? { password: smtp.password } : {}), fromAddress: smtp.from, pool: true }) : null);
+  constructor(private readonly mailServer: MailServerService) {}
+  configured(tenantId: string): Promise<boolean> {
+    return this.mailServer.configured(tenantId);
   }
-  get configured(): boolean {
-    return this.transport !== null;
-  }
-  /** Always from the platform's own address (never spoofed); simulations only change the display name. */
-  async send(to: { name: string; email: string }, subject: string, text: string, html: string, opts: { fromName?: string; headers?: Record<string, string> } = {}): Promise<void> {
-    if (!this.transport) throw new HttpError(409, "smtp_not_configured", "No SMTP relay is configured (SMTP_HOST): copy the learners' personal links instead");
-    await this.transport.sendMail({
-      from: { address: this.smtp?.from ?? "training@sciat.local", name: opts.fromName ?? this.smtp?.fromName ?? "SCIAT Security Awareness" },
+  /** Always from the account's own address (never spoofed); simulations only change the display name. */
+  async send(tenantId: string, to: { name: string; email: string }, subject: string, text: string, html: string, opts: { fromName?: string; headers?: Record<string, string> } = {}): Promise<void> {
+    const mailer = await this.mailServer.resolve(tenantId);
+    if (!mailer) throw new MailServerUnavailableError("No mail server is set up (Settings → Email server): copy the learners' personal links instead");
+    await mailer.transport.sendMail({
+      from: { address: mailer.from.address, name: opts.fromName ?? mailer.from.name ?? "SCIAT Security Awareness" },
       to: { address: to.email, name: to.name },
       subject,
       text,
@@ -78,15 +69,11 @@ export class AwarenessMailer {
   }
 }
 
-/**
- * Security Awareness Training: learners per organization, lesson assignments, personal learner
- * links (only a hash of the secret is stored; a new link replaces the previous one) and quiz results.
- */
 export class AwarenessService {
   constructor(private readonly deps: { db: Database; mailer: AwarenessMailer; publicUrl: string; now: () => number }) {}
 
-  get canEmail(): boolean {
-    return this.deps.mailer.configured;
+  canEmail(tenantId: string): Promise<boolean> {
+    return this.deps.mailer.configured(tenantId);
   }
 
   get mailer(): AwarenessMailer {
@@ -281,7 +268,7 @@ export class AwarenessService {
 
   /** Email every learner who has not finished a fresh personal link. */
   async invite(tenantId: string, assignmentId: string): Promise<{ sent: number; failed: number }> {
-    if (!this.deps.mailer.configured) throw new HttpError(409, "smtp_not_configured", "No SMTP relay is configured (SMTP_HOST): copy the learners' personal links instead");
+    if (!(await this.deps.mailer.configured(tenantId))) throw new MailServerUnavailableError("No mail server is set up (Settings → Email server): copy the learners' personal links instead");
     const todo = await this.deps.db.withTenant(tenantId, async (tx) => {
       const { rows } = await tx.query<Row>(
         `SELECT e.id, l.name, l.email, a.title, a.lessons, a.due_at, o.name AS org
@@ -298,7 +285,7 @@ export class AwarenessService {
     for (const r of todo) {
       const mail = this.trainingEmail(r, false);
       try {
-        await this.deps.mailer.send({ name: String(r.name), email: String(r.email) }, mail.subject, mail.text, mail.html);
+        await this.deps.mailer.send(tenantId, { name: String(r.name), email: String(r.email) }, mail.subject, mail.text, mail.html);
         sent++;
         await this.deps.db.withTenant(tenantId, (tx) => tx.query("UPDATE sat_enrolments SET invited_at = now(), invite_error = NULL WHERE id = $1", [r.id]));
       } catch (err) {
@@ -335,7 +322,7 @@ export class AwarenessService {
    * and three times per assignment, for assignments that have reminders on. Needs SMTP.
    */
   async remindDue(tenantId: string): Promise<number> {
-    if (!this.deps.mailer.configured) return 0;
+    if (!(await this.deps.mailer.configured(tenantId))) return 0;
     const due = await this.deps.db.withTenant(tenantId, async (tx) => {
       const { rows } = await tx.query<Row>(
         `SELECT e.id, l.name, l.email, a.title, a.lessons, a.due_at, o.name AS org
@@ -354,7 +341,7 @@ export class AwarenessService {
     for (const r of due) {
       const mail = this.trainingEmail(r, true);
       try {
-        await this.deps.mailer.send({ name: String(r.name), email: String(r.email) }, mail.subject, mail.text, mail.html);
+        await this.deps.mailer.send(tenantId, { name: String(r.name), email: String(r.email) }, mail.subject, mail.text, mail.html);
         sent++;
         await this.deps.db.withTenant(tenantId, (tx) => tx.query("UPDATE sat_enrolments SET reminded_at = now(), reminder_count = reminder_count + 1, invite_error = NULL WHERE id = $1", [r.id]));
       } catch (err) {

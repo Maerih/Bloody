@@ -34,6 +34,7 @@ import type { EventSearchService } from "./services/event-search.js";
 import type { GraphQueries } from "./services/graph-queries.js";
 import type { IntelService } from "./services/intel.js";
 import type { NotificationService } from "./services/notifications.js";
+import type { MailServerService } from "./services/mail-server.js";
 import type { ApprovalGate, PlaybookEngine } from "@bloody/automation";
 import type { AiService } from "./services/ai.js";
 import type { IntegrationService } from "./services/integrations.js";
@@ -87,6 +88,8 @@ export interface AppServices {
   intel: IntelService;
   enrichment: EnrichmentService;
   notifications: NotificationService;
+  /** The account's outgoing mail server (Settings → Email server) or the platform default. */
+  mailServer: MailServerService;
   integrations: IntegrationService;
   /** ApprovalGate for every dangerous action (response actions, playbook steps, AI tools). */
   approvals: ApprovalGate;

@@ -56,6 +56,7 @@ import { PatchingService } from "./services/patching.js";
 import { PostureSnapshotService } from "./services/posture-snapshots.js";
 import { AttackReductionService } from "./services/attack-reduction.js";
 import { AwarenessMailer, AwarenessService } from "./services/awareness.js";
+import { MailServerService } from "./services/mail-server.js";
 import { PhishingService } from "./services/phishing.js";
 import { ExposureService, tcpProbe, type PortProbe } from "./services/external-exposure.js";
 import { NotificationService, type EmailTransport } from "./services/notifications.js";
@@ -188,17 +189,17 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     },
   });
   const intel = new IntelService(db, inventory, domainEvents, now);
+  const mailServer = new MailServerService({ db, secretStore, platform: config.smtp, override: deps.emailTransport ?? null, allowPrivateNetworks: config.integrations.allowPrivateNetworks });
   const notifications = new NotificationService({
     db,
     secretStore,
     events: domainEvents,
     log,
-    smtp: config.smtp,
+    mailServer,
     publicUrl: config.http.publicUrl,
     now,
     httpTransport: deps.httpTransport,
     syslogTransport: deps.syslogTransport,
-    emailTransport: deps.emailTransport,
   });
   const resolveHost = deps.hostResolver === undefined ? undefined : (deps.hostResolver as EngineHostResolver | false);
   const integrations = new IntegrationService({
@@ -269,7 +270,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   });
   const appControl = new AppControlService(now);
   const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
-  const awareness = new AwarenessService({ db, mailer: new AwarenessMailer(config.smtp, deps.emailTransport ?? null), publicUrl: config.http.publicUrl, now });
+  const awareness = new AwarenessService({ db, mailer: new AwarenessMailer(mailServer), publicUrl: config.http.publicUrl, now });
   const exposure = new ExposureService({ db, events: domainEvents, probe: deps.portProbe ?? tcpProbe, now });
   const postureSnapshots = new PostureSnapshotService({ db, dataSource: reports.dataSource, now });
   const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, exposure, awareness, postureSnapshots, log, intervalSeconds: config.scheduler.intervalSeconds, now });
@@ -313,6 +314,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     intel,
     enrichment: new EnrichmentService({ db, inventory, events: domainEvents, enabled: config.features.vulnEnrichment, config: config.enrichment, fetch: engineFetch, resolveHost, now }),
     notifications,
+    mailServer,
     integrations,
     approvals,
     responses,

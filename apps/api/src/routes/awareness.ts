@@ -35,7 +35,7 @@ export async function awarenessRoutes(app: FastifyInstance, s: AppServices): Pro
       const summary = await s.awareness.summary(tx, organizationId);
       return {
         organizationId,
-        canEmail: s.awareness.canEmail,
+        canEmail: await s.awareness.canEmail(auth.tenantId),
         summary: {
           ...summary,
           highRisk: learners.filter((l) => l.risk.level === "high").length,
@@ -141,7 +141,7 @@ export async function awarenessRoutes(app: FastifyInstance, s: AppServices): Pro
     requirePermission(request, "org:read", organizationId);
     return s.db.withTenant(auth.tenantId, async (tx) => {
       await assertOrganization(tx, organizationId);
-      return { organizationId, canEmail: s.awareness.canEmail, campaigns: await s.phishing.campaigns(tx, organizationId) };
+      return { organizationId, canEmail: await s.awareness.canEmail(auth.tenantId), campaigns: await s.phishing.campaigns(tx, organizationId) };
     });
   });
 

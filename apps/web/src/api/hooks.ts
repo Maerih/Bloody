@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate, Foothold, FootholdVerdict, PatchEndpoint, MissingUpdate } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate, Foothold, FootholdVerdict, PatchEndpoint, MissingUpdate, MailServerInput, MailServerView } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -762,6 +762,36 @@ export function useSetAgentAutoUpdate() {
   return useMutation<{ enabled: boolean }, ApiError, boolean>({
     mutationFn: (enabled) => api.put<{ enabled: boolean }>("/agents/auto-update", { enabled }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["agents", "auto-update"] }),
+  });
+}
+
+export function useMailServer(options: { enabled?: boolean } = {}) {
+  return useQuery<MailServerView, ApiError>({
+    queryKey: ["settings", "email-server"],
+    queryFn: ({ signal }) => api.get<MailServerView>("/settings/email-server", { signal }),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useSaveMailServer() {
+  const qc = useQueryClient();
+  return useMutation<MailServerView, ApiError, MailServerInput>({
+    mutationFn: (input) => api.put<MailServerView>("/settings/email-server", input),
+    onSuccess: (view) => qc.setQueryData(["settings", "email-server"], view),
+  });
+}
+
+export function useRemoveMailServer() {
+  const qc = useQueryClient();
+  return useMutation<MailServerView, ApiError, void>({
+    mutationFn: () => api.delete<MailServerView>("/settings/email-server"),
+    onSuccess: (view) => qc.setQueryData(["settings", "email-server"], view),
+  });
+}
+
+export function useTestMailServer() {
+  return useMutation<{ ok: boolean; message: string }, ApiError, string>({
+    mutationFn: (to) => api.post<{ ok: boolean; message: string }>("/settings/email-server/test", { to }),
   });
 }
 

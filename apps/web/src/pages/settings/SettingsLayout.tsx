@@ -1,6 +1,6 @@
 import type { Permission } from "@bloody/contracts";
 import { clsx } from "clsx";
-import { Archive, BrainCircuit, CreditCard, KeyRound, LayoutGrid, ScrollText, SlidersHorizontal, UserRound, Users, Webhook, type LucideIcon } from "lucide-react";
+import { Archive, BrainCircuit, CreditCard, KeyRound, LayoutGrid, Mail, ScrollText, SlidersHorizontal, UserRound, Users, Webhook, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { ORG_PARAM, useSession } from "../../app/session";
@@ -21,6 +21,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { path: "/settings/users", label: "Users & Teams", icon: Users, description: "People, teams and role bindings per organization", permission: "user:read", aliases: ["/users"] },
   { path: "/settings/api-credentials", label: "API Credentials", icon: KeyRound, description: "Service accounts and ingestion API keys", permission: "apikey:write" },
   { path: "/settings/ai", label: "AI Models & Policies", icon: BrainCircuit, description: "Local and cloud model providers, tool tiers, privacy", permission: "ai:configure", aliases: ["/ai/providers", "/ai/policies"] },
+  { path: "/settings/email-server", label: "Email Server", icon: Mail, description: "Outgoing mail (SMTP): server, port, encryption, sign-in and sender", permission: "settings:write" },
   { path: "/settings/notifications", label: "Notification Channels", icon: Webhook, description: "Email (SMTP), Slack, Teams, webhook and syslog delivery" },
   { path: "/settings/billing", label: "Billing & Usage", icon: CreditCard, description: "Plan, limits and usage meters", permission: "billing:read", aliases: ["/billing"] },
   { path: "/settings/audit", label: "Audit Log", icon: ScrollText, description: "Every mutating action with actor, target and request id", permission: "audit:read", aliases: ["/audit"] },
