@@ -87,8 +87,22 @@ body="{\"accountKey\":$(js "$ACCOUNT_KEY"),\"organizationKey\":$(js "$ORG_KEY"),
 body="$body}"
 
 say "Enrolling $host with $PLATFORM_URL …"
-resp="$(curl -sS --max-time 30 -X POST "$PLATFORM_URL/api/v1/agent/enroll" -H 'content-type: application/json' --data-binary "$body" -w '\n%{http_code}')" || die "cannot reach $PLATFORM_URL"
-code="${resp##*$'\n'}"; resp="${resp%$'\n'*}"
+# Busy platform (HTTP 429 / 5xx) or a network blip: retry with backoff and jitter, so a whole office
+# enrolling at once (GPO / RMM rollout) gets through instead of giving up.
+TMPDIR_="$(mktemp -d)"; trap 'rm -rf "$TMPDIR_"' EXIT
+attempt=1
+while :; do
+  resp="$(curl -sS --max-time 30 -D "$TMPDIR_/headers" -X POST "$PLATFORM_URL/api/v1/agent/enroll" -H 'content-type: application/json' --data-binary "$body" -w '\n%{http_code}' 2>/dev/null)" || resp=$'\n000'
+  code="${resp##*$'\n'}"; resp="${resp%$'\n'*}"
+  case "$code" in 429|5??|000) ;; *) break ;; esac
+  [ "$attempt" -ge 8 ] && break
+  wait_s="$(sed -n 's/^[Rr]etry-[Aa]fter: *\([0-9]*\).*/\1/p' "$TMPDIR_/headers" 2>/dev/null | head -1)"
+  wait_s="${wait_s:-$((attempt * 10))}"; [ "$wait_s" -gt 120 ] && wait_s=120
+  wait_s=$((wait_s + RANDOM % 10))
+  say "Platform busy (HTTP $code), retrying in ${wait_s}s (attempt $attempt of 8) …"
+  sleep "$wait_s"; attempt=$((attempt + 1))
+done
+[ "$code" = 000 ] && die "cannot reach $PLATFORM_URL"
 if [ "$code" != 200 ] && [ "$code" != 201 ]; then
   msg="$(printf '%s' "$resp" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p')"
   die "enrollment refused (HTTP $code): ${msg:-$resp}"
@@ -98,7 +112,7 @@ token="$(printf '%s' "$resp" | grep -o '"token":"sat_[A-Za-z0-9_-]*"' | cut -d'"
 
 say "Installing files to $PREFIX …"
 mkdir -p "$PREFIX" "$CONF_DIR"
-fetch() { curl -fsS --max-time 60 "$PLATFORM_URL/api/v1/agent/files/$1" -o "$2" || die "download of $1 failed"; }
+fetch() { curl -fsS --max-time 60 --retry 6 --retry-delay 10 --retry-max-time 300 "$PLATFORM_URL/api/v1/agent/files/$1" -o "$2" || die "download of $1 failed"; }
 fetch sciat-agent.sh "$PREFIX/sciat-agent.new" && mv "$PREFIX/sciat-agent.new" "$PREFIX/sciat-agent"
 chmod 0755 "$PREFIX/sciat-agent"
 # Network isolation: nftables on Linux, the built-in pf firewall on macOS (same commands).

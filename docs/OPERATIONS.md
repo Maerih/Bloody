@@ -212,6 +212,32 @@ Use multi-window burn-rate alerts: page at 14.4× burn over 1 h / 5 min, ticket 
 6 h / 30 min. Breaches of customer-facing SLAs (MSSP contracts) are tracked separately per
 organization in the SLA report (`ReportType = "sla"`).
 
+## SCIAT Agent capacity
+
+Measured October 2026 with `scripts/agent-loadtest.mjs` against one API process (development
+build, 4 vCPU shared with PostgreSQL and the load generator, pool of 20 connections). Each
+simulated agent sends a check-in every 60 s and one full inventory (300 software packages,
+180 services, 150 processes, 120 autostart entries, pending updates).
+
+| Scenario | Check-in p50 / p95 | Inventory p50 / p95 | Errors |
+|---|---|---|---|
+| 500 agents, normal rhythm | 10 / 26 ms | 45 / 74 ms | none |
+| 982 agents behind one IP, normal rhythm | 13 / 45 ms | 50 / 104 ms | none |
+| Stress: 300 agents every 2 s (≈ 8 000 agents' load) | 8 / 802 ms | 1 966 / 2 944 ms | none |
+
+- One API process comfortably serves about **1 000–2 000 agents**; beyond that the bottleneck is
+  database connections during inventory bursts, not CPU. Scale out with API replicas (the agent
+  endpoints are stateless) and size `DATABASE_POOL_MAX` × replicas within PostgreSQL's
+  `max_connections`.
+- Rate limits are per source IP and sized for a whole site behind one NAT:
+  `AGENT_RATE_LIMIT_PER_MINUTE` (default 3 000 ≈ 1 500 agents per site) and
+  `AGENT_ENROLL_RATE_LIMIT_PER_MINUTE` (default 600). Installers retry enrolment on 429 / 5xx
+  with the server's `Retry-After` and jitter, so a large GPO / RMM rollout completes in a few
+  minutes instead of failing. Raise the limits for bigger single sites.
+- Re-run before a large onboarding:
+  `node scripts/agent-loadtest.mjs --url https://<platform> --account-key sak_… --org-key <test-org> --agents 1000 --minutes 3 --ids-out agents.txt`
+  — against a test organization only; delete the agents listed in `agents.txt` afterwards.
+
 ## Resilience
 
 - **Horizontal scaling.** API pods are stateless (sessions live in Postgres). The HPA scales on

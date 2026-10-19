@@ -110,10 +110,38 @@ export class AgentEnrollmentService {
       const organizationId = String(org.rows[0].id);
       // A new endpoint counts against the plan; re-enrolling the same machine does not.
       const known = await tx.query("SELECT 1 FROM agents WHERE organization_id = $1 AND lower(hostname) = lower($2) AND engine = 'sciat'", [organizationId, input.hostname]);
-      if ((known.rowCount ?? 0) === 0) await this.deps.quota?.assertCapacity(tx, tenantId, "endpoints", 1);
       const now = new Date(this.deps.now()).toISOString();
       const assets = await this.deps.inventory.resolveOrDiscoverHosts(tx, tenantId, organizationId, [{ hostname: input.hostname, os: input.os, ips: input.ips, lastSeenAt: now }]);
       const assetId = [...assets.values()][0] ?? null;
+      // The machine id identifies a computer across re-installs. Two cases where it is already taken:
+      // - the same computer (same host name) moved to another customer: move its agent over, with a
+      //   fresh baseline (findings recorded under the old customer stay there);
+      // - a clone of the same disk image / VM template (another host name): enroll it as its own
+      //   computer and do not use the shared id.
+      let machineRef = input.machineId ?? null;
+      let moved = false;
+      if (machineRef) {
+        const { rows: same } = await tx.query<Row>("SELECT id, organization_id, hostname FROM agents WHERE external_source = 'sciat' AND external_ref = $1", [machineRef]);
+        const holder = same[0];
+        if (holder && String(holder.organization_id) !== organizationId) {
+          if (String(holder.hostname).toLowerCase() === input.hostname.toLowerCase()) {
+            const clash = await tx.query("SELECT 1 FROM agents WHERE organization_id = $1 AND lower(hostname) = lower($2) AND engine = 'sciat'", [organizationId, input.hostname]);
+            if ((clash.rowCount ?? 0) === 0) {
+              await tx.query("DELETE FROM agent_inventory WHERE agent_id = $1", [holder.id]);
+              await tx.query("DELETE FROM agent_footholds WHERE agent_id = $1", [holder.id]);
+              await tx.query("UPDATE agents SET organization_id = $2, footholds_baselined_at = NULL, security_pending_since = NULL, patch_state = NULL WHERE id = $1", [holder.id, organizationId]);
+              moved = true;
+            } else {
+              machineRef = null;
+            }
+          } else {
+            machineRef = null;
+          }
+        } else if (holder && String(holder.hostname).toLowerCase() !== input.hostname.toLowerCase()) {
+          machineRef = null;
+        }
+      }
+      if ((known.rowCount ?? 0) === 0 && !moved) await this.deps.quota?.assertCapacity(tx, tenantId, "endpoints", 1);
       const agentSecret = secret();
       const { rows: agent } = await tx.query<Row>(
         `INSERT INTO agents (tenant_id, organization_id, asset_id, hostname, platform, version, engine, status, last_checkin_at, antivirus_status, firewall_enabled,
@@ -125,7 +153,7 @@ export class AgentEnrollmentService {
            external_ref = coalesce(EXCLUDED.external_ref, agents.external_ref), agent_token_hash = EXCLUDED.agent_token_hash,
            enrolled_at = EXCLUDED.enrolled_at, host_info = EXCLUDED.host_info
          RETURNING id`,
-        [tenantId, organizationId, assetId, input.hostname, input.platform, input.version, now, input.machineId ?? null, sha256(agentSecret), JSON.stringify({ os: input.os ?? null, ips: input.ips ?? [] })],
+        [tenantId, organizationId, assetId, input.hostname, input.platform, input.version, now, machineRef, sha256(agentSecret), JSON.stringify({ os: input.os ?? null, ips: input.ips ?? [] })],
       );
       const agentId = String(agent[0]!.id);
       return { agentId, token: `sat_${hex(tenantId)}_${hex(agentId)}_${agentSecret}`, organizationId, pollSeconds: AGENT_POLL_SECONDS };
@@ -152,7 +180,11 @@ export class AgentEnrollmentService {
       const now = new Date(this.deps.now()).toISOString();
       const assets = await this.deps.inventory.resolveOrDiscoverHosts(tx, tenantId, organizationId, [{ hostname: input.hostname, os: input.os, ips: input.ips, lastSeenAt: now }]);
       await tx.query(
-        `UPDATE agents SET last_checkin_at = $2, version = $3, hostname = $4, asset_id = coalesce($5, asset_id),
+        // A computer renamed to a name another agent of the organization still holds keeps its
+        // current name (renaming it would collide and fail every check-in).
+        `UPDATE agents SET last_checkin_at = $2, version = $3, asset_id = coalesce($5, asset_id),
+                hostname = CASE WHEN EXISTS (SELECT 1 FROM agents o WHERE o.organization_id = agents.organization_id AND o.engine = agents.engine
+                                             AND lower(o.hostname) = lower($4) AND o.id <> agents.id) THEN hostname ELSE $4 END,
                 status = CASE WHEN isolation IS NOT NULL THEN 'isolated' ELSE 'protected' END,
                 -- An agent that could not resolve the platform this time keeps the last known addresses.
                 host_info = jsonb_build_object('platformIps', coalesce(host_info->'platformIps', '[]'::jsonb), 'dnsServers', coalesce(host_info->'dnsServers', '[]'::jsonb)) || $6::jsonb

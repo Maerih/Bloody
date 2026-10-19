@@ -300,3 +300,26 @@ describe("SCIAT Agent automatic updates", () => {
     expect((await heartbeat(mac, { hostname: "upd-mac", version: "1.0.0" })).json().update.version).toBe(SCIAT_AGENT_VERSION);
   });
 });
+
+describe("SCIAT Agent enrollment edge cases", () => {
+  it("moves a computer to another customer by its machine id, and enrolls clones of one image separately", async () => {
+    const key = (await admin.get("/agents/enrollment")).body.accountKey;
+    const machineId = "3f2a9c1e5b7d4e8f9a0b1c2d3e4f5a6b";
+    const first = await enroll({ accountKey: key, organizationKey: "org-1", ...host("laptop-amina"), machineId });
+    expect(first.statusCode).toBe(200);
+    // Re-assigned to the other customer: same agent, now in org-2.
+    const moved = await enroll({ accountKey: key, organizationKey: "org-2", ...host("laptop-amina"), machineId });
+    expect(moved.statusCode).toBe(200);
+    expect(moved.json()).toMatchObject({ agentId: first.json().agentId, organizationId: tenant.orgIds[1] });
+    const rows = await t.privileged.query("SELECT organization_id FROM agents WHERE id = $1", [first.json().agentId]);
+    expect(rows.rows[0].organization_id).toBe(tenant.orgIds[1]);
+    // Clones of one disk image share the machine id but are different computers.
+    const cloneA = await enroll({ accountKey: key, organizationKey: "org-1", ...host("kiosk-01"), machineId: "c10ned-image-machine-id" });
+    const cloneB = await enroll({ accountKey: key, organizationKey: "org-1", ...host("kiosk-02"), machineId: "c10ned-image-machine-id" });
+    const cloneC = await enroll({ accountKey: key, organizationKey: "org-2", ...host("kiosk-03"), machineId: "c10ned-image-machine-id" });
+    expect([cloneA.statusCode, cloneB.statusCode, cloneC.statusCode]).toEqual([200, 200, 200]);
+    expect(new Set([cloneA.json().agentId, cloneB.json().agentId, cloneC.json().agentId]).size).toBe(3);
+    // Every token works.
+    for (const c of [cloneA, cloneB, cloneC, moved]) expect((await heartbeat(c.json().token, { hostname: "x", version: "1.5.0" })).statusCode).toBe(200);
+  });
+});

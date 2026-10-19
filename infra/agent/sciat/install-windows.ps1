@@ -65,12 +65,30 @@ $enroll = @{
 }
 if ($machineId) { $enroll.machineId = "$machineId" }
 Say "Enrolling $env:COMPUTERNAME with $PlatformUrl ..."
-try {
-  $resp = Invoke-RestMethod -Method Post -Uri "$PlatformUrl/api/v1/agent/enroll" -ContentType 'application/json' -Body ($enroll | ConvertTo-Json -Compress) -TimeoutSec 30
-} catch {
-  $detail = $_.ErrorDetails.Message
-  if ($detail) { try { $detail = ($detail | ConvertFrom-Json).error.message } catch { } }
-  Fail "enrollment refused: $(if ($detail) { $detail } else { $_.Exception.Message })"
+# Busy platform (HTTP 429 / 5xx) or a network blip: retry with backoff and jitter, so a whole office
+# enrolling at once (GPO / RMM rollout) gets through instead of giving up.
+$resp = $null
+for ($attempt = 1; $attempt -le 8; $attempt++) {
+  try {
+    $resp = Invoke-RestMethod -Method Post -Uri "$PlatformUrl/api/v1/agent/enroll" -ContentType 'application/json' -Body ($enroll | ConvertTo-Json -Compress) -TimeoutSec 30
+    break
+  } catch {
+    $code = 0; $retryAfter = 0
+    if ($_.Exception.Response) {
+      $code = [int]$_.Exception.Response.StatusCode
+      try { $retryAfter = [int]("$($_.Exception.Response.Headers['Retry-After'])") } catch { }
+    }
+    $transient = ($code -eq 0 -or $code -eq 429 -or $code -ge 500)
+    if (-not $transient -or $attempt -eq 8) {
+      $detail = $_.ErrorDetails.Message
+      if ($detail) { try { $detail = ($detail | ConvertFrom-Json).error.message } catch { } }
+      Fail "enrollment refused: $(if ($detail) { $detail } else { $_.Exception.Message })"
+    }
+    $wait = if ($retryAfter -gt 0) { [Math]::Min($retryAfter, 120) } else { [Math]::Min($attempt * 10, 120) }
+    $wait += Get-Random -Minimum 0 -Maximum 10
+    Say "Platform busy$(if ($code) { " (HTTP $code)" }), retrying in ${wait}s (attempt $attempt of 8) ..."
+    Start-Sleep -Seconds $wait
+  }
 }
 if ("$($resp.token)" -notmatch '^sat_') { Fail 'the platform did not return an agent token' }
 
@@ -78,7 +96,10 @@ Remove-AgentService
 Say "Installing files to $Home_ ..."
 New-Item -ItemType Directory -Force -Path $Home_, $DataDir | Out-Null
 foreach ($f in 'sciat-agent.ps1', 'SciatAgentService.cs', 'bloody-isolate.ps1') {
-  Invoke-WebRequest -UseBasicParsing -Uri "$PlatformUrl/api/v1/agent/files/$f" -OutFile (Join-Path $Home_ $f) -TimeoutSec 60
+  for ($try = 1; ; $try++) {
+    try { Invoke-WebRequest -UseBasicParsing -Uri "$PlatformUrl/api/v1/agent/files/$f" -OutFile (Join-Path $Home_ $f) -TimeoutSec 60; break }
+    catch { if ($try -ge 6) { throw }; Start-Sleep -Seconds (10 + (Get-Random -Maximum 10)) }
+  }
 }
 
 # Configuration readable only by SYSTEM and Administrators (it holds the agent token).

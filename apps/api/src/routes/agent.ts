@@ -135,7 +135,8 @@ const ResultBody = z.object({ status: z.enum(["succeeded", "failed"]), output: z
 export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise<void> {
   const svc = s.agentEnrollment;
   const filesDir = agentFilesDir(s.config.agent.filesDir);
-  const endpointLimit = { max: 60, timeWindow: "1 minute" };
+  // Per source IP, sized for a whole site behind one NAT (see AGENT_RATE_LIMIT_PER_MINUTE).
+  const endpointLimit = { max: s.config.http.agentRateLimitPerMinute, timeWindow: "1 minute" };
   // SHA-256 of each served agent file (files only change with a platform release).
   const hashes = new Map<string, string>();
   const fileHash = async (name: string): Promise<string> => {
@@ -201,7 +202,7 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
     return reply.header("content-type", `${f.type}; charset=utf-8`).header("cache-control", "no-store").send(await readFile(path.join(filesDir, f.file), "utf8"));
   });
 
-  app.post("/agent/enroll", { config: { public: true, audit: false, rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request) => {
+  app.post("/agent/enroll", { config: { public: true, audit: false, rateLimit: { max: s.config.http.agentEnrollRateLimitPerMinute, timeWindow: "1 minute" } } }, async (request) => {
     const body = parse(EnrollBody, request.body);
     const res = await svc.enroll(body);
     request.log.info({ agentId: res.agentId, organizationId: res.organizationId, hostname: body.hostname }, "sciat agent enrolled");
