@@ -13,6 +13,7 @@ import {
   type Quote,
   type Subscription,
 } from "@bloody/contracts";
+import { writeAudit } from "../audit/audit.js";
 import type { Database, Queryable } from "../db/pool.js";
 import { HttpError, badRequest, notFound } from "../http/errors.js";
 import type { Row } from "../repo/mappers.js";
@@ -331,6 +332,24 @@ export class BillingService {
       if (!ins.rowCount) return false; // redelivery
       if (evt.method && (evt.kind === "invoice.paid" || evt.kind === "method.added")) await this.addMethod(tx, evt.tenantId!, { ...evt.method, provider: evt.provider });
       if (evt.kind !== "invoice.paid" || !evt.invoiceId) return evt.kind === "method.added";
+      const inv = (await tx.query<{ total: string; currency: string; number: string }>("SELECT total, currency, number FROM invoices WHERE id = $1 AND status = 'open'", [evt.invoiceId])).rows[0];
+      if (!inv) return false;
+      // The signature proves the provider sent it, not that the right amount was charged.
+      if (!evt.paid || evt.paid.currency !== inv.currency || evt.paid.amount < Number(inv.total)) {
+        await tx.query("UPDATE payment_events SET kind = 'invoice.amount_mismatch' WHERE provider = $1 AND provider_event_id = $2", [evt.provider, evt.eventId]);
+        await writeAudit(
+          tx,
+          { tenantId: evt.tenantId!, actorKind: "system", actorId: `payments:${evt.provider}`, actorLabel: `Payment provider (${evt.provider})`, ip: null, userAgent: null, requestId: null },
+          {
+            action: "billing.payment_mismatch",
+            targetKind: "invoice",
+            targetId: evt.invoiceId,
+            outcome: "failure",
+            details: { invoice: inv.number, expected: { amount: Number(inv.total), currency: inv.currency }, reported: evt.paid ?? null, providerRef: evt.providerRef },
+          },
+        );
+        return false;
+      }
       const { rowCount } = await tx.query(
         "UPDATE invoices SET status = 'paid', paid_at = $2, paid_via = $3, provider_ref = coalesce($4, provider_ref) WHERE id = $1 AND status = 'open'",
         [evt.invoiceId, new Date(this.deps.now()).toISOString(), evt.provider, evt.providerRef],

@@ -51,12 +51,12 @@ describe("Stripe", () => {
   });
 
   it("accepts a correctly signed completion and reports card display fields only", async () => {
-    const body = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: { id: "cs_1", payment_status: "paid", payment_intent: "pi_1", metadata: { order_ref: orderRef(TENANT, INVOICE) } } } });
+    const body = JSON.stringify({ id: "evt_1", type: "checkout.session.completed", data: { object: { id: "cs_1", payment_status: "paid", amount_total: 12_345, currency: "usd", payment_intent: "pi_1", metadata: { order_ref: orderRef(TENANT, INVOICE) } } } });
     const t = Math.floor(NOW / 1000);
     const sig = `t=${t},v1=${createHmac("sha256", cfg.webhookSecret).update(`${t}.${body}`).digest("hex")}`;
     const { fn } = fakeFetch([{ match: /payment_intents\/pi_1/, body: { payment_method: { id: "pm_9", card: { brand: "visa", last4: "6865", exp_month: 6, exp_year: 2031 } } } }]);
     const evt = await stripeProvider(cfg, fn).parseWebhook(body, { "stripe-signature": sig }, NOW);
-    expect(evt).toMatchObject({ kind: "invoice.paid", tenantId: TENANT, invoiceId: INVOICE, method: { kind: "card", brand: "visa", last4: "6865", expMonth: 6, expYear: 2031, providerRef: "pm_9" } });
+    expect(evt).toMatchObject({ kind: "invoice.paid", tenantId: TENANT, invoiceId: INVOICE, paid: { amount: 12_345, currency: "USD" }, method: { kind: "card", brand: "visa", last4: "6865", expMonth: 6, expYear: 2031, providerRef: "pm_9" } });
     await expect(stripeProvider(cfg, fn).parseWebhook(body.replace("paid", "unpaid"), { "stripe-signature": sig }, NOW)).rejects.toBeInstanceOf(WebhookSignatureError);
     await expect(stripeProvider(cfg, fn).parseWebhook(body, { "stripe-signature": sig }, NOW + 3_600_000)).rejects.toThrow(/stale/);
   });
@@ -94,11 +94,12 @@ describe("Paddle", () => {
   });
 
   it("verifies the h1 signature and records the card brand and last 4", async () => {
-    const body = JSON.stringify({ event_id: "evt_p1", event_type: "transaction.completed", data: { id: "txn_1", customer_id: "ctm_1", custom_data: { order_ref: orderRef(TENANT, INVOICE) }, payments: [{ method_details: { type: "card", card: { type: "mastercard", last4: "4444", expiry_month: 1, expiry_year: 2030 } } }] } });
+    const body = JSON.stringify({ event_id: "evt_p1", event_type: "transaction.completed", data: { id: "txn_1", customer_id: "ctm_1", currency_code: "USD", details: { totals: { subtotal: "12345", discount: "0", tax: "2469", grand_total: "14814" } }, custom_data: { order_ref: orderRef(TENANT, INVOICE) }, payments: [{ method_details: { type: "card", card: { type: "mastercard", last4: "4444", expiry_month: 1, expiry_year: 2030 } } }] } });
     const ts = Math.floor(NOW / 1000);
     const sig = `ts=${ts};h1=${createHmac("sha256", cfg.webhookSecret).update(`${ts}:${body}`).digest("hex")}`;
     const evt = await paddleProvider(cfg).parseWebhook(body, { "paddle-signature": sig }, NOW);
-    expect(evt).toMatchObject({ kind: "invoice.paid", invoiceId: INVOICE, method: { kind: "card", brand: "mastercard", last4: "4444" } });
+    // Tax Paddle adds as merchant of record is not counted against the invoice.
+    expect(evt).toMatchObject({ kind: "invoice.paid", invoiceId: INVOICE, paid: { amount: 12_345, currency: "USD" }, method: { kind: "card", brand: "mastercard", last4: "4444" } });
     await expect(paddleProvider(cfg).parseWebhook(body, { "paddle-signature": `ts=${ts};h1=00` }, NOW)).rejects.toBeInstanceOf(WebhookSignatureError);
   });
 });
@@ -112,11 +113,11 @@ describe("NOWPayments", () => {
   });
 
   it("verifies the HMAC-SHA512 over the sorted body; only 'finished' pays the invoice", async () => {
-    const payload = { payment_status: "finished", payment_id: 99, order_id: orderRef(TENANT, INVOICE), pay_currency: "usdttrc20", invoice_id: 5077, actually_paid: 123.45 };
+    const payload = { payment_status: "finished", payment_id: 99, order_id: orderRef(TENANT, INVOICE), pay_currency: "usdttrc20", invoice_id: 5077, actually_paid: 123.45, price_amount: 123.45, price_currency: "usd" };
     const body = JSON.stringify(payload);
     const sig = createHmac("sha512", cfg.ipnSecret).update(JSON.stringify(sortKeysDeep(payload))).digest("hex");
     const evt = await nowPaymentsProvider(cfg).parseWebhook(body, { "x-nowpayments-sig": sig }, NOW);
-    expect(evt).toMatchObject({ kind: "invoice.paid", eventId: "99:finished", tenantId: TENANT, invoiceId: INVOICE, method: { kind: "crypto", brand: "usdttrc20" } });
+    expect(evt).toMatchObject({ kind: "invoice.paid", eventId: "99:finished", tenantId: TENANT, invoiceId: INVOICE, paid: { amount: 12_345, currency: "USD" }, method: { kind: "crypto", brand: "usdttrc20" } });
     const waiting = { ...payload, payment_status: "confirming" };
     const sig2 = createHmac("sha512", cfg.ipnSecret).update(JSON.stringify(sortKeysDeep(waiting))).digest("hex");
     expect((await nowPaymentsProvider(cfg).parseWebhook(JSON.stringify(waiting), { "x-nowpayments-sig": sig2 }, NOW)).kind).toBe("invoice.pending");
@@ -132,7 +133,10 @@ describe("BTCPay Server", () => {
     expect(JSON.parse(String(calls[0]!.init.body))).toMatchObject({ amount: "123.45", currency: "USD" });
     const body = JSON.stringify({ deliveryId: "d1", type: "InvoiceSettled", invoiceId: "inv_b1", metadata: { orderId: orderRef(TENANT, INVOICE) } });
     const sig = `sha256=${createHmac("sha256", cfg.webhookSecret).update(body).digest("hex")}`;
-    expect(await btcPayProvider(cfg).parseWebhook(body, { "btcpay-sig": sig }, NOW)).toMatchObject({ kind: "invoice.paid", invoiceId: INVOICE, providerRef: "inv_b1" });
+    // Settled webhooks carry no amount: it is read back from the store.
+    const store = fakeFetch([{ match: /\/api\/v1\/stores\/store1\/invoices\/inv_b1$/, body: { id: "inv_b1", amount: "123.45", currency: "USD", status: "Settled" } }]);
+    expect(await btcPayProvider(cfg, store.fn).parseWebhook(body, { "btcpay-sig": sig }, NOW)).toMatchObject({ kind: "invoice.paid", invoiceId: INVOICE, providerRef: "inv_b1", paid: { amount: 12_345, currency: "USD" } });
+    expect((await btcPayProvider(cfg, fakeFetch([]).fn).parseWebhook(body, { "btcpay-sig": sig }, NOW)).paid).toBeNull();
     await expect(btcPayProvider(cfg).parseWebhook(body, {}, NOW)).rejects.toBeInstanceOf(WebhookSignatureError);
   });
 });

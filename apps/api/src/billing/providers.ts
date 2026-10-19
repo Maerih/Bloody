@@ -36,6 +36,11 @@ export interface PaymentEvent {
   tenantId: string | null;
   invoiceId: string | null;
   providerRef: string | null;
+  /**
+   * What the provider says was charged, in minor units of the invoice currency (pre-tax for
+   * merchant-of-record providers). An invoice is marked paid only when this covers its total.
+   */
+  paid?: { amount: number; currency: string } | null;
   /** Payment method reported by the provider (stored as a token + display fields only). */
   method?: { kind: PaymentMethodKind; label: string; brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null; providerRef: string | null };
 }
@@ -80,6 +85,13 @@ const safeEqualHex = (a: string, b: string) => {
   return x.length > 0 && x.length === y.length && timingSafeEqual(x, y);
 };
 const decimal = (cents: number) => (cents / 100).toFixed(2);
+/** Provider amount ("123.45" or 123.45) → minor units; null when missing or not a number. */
+const minorUnits = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+};
+const paidAs = (amount: number | null, currency: unknown): PaymentEvent["paid"] =>
+  amount !== null && typeof currency === "string" && currency ? { amount, currency: currency.toUpperCase() } : null;
 /** Metadata reference we send to every provider and read back from its webhooks. */
 export const orderRef = (tenantId: string, invoiceId: string) => `${tenantId}:${invoiceId}`;
 export function parseOrderRef(ref: unknown): { tenantId: string; invoiceId: string } | null {
@@ -217,6 +229,8 @@ export function stripeProvider(cfg: NonNullable<ProviderConfig["stripe"]>, fetch
         tenantId: ref?.tenantId ?? null,
         invoiceId: ref?.invoiceId ?? null,
         providerRef: String(obj.id),
+        // amount_total is already in minor units.
+        paid: paidAs(typeof obj.amount_total === "number" ? obj.amount_total : null, obj.currency),
         ...(method ? { method } : {}),
       };
     },
@@ -274,7 +288,11 @@ export function paddleProvider(cfg: NonNullable<ProviderConfig["paddle"]>, fetch
       } else if (details?.type === "paypal") {
         method = { kind: "paypal", label: "PayPal", brand: "paypal", last4: null, expMonth: null, expYear: null, providerRef: String(evt.data.customer_id ?? "") || null };
       }
-      return { provider: "paddle", eventId: evt.event_id, kind: "invoice.paid", tenantId: ref?.tenantId ?? null, invoiceId: ref?.invoiceId ?? null, providerRef: String(evt.data.id), ...(method ? { method } : {}) };
+      // Paddle adds tax on top as merchant of record: compare the amount before tax (minor units).
+      const totals = (evt.data.details as { totals?: { subtotal?: string; discount?: string } } | undefined)?.totals;
+      const subtotal = totals?.subtotal !== undefined ? Number(totals.subtotal) - Number(totals.discount ?? 0) : NaN;
+      const paid = paidAs(Number.isFinite(subtotal) ? subtotal : null, evt.data.currency_code);
+      return { provider: "paddle", eventId: evt.event_id, kind: "invoice.paid", tenantId: ref?.tenantId ?? null, invoiceId: ref?.invoiceId ?? null, providerRef: String(evt.data.id), paid, ...(method ? { method } : {}) };
     },
   };
 }
@@ -328,6 +346,8 @@ export function nowPaymentsProvider(cfg: NonNullable<ProviderConfig["nowpayments
         tenantId: ref?.tenantId ?? null,
         invoiceId: ref?.invoiceId ?? null,
         providerRef: String(body.invoice_id ?? body.payment_id ?? ""),
+        // The price the payment settled (fiat); "partially_paid" never reaches "finished".
+        paid: paidAs(minorUnits(body.price_amount), body.price_currency),
         method: { kind: "crypto", label: `Crypto (${String(body.pay_currency ?? "").toUpperCase() || "NOWPayments"})`, brand: String(body.pay_currency ?? "") || null, last4: null, expMonth: null, expYear: null, providerRef: null },
       };
     },
@@ -364,10 +384,23 @@ export function btcPayProvider(cfg: NonNullable<ProviderConfig["btcpay"]>, fetch
       if (!safeEqualHex(sig, expected)) throw new WebhookSignatureError("invalid BTCPay signature");
       const evt = JSON.parse(rawBody) as { deliveryId: string; type: string; invoiceId: string; metadata?: Record<string, unknown> };
       const ref = parseOrderRef(evt.metadata?.orderId);
+      const kind = evt.type === "InvoiceSettled" ? "invoice.paid" : evt.type === "InvoiceProcessing" ? "invoice.pending" : "ignored";
+      let paid: PaymentEvent["paid"] = null;
+      if (kind === "invoice.paid") {
+        // Settled webhooks carry no amount: read the invoice back from the store.
+        const inv = await call<{ amount?: string; currency?: string; status?: string }>(
+          fetchImpl,
+          `${base}/api/v1/stores/${encodeURIComponent(cfg.storeId)}/invoices/${encodeURIComponent(evt.invoiceId)}`,
+          { headers: { authorization: `token ${cfg.apiKey}` } },
+          "BTCPay invoice",
+        ).catch(() => null);
+        if (inv?.status === "Settled") paid = paidAs(minorUnits(inv.amount), inv.currency);
+      }
       return {
         provider: "btcpay",
         eventId: evt.deliveryId,
-        kind: evt.type === "InvoiceSettled" ? "invoice.paid" : evt.type === "InvoiceProcessing" ? "invoice.pending" : "ignored",
+        kind,
+        paid,
         tenantId: ref?.tenantId ?? null,
         invoiceId: ref?.invoiceId ?? null,
         providerRef: evt.invoiceId,

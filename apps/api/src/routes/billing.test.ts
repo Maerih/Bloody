@@ -97,7 +97,17 @@ describe("billing", () => {
     expect(form.get("line_items[0][price_data][unit_amount]")).toBe(String(30 * 450));
     expect((await admin.post(`/billing/invoices/${invoice.id}/checkout`, { provider: "paddle" })).status).toBe(400);
 
-    const event = { id: "evt_paid_1", type: "checkout.session.completed", data: { object: { id: "cs_9", payment_status: "paid", payment_intent: "pi_1", metadata: { order_ref: `${tenant.tenantId}:${invoice.id}` } } } };
+    const paidSession = (amount: number, currency = "usd") => ({ id: "cs_9", payment_status: "paid", amount_total: amount, currency, payment_intent: "pi_1", metadata: { order_ref: `${tenant.tenantId}:${invoice.id}` } });
+    // A signed webhook for less than the invoice (or another currency) does not pay it.
+    for (const [id, obj] of [["evt_short", paidSession(30 * 450 - 1)], ["evt_eur", paidSession(30 * 450, "eur")]] as const) {
+      expect((await stripeWebhook({ id, type: "checkout.session.completed", data: { object: obj } })).statusCode).toBe(200);
+    }
+    expect((await admin.get("/billing/overview")).body.invoices[0]).toMatchObject({ status: "open" });
+    const mismatch = await t.privileged.query("SELECT details FROM audit_log WHERE tenant_id = $1 AND action = 'billing.payment_mismatch' ORDER BY seq", [tenant.tenantId]);
+    expect(mismatch.rows.map((r) => r.details.reported)).toEqual([{ amount: 30 * 450 - 1, currency: "USD" }, { amount: 30 * 450, currency: "EUR" }]);
+    await t.privileged.query("DELETE FROM payment_events WHERE tenant_id = $1", [tenant.tenantId]);
+
+    const event = { id: "evt_paid_1", type: "checkout.session.completed", data: { object: paidSession(30 * 450) } };
     const forged = await t.app.inject({ method: "POST", url: "/api/v1/billing/webhooks/stripe", headers: { "content-type": "application/json", "stripe-signature": "t=1,v1=00" }, payload: JSON.stringify(event) });
     expect(forged.statusCode).toBe(400);
     expect((await stripeWebhook(event)).statusCode).toBe(200);

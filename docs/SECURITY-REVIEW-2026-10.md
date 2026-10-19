@@ -38,6 +38,7 @@ dependency audit and HTTP hardening checks. Proprietary — SCIAT AFRICA.
 | Low | OIDC accepted tokens without `email_verified` (accounts are linked by e-mail). | Requires `email_verified: true`; `OIDC_TRUST_UNVERIFIED_EMAIL=true` for IdPs that omit it. |
 | Low | `/metrics` was public without `METRICS_TOKEN` and labelled ingest metrics with API-key names; `/readyz` returned database error text. | Metrics need the token in production, labels are bounded, readiness returns a generic reason. |
 | Low | Sensitive actions did not require a recent second factor (a stolen session of an MFA user could grant roles or create API keys). | People with an authenticator must confirm a code within the last 10 minutes before granting/removing roles (users and teams), resetting a password, disabling a user, creating an API key, regenerating the agent account key, emergency response and approving/rejecting actions (`mfa_step_up_required`; the web app prompts and retries). |
+| Low | Payment webhooks marked an invoice paid without comparing the amount charged (signature-verified, but a misconfigured or altered checkout could settle an invoice for less). | Every provider reports the amount and currency charged (Stripe `amount_total`, Paddle pre-tax subtotal, NOWPayments price, BTCPay invoice read back from the store); less than the invoice total or another currency leaves it open and writes a `billing.payment_mismatch` audit entry. |
 | Dependencies | nodemailer (15 advisories, 6 high), OpenTelemetry (DoS). | nodemailer 10.1, OpenTelemetry 2.12. |
 
 ## Accepted / open
@@ -50,7 +51,4 @@ dependency audit and HTTP hardening checks. Proprietary — SCIAT AFRICA.
   stored secret, rate-limited, secret never returned — kept so analysts can refresh it.
 - **Command Center shows identity names to roles without `identity:read`** (within their own
   organizations): by design for the summary view; revisit if customers object.
-- **Payment webhooks do not compare the paid amount with the invoice:** checkouts are created
-  server-side at the invoice amount and webhooks are signature-verified; add the amount check per
-  provider as a follow-up.
 - An external penetration test is still recommended before production use with customer data.
