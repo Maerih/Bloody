@@ -123,6 +123,8 @@ const RawEnv = z.object({
   OIDC_REDIRECT_URI: z.string().url().optional(),
   OIDC_SCOPES: z.string().default("openid email profile"),
   OIDC_PROVIDER_NAME: z.string().default("sso"),
+  /** Accept identity tokens without email_verified (IdPs such as Microsoft Entra omit the claim). */
+  OIDC_TRUST_UNVERIFIED_EMAIL: bool.default(false),
 
   /** When set, GET /metrics requires `Authorization: Bearer <token>`. */
   METRICS_TOKEN: z.string().min(16).optional(),
@@ -177,6 +179,8 @@ export interface OidcConfig {
   redirectUri: string;
   scopes: string;
   providerName: string;
+  /** Link accounts by e-mail even when the token does not assert email_verified: true. */
+  trustUnverifiedEmail: boolean;
 }
 
 export interface AppConfig {
@@ -308,6 +312,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const production = e.NODE_ENV === "production";
   const warnings: string[] = [];
 
+  if (production && !e.METRICS_TOKEN) warnings.push("METRICS_TOKEN not set — GET /api/v1/metrics is disabled until it is");
   let jwtSecret = e.JWT_SECRET;
   if (!jwtSecret) {
     if (production) throw new ConfigError("JWT_SECRET is required in production");
@@ -365,6 +370,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       redirectUri: e.OIDC_REDIRECT_URI ?? `${publicUrl.replace(/\/+$/, "")}/api/v1/auth/oidc/callback`,
       scopes: e.OIDC_SCOPES.includes("openid") ? e.OIDC_SCOPES : `openid ${e.OIDC_SCOPES}`,
       providerName: e.OIDC_PROVIDER_NAME,
+      trustUnverifiedEmail: e.OIDC_TRUST_UNVERIFIED_EMAIL,
     };
   }
 

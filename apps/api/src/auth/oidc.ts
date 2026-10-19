@@ -145,7 +145,10 @@ export class OidcProvider implements ExternalAuthProvider {
     }
     if (typeof payload.nonce !== "string" || typeof st.nonce !== "string" || !safeEqual(payload.nonce, st.nonce)) throw new HttpError(401, "sso_token_invalid", "Identity token nonce mismatch");
     const email = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : null;
-    if (!email || payload.email_verified === false) throw new HttpError(403, "sso_email_unverified", "The identity provider did not assert a verified e-mail address");
+    // Accounts are linked by e-mail, so the provider must vouch for it (unless the operator has
+    // chosen to trust a provider that does not send the claim at all).
+    const verified = payload.email_verified === true || payload.email_verified === "true" || (this.cfg.trustUnverifiedEmail && payload.email_verified === undefined);
+    if (!email || !verified) throw new HttpError(403, "sso_email_unverified", "The identity provider did not assert a verified e-mail address");
     if (typeof payload.sub !== "string" || payload.sub.length === 0) throw new HttpError(401, "sso_token_invalid", "Identity token has no subject");
     return {
       email,

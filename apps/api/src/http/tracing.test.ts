@@ -37,7 +37,7 @@ describe("OpenTelemetry request tracing", () => {
     expect(res.headers.traceparent).toMatch(new RegExp(`^00-${traceId}-[0-9a-f]{16}-01$`));
     const span = exporter.getFinishedSpans().find((s) => s.name === "GET /api/v1/healthz");
     expect(span!.spanContext().traceId).toBe(traceId);
-    expect(span!.parentSpanId ?? (span as unknown as { parentSpanContext?: { spanId: string } }).parentSpanContext?.spanId).toBe("00f067aa0ba902b7");
+    expect(span!.parentSpanContext?.spanId).toBe("00f067aa0ba902b7");
   });
 
   it("is off when no endpoint is configured", async () => {

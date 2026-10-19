@@ -1,7 +1,7 @@
 import { context, SpanKind, SpanStatusCode, trace, type Span, type Tracer } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
-import { Resource } from "@opentelemetry/resources";
+import { resourceFromAttributes } from "@opentelemetry/resources";
 import { BatchSpanProcessor, SimpleSpanProcessor, type SpanExporter } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -39,7 +39,7 @@ export function registerTracing(app: FastifyInstance, opts: TracingOptions): Tra
   const exporter = opts.exporter ?? (opts.endpoint ? new OTLPTraceExporter({ url: `${opts.endpoint.replace(/\/+$/, "")}/v1/traces` }) : null);
   if (!exporter) return null;
   const provider = new NodeTracerProvider({
-    resource: new Resource({
+    resource: resourceFromAttributes({
       ...parseAttributes(opts.resourceAttributes),
       "service.name": opts.serviceName ?? "bloody-api",
       "service.version": opts.serviceVersion ?? "0.0.0",

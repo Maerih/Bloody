@@ -329,7 +329,7 @@ describe("OIDC single sign-on", () => {
     };
     const config = testConfig();
     const oidc = new OidcProvider(
-      { issuerUrl: issuer, clientId: "bloody-web", clientSecret: "client-secret", redirectUri: "http://localhost:5173/api/v1/auth/oidc/callback", scopes: "openid email profile", providerName: "keycloak" },
+      { issuerUrl: issuer, clientId: "bloody-web", clientSecret: "client-secret", redirectUri: "http://localhost:5173/api/v1/auth/oidc/callback", scopes: "openid email profile", providerName: "keycloak", trustUnverifiedEmail: false },
       { secret: config.auth.jwtSecret, issuer: config.auth.jwtIssuer },
       fetchImpl,
     );

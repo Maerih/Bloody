@@ -27,7 +27,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...PROD, ENCRYPTION_KEY: undefined })).toThrow(/ENCRYPTION_KEY/);
     expect(() => loadConfig({ ...PROD, ENCRYPTION_KEY: Buffer.alloc(16).toString("base64") })).toThrow(/32 bytes/);
     const c = loadConfig(PROD);
-    expect(c.warnings).toEqual(["DATABASE_APP_URL not set — derived from DATABASE_URL with role bloody_app"]);
+    expect(c.warnings).toEqual(["METRICS_TOKEN not set — GET /api/v1/metrics is disabled until it is", "DATABASE_APP_URL not set — derived from DATABASE_URL with role bloody_app"]);
     expect(c.http.corsOrigins).toEqual(["https://soc.example.com"]);
   });
 

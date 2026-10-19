@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AppServices } from "../context.js";
-import { unauthorized } from "../http/errors.js";
+import { notFound, unauthorized } from "../http/errors.js";
 import { safeEqual } from "../security/crypto.js";
 
 const STARTED_AT = Date.now();
@@ -18,14 +18,16 @@ export async function healthRoutes(app: FastifyInstance, s: AppServices): Promis
     uptimeSeconds: Math.round((Date.now() - STARTED_AT) / 1000),
   }));
 
-  app.get("/readyz", { config: { public: true, rateLimit: false } }, async (_request, reply) => {
+  app.get("/readyz", { config: { public: true, rateLimit: false } }, async (request, reply) => {
     const checks: Record<string, { ok: boolean; detail?: string; latencyMs?: number }> = {};
     const t0 = Date.now();
     try {
       await s.db.ping();
       checks.database = { ok: true, latencyMs: Date.now() - t0 };
     } catch (err) {
-      checks.database = { ok: false, detail: err instanceof Error ? err.message.split("\n")[0] : "unreachable" };
+      // The reason goes to the log, not to this public endpoint (it can name hosts and users).
+      request.log.warn({ err }, "readiness: database unreachable");
+      checks.database = { ok: false, detail: "unreachable" };
     }
     if (checks.database.ok) {
       try {
@@ -43,6 +45,8 @@ export async function healthRoutes(app: FastifyInstance, s: AppServices): Promis
   });
 
   app.get("/metrics", { config: { public: true, rateLimit: false } }, async (request, reply) => {
+    // In production metrics are only served with a token (they describe every tenant's traffic).
+    if (!s.config.metricsToken && s.config.env === "production") throw notFound("Route");
     if (s.config.metricsToken) {
       const header = request.headers.authorization ?? "";
       const token = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim() ?? "";

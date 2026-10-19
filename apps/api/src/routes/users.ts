@@ -2,7 +2,8 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { RoleKey, Uuid, type RoleBinding } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
-import { canGrantRole, orgScopeFor, requireAuth, requirePermission } from "../auth/rbac.js";
+import { canGrantRole, orgScopeFor, rejectDemoAccount, requireAuth, requirePermission } from "../auth/rbac.js";
+import { loadUserBindings } from "../auth/service.js";
 import type { AuthContext } from "../auth/types.js";
 import type { AppServices } from "../context.js";
 import type { Queryable } from "../db/pool.js";
@@ -139,8 +140,9 @@ export async function loadManagedUser(tx: Queryable, auth: AuthContext, userId: 
   const { rows } = await tx.query<Row>(`SELECT u.* FROM users u WHERE u.id = $1 AND ${userScopeClause(scope, params)}`, params);
   const row = rows[0];
   if (!row) throw notFound("User");
-  const { bindings } = await bindingsAndTeams(tx, [userId]);
-  return { row, bindings: bindings.get(userId) ?? [] };
+  // Effective bindings (direct and through teams): administering a user needs rights over every
+  // scope that user can act in, including access that comes from a team.
+  return { row, bindings: await loadUserBindings(tx, userId) };
 }
 
 function assertCanAdminister(request: FastifyRequest, user: Row, bindings: RoleBinding[]): void {
@@ -225,6 +227,7 @@ export async function userRoutes(app: FastifyInstance, s: AppServices): Promise<
   });
 
   app.patch("/users/:id", { config: { audit: false } }, async (request) => {
+    rejectDemoAccount(request);
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     const patch = parse(PatchUserBody, request.body);
@@ -261,6 +264,8 @@ export async function userRoutes(app: FastifyInstance, s: AppServices): Promise<
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     const { password } = parse(z.object({ password: z.string().min(1).max(PASSWORD_MAX_LENGTH) }).strict(), request.body);
+    // Your own password changes through /auth/password, which asks for the current one.
+    if (id === auth.principal.id) throw badRequest("Change your own password in your profile (it asks for your current password)");
     const target = await s.db.withTenant(auth.tenantId, async (tx) => {
       const { row, bindings } = await loadManagedUser(tx, auth, id);
       assertCanAdminister(request, row, bindings);

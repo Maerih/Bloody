@@ -123,7 +123,7 @@ export class PlaybookEngine {
   }
 
   /** Run a playbook on demand (analyst "Run playbook" button). Requires response:request. */
-  async runManual(input: { principal: Principal; organizationId: string; playbookId: string; subject?: Record<string, unknown>; subjectRef?: PlaybookEvent["subjectRef"]; idempotencyKey?: string }): Promise<PlaybookMatch> {
+  async runManual(input: { principal: Principal; organizationId: string; playbookId: string; subject?: Record<string, unknown>; subjectRef?: PlaybookEvent["subjectRef"]; idempotencyKey?: string; approveEveryStep?: boolean }): Promise<PlaybookMatch> {
     const { principal } = input;
     if (!principalCan(principal, "response:request", input.organizationId)) {
       throw new AutomationError("forbidden", "missing permission response:request for this organization");
@@ -142,7 +142,7 @@ export class PlaybookEngine {
       idempotencyKey: input.idempotencyKey ?? `manual:${this.ids()}`,
       initiatedBy: { kind: principal.kind === "user" ? "user" : "service", id: principal.id },
     };
-    return this.consider(ep, event, event.initiatedBy!, { ignoreTrigger: true });
+    return this.consider(ep, event, event.initiatedBy!, { ignoreTrigger: true, approveEveryStep: input.approveEveryStep === true });
   }
 
   /**
@@ -259,7 +259,7 @@ export class PlaybookEngine {
 
   // ─── internals ────────────────────────────────────────────────────────────
 
-  private async consider(ep: EffectivePlaybook, event: PlaybookEvent, initiatedBy: PlaybookExecution["initiatedBy"], opts: { ignoreTrigger?: boolean } = {}): Promise<PlaybookMatch> {
+  private async consider(ep: EffectivePlaybook, event: PlaybookEvent, initiatedBy: PlaybookExecution["initiatedBy"], opts: { ignoreTrigger?: boolean; approveEveryStep?: boolean } = {}): Promise<PlaybookMatch> {
     const p = ep.playbook;
     const base = { playbookId: p.id, playbookName: p.name, source: ep.source };
     if (!p.enabled) {
@@ -294,6 +294,7 @@ export class PlaybookEngine {
       log: [],
       conditionResults: evaluation.results,
       initiatedBy,
+      ...(opts.approveEveryStep ? { approveEveryStep: true } : {}),
       startedAt: now,
       updatedAt: now,
       finishedAt: null,
@@ -327,7 +328,8 @@ export class PlaybookEngine {
       if (state.status === "succeeded" || state.status === "skipped" || state.status === "failed" || state.status === "rejected" || state.status === "expired" || state.status === "cancelled") continue;
 
       // 1. approval gate
-      const requirement = this.deps.approvals.requirement(def.action, def.requireApproval);
+      const forced = def.requireApproval || (exec.approveEveryStep === true && actionRisk(def.action) !== "low");
+      const requirement = this.deps.approvals.requirement(def.action, forced);
       if (requirement.required && state.status !== "approved") {
         const next = this.clone(exec);
         const approval = await this.deps.approvals.request({
@@ -335,7 +337,7 @@ export class PlaybookEngine {
           organizationId: exec.organizationId,
           kind: "playbook_step",
           action: def.action,
-          forced: def.requireApproval,
+          forced,
           reason: `Playbook "${exec.playbookName}" v${exec.playbookVersion} step "${def.id}" (${def.action})`,
           subject: {
             playbookId: exec.playbookId,

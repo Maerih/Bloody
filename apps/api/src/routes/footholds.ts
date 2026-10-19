@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { FootholdVerdictInput, Uuid } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
-import { actorId, requireAuth, requirePermission } from "../auth/rbac.js";
+import { actorId, requireAuth, requirePermission, requirePerson } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import type { Queryable } from "../db/pool.js";
 import { notFound } from "../http/errors.js";
@@ -28,6 +28,7 @@ export async function footholdRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.put("/footholds/verdicts", { config: { ...edr, audit: false } }, async (request) => {
+    requirePerson(request);
     const body = parse(FootholdVerdictInput, request.body);
     const auth = requirePermission(request, "asset:write", body.organizationId);
     return s.db.withTenant(auth.tenantId, async (tx) => {

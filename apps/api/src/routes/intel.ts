@@ -152,10 +152,12 @@ export async function intelRoutes(app: FastifyInstance, s: AppServices): Promise
     if (q.active === true) where.push("NOT i.revoked AND (i.expires_at IS NULL OR i.expires_at > now())");
     if (q.active === false) where.push("(i.revoked OR i.expires_at <= now())");
     where.push(keysetClause(sort, "i.id", decodeCursor(q.cursor), params));
+    // Matches are counted only in the caller's organizations (a tenant-wide indicator may match elsewhere).
+    const matchScope = orgs ? `AND m.organization_id = ANY($${params.push(orgs)}::uuid[])` : "";
     params.push(q.limit + 1);
     const { rows } = await s.db.withTenant(auth.tenantId, (tx) =>
       tx.query<Row>(
-        `SELECT i.*, ${sort.expr} AS sort_key, (SELECT count(*) FROM indicator_matches m WHERE m.indicator_id = i.id) AS matches
+        `SELECT i.*, ${sort.expr} AS sort_key, (SELECT count(*) FROM indicator_matches m WHERE m.indicator_id = i.id ${matchScope}) AS matches
          FROM indicators i WHERE ${where.join(" AND ")} ORDER BY ${orderBy(sort, "i.id")} LIMIT $${params.length}`,
         params,
       ),

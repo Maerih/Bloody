@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { EMERGENCY_ACTIONS, EMERGENCY_REASON_MIN, IsolationMode, ResponseActionKey, ResponseActionStatus, Uuid } from "@bloody/contracts";
+import { EMERGENCY_ACTIONS, EMERGENCY_REASON_MIN, IsolationMode, ResponseActionKey, ResponseActionStatus, Uuid, actionRisk, principalCan } from "@bloody/contracts";
 import type { ApprovalRequest } from "@bloody/automation";
 import { actorFromRequest } from "../audit/audit.js";
-import { assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
+import { actorId, assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import { badRequest, forbidden, notFound } from "../http/errors.js";
 import { IdParam, Limit, csvOf, decodeCursor } from "../http/params.js";
@@ -146,6 +146,9 @@ export async function responseRoutes(app: FastifyInstance, s: AppServices): Prom
         requestedBy: { kind: auth.principal.kind === "user" ? "user" : "service", id: auth.principal.id },
         via: "user",
         emergency: body.emergency === true,
+        // Without response:execute a medium- or high-risk action never runs straight away: it waits
+        // for an approver (low-risk bookkeeping such as creating a case still runs).
+        forceApproval: actionRisk(body.action) !== "low" && !principalCan(auth.principal, "response:execute", organizationId),
       },
       actorFromRequest(request),
     );
@@ -234,6 +237,20 @@ export async function responseRoutes(app: FastifyInstance, s: AppServices): Prom
       requirePermission(request, "response:approve", cur.organizationId);
       request.auditState.organizationId = cur.organizationId;
       request.auditState.targetKind = "approval";
+      // Four eyes for automation too: whoever wrote the running playbook version cannot approve
+      // its steps (a scheduled or event-triggered run has no human requester to compare with).
+      const executionId = (cur.subject as { executionId?: string } | undefined)?.executionId;
+      if (decision === "approve" && cur.kind === "playbook_step" && executionId) {
+        const author = await s.db.withTenant(auth.tenantId, async (tx) =>
+          (
+            await tx.query<{ created_by: string | null }>(
+              "SELECT v.created_by FROM playbook_runs r JOIN playbook_versions v ON v.playbook_id = r.playbook_id AND v.version = r.playbook_version WHERE r.id = $1",
+              [executionId],
+            )
+          ).rows[0]?.created_by,
+        );
+        if (author === actorId(auth)) throw forbidden("You wrote this version of the playbook, so another person must approve its steps", "self_approval");
+      }
       const decided = await s.responses.decideApproval(auth.principal, id, decision, body.comment);
       return approvalView(decided, s.approvals.canDecide(auth.principal, decided));
     });

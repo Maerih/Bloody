@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Uuid, hardeningCatalog, hardeningCheck } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
-import { actorId, requireAuth, requirePermission } from "../auth/rbac.js";
+import { actorId, requireAuth, requirePermission, requirePerson } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import type { Queryable } from "../db/pool.js";
 import { HttpError, notFound } from "../http/errors.js";
@@ -31,6 +31,7 @@ export async function attackReductionRoutes(app: FastifyInstance, s: AppServices
 
   // Accept a gap for the whole organization (it stays visible but leaves the score), with a reason.
   app.put("/attack-reduction/exceptions/:id/:key", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const { id, key } = parse(ExceptionParams, request.params);
     const auth = requirePermission(request, "asset:write", id);
     const { reason } = parse(ExceptionBody, request.body);
@@ -44,6 +45,7 @@ export async function attackReductionRoutes(app: FastifyInstance, s: AppServices
   });
 
   app.delete("/attack-reduction/exceptions/:id/:key", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const { id, key } = parse(ExceptionParams, request.params);
     const auth = requirePermission(request, "asset:write", id);
     return s.db.withTenant(auth.tenantId, async (tx) => {

@@ -188,6 +188,9 @@ export async function aiRoutes(app: FastifyInstance, s: AppServices): Promise<vo
     const kind = body.kind ?? cur.kind;
     const endpoint = body.endpoint !== undefined ? body.endpoint : cur.endpoint;
     if (body.kind !== undefined || body.endpoint !== undefined) await endpointCheck(auth.tenantId, kind, endpoint);
+    // A stored key is never sent to a new destination: moving the provider means entering the key again.
+    const retargeted = kind !== cur.kind || (endpoint ?? null) !== (cur.endpoint ?? null);
+    if (retargeted && cur.credentialRef && body.apiKey === undefined) throw badRequest("Enter the API key again when changing the provider kind or endpoint");
     const updated = await s.db.withTenant(auth.tenantId, async (tx) => {
       if (body.fallbackProviderId !== undefined) await checkFallback(tx, cur.organizationId, body.fallbackProviderId, id);
       let credentialRef = cur.credentialRef;

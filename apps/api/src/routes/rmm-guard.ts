@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { Uuid } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
-import { actorId, requireAuth, requirePermission } from "../auth/rbac.js";
+import { actorId, requireAuth, requirePermission, requirePerson } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import type { Queryable } from "../db/pool.js";
 import { notFound } from "../http/errors.js";
@@ -38,6 +38,7 @@ export async function rmmGuardRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.put("/rmm-guard/settings/:id", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const { id } = parse(IdParam, request.params);
     const auth = requirePermission(request, "asset:write", id);
     const { approved } = parse(z.object({ approved: ToolKeys }).strict(), request.body);
@@ -51,6 +52,7 @@ export async function rmmGuardRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.post("/rmm-guard/block", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const body = parse(z.object({ organizationId: Uuid, tools: ToolKeys.min(1) }).strict(), request.body);
     const auth = requirePermission(request, "asset:write", body.organizationId);
     return s.db.withTenant(auth.tenantId, async (tx) => {

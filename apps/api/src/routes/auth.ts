@@ -3,7 +3,7 @@ import { z } from "zod";
 import { principalOrgScope } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
 import { safeReturnTo } from "../auth/oidc.js";
-import { requireAuth } from "../auth/rbac.js";
+import { rejectDemoAccount, requireAuth } from "../auth/rbac.js";
 import { CSRF_COOKIE, CSRF_HEADER, OIDC_STATE_COOKIE, SESSION_COOKIE } from "../auth/types.js";
 import type { AppServices } from "../context.js";
 import { HttpError, badRequest, forbidden, notFound, unauthorized } from "../http/errors.js";
@@ -156,6 +156,7 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
   });
 
   app.delete("/auth/sessions/:id", { config: { audit: false } }, async (request, reply) => {
+    rejectDemoAccount(request);
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     await s.db.withTenant(auth.tenantId, async (tx) => {
@@ -169,6 +170,7 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
 
   // POST /auth/password — change own password (revokes every other session).
   app.post("/auth/password", { config: { audit: false, rateLimit: loginLimit } }, async (request, reply) => {
+    rejectDemoAccount(request);
     const auth = requireAuth(request);
     if (auth.principal.kind !== "user") throw forbidden("Only user principals have passwords");
     const body = parse(PasswordChangeBody, request.body);
@@ -192,6 +194,7 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
   // ─── TOTP MFA ────────────────────────────────────────────────────────────
 
   app.post("/auth/mfa/totp/enroll", { config: { audit: false } }, async (request) => {
+    rejectDemoAccount(request);
     const auth = requireAuth(request);
     if (auth.principal.kind !== "user") throw forbidden("Only user principals can enroll MFA");
     return s.db.withTenant(auth.tenantId, async (tx) => {
@@ -202,6 +205,7 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
   });
 
   app.post("/auth/mfa/totp/confirm", { config: { audit: false, rateLimit: loginLimit } }, async (request) => {
+    rejectDemoAccount(request);
     const auth = requireAuth(request);
     const { code } = parse(CodeBody, request.body);
     await s.db.withTenant(auth.tenantId, async (tx) => {
@@ -213,6 +217,7 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
   });
 
   app.post("/auth/mfa/totp/disable", { config: { audit: false, rateLimit: loginLimit } }, async (request) => {
+    rejectDemoAccount(request);
     const auth = requireAuth(request);
     const { code } = parse(CodeBody, request.body);
     await s.db.withTenant(auth.tenantId, async (tx) => {

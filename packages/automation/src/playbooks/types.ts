@@ -110,6 +110,8 @@ export interface PlaybookExecution {
   log: ExecutionLogEntry[];
   conditionResults: ConditionResult[];
   initiatedBy: { kind: "user" | "service" | "ai" | "system"; id: string };
+  /** Every medium- or high-risk step waits for approval (started by someone without response:execute). */
+  approveEveryStep?: boolean;
   startedAt: string;
   updatedAt: string;
   finishedAt: string | null;

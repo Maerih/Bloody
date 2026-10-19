@@ -25,6 +25,26 @@ export function requirePermission(request: FastifyRequest, permission: Permissio
   return auth;
 }
 
+/**
+ * Decisions only a person may take (enforcement modes, block rules, legal scan authorizations,
+ * accepting findings): API keys are refused even when their role holds the permission.
+ */
+export function requirePerson(request: FastifyRequest): AuthContext {
+  const auth = requireAuth(request);
+  if (auth.principal.kind !== "user") throw forbidden("Only a signed-in person can do this, not an API key", "person_required");
+  return auth;
+}
+
+/**
+ * The demo sandbox signs every visitor in as one shared read-only user: refuse changes to that
+ * account itself (password, MFA, profile, sessions) so one visitor cannot affect the others.
+ */
+export function rejectDemoAccount(request: FastifyRequest): void {
+  const auth = requireAuth(request);
+  const b = auth.principal.bindings;
+  if (b.length > 0 && b.every((x) => x.role === "demo_viewer")) throw forbidden("The demo sandbox account cannot be changed", "demo_read_only");
+}
+
 /** True when the caller may use `permission` somewhere (any org or tenant-wide). */
 export function canAnywhere(principal: Principal, permission: Permission): boolean {
   return principal.bindings.some((b) => ROLE_PERMISSIONS[b.role].includes(permission));

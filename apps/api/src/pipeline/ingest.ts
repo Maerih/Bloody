@@ -106,16 +106,19 @@ export class IngestService {
     const { events, rejected } = this.prepare(tenantId, organizationId, records, receivedAt);
     const inserted = events.length === 0 ? new Set<string>() : await this.db.withTenant(tenantId, (tx) => this.store(tx, tenantId, organizationId, events));
     const fresh = events.filter((e) => inserted.has(e.id));
+    // Metrics label: the kind of source only ("api_key", an adapter…), never a key's name — public
+    // label values must not reveal API key names or grow without bound.
+    const label = source.split(":")[0]!.slice(0, 40);
     if (fresh.length > 0) {
       for (let i = 0; i < fresh.length; i += PUBLISH_CHUNK) {
         const message: IngestBatchMessage = { batchId, tenantId, organizationId, source, receivedAt, events: fresh.slice(i, i + PUBLISH_CHUNK) };
         await this.bus.publish(TOPICS.eventsIngested, tenantId, message);
       }
-      this.metrics.ingestBatches.inc({ source });
+      this.metrics.ingestBatches.inc({ source: label });
     }
-    this.metrics.ingestEvents.inc({ result: "accepted", source }, fresh.length);
-    this.metrics.ingestEvents.inc({ result: "duplicate", source }, events.length - fresh.length);
-    this.metrics.ingestEvents.inc({ result: "rejected", source }, rejected.length);
+    this.metrics.ingestEvents.inc({ result: "accepted", source: label }, fresh.length);
+    this.metrics.ingestEvents.inc({ result: "duplicate", source: label }, events.length - fresh.length);
+    this.metrics.ingestEvents.inc({ result: "rejected", source: label }, rejected.length);
     return { batchId, organizationId, received: records.length, accepted: fresh.length, duplicates: events.length - fresh.length, rejected, eventIds: fresh.map((e) => e.id) };
   }
 

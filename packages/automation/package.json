@@ -13,6 +13,6 @@
     "test": "vitest run --passWithNoTests",
     "build": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": { "@bloody/contracts": "workspace:*", "zod": "^3.23.8", "nodemailer": "^6.9.16" },
-  "devDependencies": { "@types/nodemailer": "^6.4.16" }
+  "dependencies": { "@bloody/contracts": "workspace:*", "zod": "^3.23.8", "nodemailer": "^10.1.7" },
+  "devDependencies": { "@types/nodemailer": "^8.0.2" }
 }

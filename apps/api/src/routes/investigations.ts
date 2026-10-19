@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { InvestigationStatus, TimelineEntryKind, Uuid, type Evidence } from "@bloody/contracts";
+import { InvestigationStatus, TimelineEntryKind, Uuid, principalCan, type Evidence } from "@bloody/contracts";
+import { userPrincipal } from "../auth/principals.js";
 import { recordAudit } from "../audit/audit.js";
 import { assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
 import type { AuthContext } from "../auth/types.js";
@@ -152,9 +153,10 @@ async function addTimeline(tx: Queryable, inv: Row, entry: { kind: string; title
   return rows[0]!;
 }
 
-async function assertAssignable(tx: Queryable, userId: string): Promise<void> {
-  const { rows } = await tx.query<{ status: string }>("SELECT status FROM users WHERE id = $1", [userId]);
-  if (!rows[0] || rows[0].status !== "active") throw badRequest("The user must be an active user of this tenant");
+/** Leads and assignees must be active users who can see investigations of that organization. */
+async function assertAssignable(tx: Queryable, tenantId: string, userId: string, organizationId: string): Promise<void> {
+  const p = await userPrincipal(tx, tenantId, userId);
+  if (!p || !principalCan(p, "investigation:read", organizationId)) throw badRequest("The user must be an active user who can access this organization's investigations");
 }
 
 const SORT: KeysetSort = { expr: "v.created_at", dir: "desc", cast: "timestamptz" };
@@ -213,7 +215,7 @@ export async function investigationRoutes(app: FastifyInstance, s: AppServices):
       }
       requirePermission(request, "investigation:write", organizationId);
       await loadOne(tx, "organizations", organizationId!, "Organization");
-      if (body.leadId) await assertAssignable(tx, body.leadId);
+      if (body.leadId) await assertAssignable(tx, auth.tenantId, body.leadId, organizationId!);
       const { rows } = await tx.query<Row>(
         "INSERT INTO investigations (tenant_id, organization_id, incident_id, title, hypothesis, lead_id, status, created_by) VALUES ($1, $2, $3, $4, $5, $6, 'open', $7) RETURNING *",
         [auth.tenantId, organizationId, body.incidentId ?? null, body.title, body.hypothesis ?? null, body.leadId ?? null, actorOf(auth)],
@@ -269,7 +271,7 @@ export async function investigationRoutes(app: FastifyInstance, s: AppServices):
     const patch = parse(PatchBody, request.body);
     return s.db.withTenant(auth.tenantId, async (tx) => {
       const inv = await loadInvestigation(tx, request, id, true);
-      if (patch.leadId) await assertAssignable(tx, patch.leadId);
+      if (patch.leadId) await assertAssignable(tx, auth.tenantId, patch.leadId, String(inv.organization_id));
       const sets: string[] = [];
       const params: unknown[] = [id];
       const set = (col: string, v: unknown) => {
@@ -349,7 +351,7 @@ export async function investigationRoutes(app: FastifyInstance, s: AppServices):
     const body = parse(TaskBody, request.body);
     const task = await s.db.withTenant(auth.tenantId, async (tx) => {
       const inv = await loadInvestigation(tx, request, id, true);
-      if (body.assigneeId) await assertAssignable(tx, body.assigneeId);
+      if (body.assigneeId) await assertAssignable(tx, auth.tenantId, body.assigneeId, String(inv.organization_id));
       const { rows } = await tx.query<Row>(
         "INSERT INTO tasks (tenant_id, organization_id, investigation_id, title, description, assignee_id, due_at, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
         [auth.tenantId, inv.organization_id, id, body.title, body.description ?? null, body.assigneeId ?? null, body.dueAt ?? null, actorOf(auth)],
@@ -369,7 +371,7 @@ export async function investigationRoutes(app: FastifyInstance, s: AppServices):
       const inv = await loadInvestigation(tx, request, id, true);
       const cur = await tx.query<Row>("SELECT * FROM tasks WHERE id = $1 AND investigation_id = $2", [taskId, id]);
       if (!cur.rows[0]) throw notFound("Task");
-      if (patch.assigneeId) await assertAssignable(tx, patch.assigneeId);
+      if (patch.assigneeId) await assertAssignable(tx, auth.tenantId, patch.assigneeId, String(inv.organization_id));
       const sets: string[] = [];
       const params: unknown[] = [taskId];
       const set = (col: string, v: unknown) => {

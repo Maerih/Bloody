@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { EXPOSURE_PORTS, Uuid } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
-import { actorId, requireAuth, requirePermission } from "../auth/rbac.js";
+import { actorId, requireAuth, requirePermission, requirePerson } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import type { Queryable } from "../db/pool.js";
 import { HttpError, notFound } from "../http/errors.js";
@@ -49,6 +49,7 @@ export async function exposureRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.put("/exposure/authorization/:id", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const { id } = parse(IdParam, request.params);
     const auth = requirePermission(request, "asset:write", id);
     const body = parse(AuthorizeBody, request.body);
@@ -64,6 +65,7 @@ export async function exposureRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.delete("/exposure/authorization/:id", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const { id } = parse(IdParam, request.params);
     const auth = requirePermission(request, "asset:write", id);
     return s.db.withTenant(auth.tenantId, async (tx) => {
@@ -75,6 +77,7 @@ export async function exposureRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.post("/exposure/targets", { config: { ...espm, audit: false } }, async (request, reply) => {
+    requirePerson(request);
     const body = parse(AddTargetBody, request.body);
     const auth = requirePermission(request, "asset:write", body.organizationId);
     await s.db.withTenant(auth.tenantId, async (tx) => {
@@ -86,6 +89,7 @@ export async function exposureRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.patch("/exposure/targets/:id", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const { id } = parse(IdParam, request.params);
     const { status } = parse(DecideBody, request.body);
     const auth = requireAuth(request);
@@ -99,6 +103,7 @@ export async function exposureRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.delete("/exposure/targets/:id", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const { id } = parse(IdParam, request.params);
     const auth = requireAuth(request);
     return s.db.withTenant(auth.tenantId, async (tx) => {
@@ -111,6 +116,7 @@ export async function exposureRoutes(app: FastifyInstance, s: AppServices): Prom
   });
 
   app.post("/exposure/scans", { config: { ...espm, audit: false } }, async (request, reply) => {
+    requirePerson(request);
     const { organizationId } = parse(z.object({ organizationId: Uuid }).strict(), request.body);
     const auth = requirePermission(request, "asset:write", organizationId);
     await s.db.withTenant(auth.tenantId, (tx) => assertOrganization(tx, organizationId));

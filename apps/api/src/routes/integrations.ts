@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { Uuid } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
-import { actorId, assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
+import { actorId, assertRecordAccess, orgScopeFor, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import { HttpError, badRequest } from "../http/errors.js";
 import { IdParam } from "../http/params.js";
@@ -60,6 +60,16 @@ export async function integrationRoutes(app: FastifyInstance, s: AppServices): P
     return s.integrations.catalog();
   });
 
+  /**
+   * Customer-scoped readers see that a tenant-wide integration exists, not its configuration
+   * (which can name every customer, e.g. CoPilot's customer-code map) or sync details.
+   */
+  const viewFor = (request: FastifyRequest, row: Row) => {
+    const view = toIntegrationView(row);
+    if (view.organizationId !== null || orgScopeFor(requireAuth(request), "integration:read") === "all") return view;
+    return { ...view, config: {}, lastSyncReport: null, endpoint: null, lastError: null };
+  };
+
   app.get("/integrations", async (request) => {
     const auth = requireAuth(request);
     const q = parse(z.object({ organizationId: Uuid.optional(), kind: z.string().max(64).optional() }), request.query);
@@ -69,7 +79,7 @@ export async function integrationRoutes(app: FastifyInstance, s: AppServices): P
     if (orgs) where.push(`(organization_id IS NULL OR organization_id = ANY($${params.push(orgs)}::uuid[]))`);
     if (q.kind) where.push(`kind = $${params.push(q.kind)}`);
     const { rows } = await s.db.withTenant(auth.tenantId, (tx) => tx.query<Row>(`SELECT * FROM integrations WHERE ${where.join(" AND ")} ORDER BY name`, params));
-    return { items: rows.map(toIntegrationView), nextCursor: null };
+    return { items: rows.map((r) => viewFor(request, r)), nextCursor: null };
   });
 
   app.post("/integrations", { config: { audit: false } }, async (request, reply) => {
@@ -106,7 +116,7 @@ export async function integrationRoutes(app: FastifyInstance, s: AppServices): P
   app.get("/integrations/:id", async (request) => {
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
-    return toIntegrationView(await load(auth.tenantId, request, id));
+    return viewFor(request, await load(auth.tenantId, request, id));
   });
 
   app.patch("/integrations/:id", { config: { audit: false } }, async (request) => {

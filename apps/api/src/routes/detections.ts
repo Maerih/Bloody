@@ -363,9 +363,10 @@ export async function detectionRoutes(app: FastifyInstance, s: AppServices): Pro
           createdBy: analyst,
         });
       } else if (body.verdict !== "true_positive" && entity) {
-        // Auto-suppress after repeated non-malicious verdicts for the same rule + entity.
+        // Auto-suppress after non-malicious verdicts on several different alerts for the same rule +
+        // entity (repeating a verdict on one alert does not count again).
         const { rows } = await tx.query<{ n: number; active: number }>(
-          `SELECT (SELECT count(*)::int FROM detection_feedback WHERE organization_id = $1 AND rule_id = $2 AND entity_kind = $3 AND entity_key = $4 AND verdict <> 'true_positive') AS n,
+          `SELECT (SELECT count(DISTINCT alert_id)::int FROM detection_feedback WHERE organization_id = $1 AND rule_id = $2 AND entity_kind = $3 AND entity_key = $4 AND verdict <> 'true_positive') AS n,
                   (SELECT count(*)::int FROM detection_suppressions WHERE (organization_id = $1 OR organization_id IS NULL) AND rule_id IN ($2, '*')
                      AND (entity_key IS NULL OR (entity_kind = $3 AND entity_key = $4)) AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())) AS active`,
           [alert.organizationId, alert.ruleId, entity.kind, entity.key],

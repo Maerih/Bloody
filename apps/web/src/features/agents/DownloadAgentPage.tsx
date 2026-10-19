@@ -337,8 +337,10 @@ function AboutAgent({ version }: { version: string }) {
 
 /** Account-wide switch for automatic agent updates, with how many computers run each version. */
 function AutoUpdateCard() {
+  const session = useSession();
   const q = useAgentAutoUpdate();
   const set = useSetAgentAutoUpdate();
+  const canChange = session.can("settings:write", null);
   if (!q.data) return null;
   const { enabled, latestVersion, versions } = q.data;
   const behind = versions.filter((v) => !v.current).reduce((n, v) => n + v.agents, 0);
@@ -346,7 +348,7 @@ function AutoUpdateCard() {
     <Card title={<span className="inline-flex items-center gap-2"><ArrowUpCircle className="h-4 w-4" aria-hidden /> Automatic updates</span>}>
       <div className="space-y-3 text-sm">
         <label className="flex items-start gap-2">
-          <input type="checkbox" className="mt-0.5" checked={enabled} disabled={set.isPending} onChange={(e) => set.mutate(e.target.checked)} />
+          <input type="checkbox" className="mt-0.5" checked={enabled} disabled={set.isPending || !canChange} onChange={(e) => set.mutate(e.target.checked)} />
           <span>
             <span className="font-medium">Keep agents up to date</span>
             <span className="block text-muted">
@@ -354,6 +356,7 @@ function AutoUpdateCard() {
             </span>
           </span>
         </label>
+        {!canChange ? <p className="text-fg-muted">An account administrator (settings:write) can change this.</p> : null}
         {set.error ? <p className="text-sev-critical">{set.error.message}</p> : null}
         {versions.length > 0 ? (
           <ul aria-label="Agent versions" className="space-y-1">

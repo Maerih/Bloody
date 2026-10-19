@@ -1,9 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { PlaybookCondition, PlaybookStep, PlaybookTrigger, Uuid } from "@bloody/contracts";
+import { PlaybookCondition, PlaybookStep, PlaybookTrigger, Uuid, principalCan } from "@bloody/contracts";
 import { AutomationError, resolveEffectivePlaybooks, validatePlaybook, type ExecutionStatus, type PlaybookExecution } from "@bloody/automation";
 import { recordAudit } from "../audit/audit.js";
-import { actorId, assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
+import { actorId, assertRecordAccess, orgScopeFor, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import { HttpError, badRequest, notFound } from "../http/errors.js";
 import { IdParam, Limit } from "../http/params.js";
@@ -137,7 +137,9 @@ export async function playbookRoutes(app: FastifyInstance, s: AppServices): Prom
           enabled: Boolean(r.enabled),
           version: Number(r.version),
         }));
-    return { ...playbookView(row), overriddenBy: overrides };
+    // Only overrides in organizations the caller can see.
+    const scope = orgScopeFor(auth, "playbook:read");
+    return { ...playbookView(row), overriddenBy: scope === "all" ? overrides : overrides.filter((o) => scope.includes(o.organizationId)) };
   });
 
   app.patch("/playbooks/:id", { config: { ...soar, audit: false } }, async (request) => {
@@ -244,6 +246,8 @@ export async function playbookRoutes(app: FastifyInstance, s: AppServices): Prom
         subject,
         ...(body.subjectRef ? { subjectRef: body.subjectRef } : {}),
         ...(body.idempotencyKey ? { idempotencyKey: body.idempotencyKey } : {}),
+        // Someone without response:execute can start a playbook, but every step waits for an approver.
+        approveEveryStep: !principalCan(auth.principal, "response:execute", organizationId),
       });
       request.auditState.details = { matched: match.matched, executionId: match.execution?.id ?? null, status: match.execution?.status ?? null };
       return reply.status(match.execution && !match.deduplicated ? 201 : 200).send({ ...match, execution: match.execution ? runSummary(match.execution) : null });

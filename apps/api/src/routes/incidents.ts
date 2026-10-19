@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { CreateIncidentInput, IncidentStatus, RoleKey, Severity, UpdateIncidentInput, Uuid, principalCan, type Principal } from "@bloody/contracts";
+import { CreateIncidentInput, IncidentStatus, Severity, UpdateIncidentInput, Uuid, principalCan, type Principal } from "@bloody/contracts";
 import { actorFromRequest, markAudited, recordAudit } from "../audit/audit.js";
+import { userPrincipal } from "../auth/principals.js";
 import { assertRecordAccess, requireAuth, requirePermission, resolveOrgFilter } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import { inOrder, type Queryable } from "../db/pool.js";
@@ -62,20 +63,6 @@ const PatchBody = UpdateIncidentInput.strict();
 const NoteBody = z.object({ body: z.string().trim().min(1).max(20_000), visibility: z.enum(["internal", "customer"]).default("internal") }).strict();
 
 /** Principal-like view of a user's effective bindings (direct + team), for assignment checks. */
-async function userPrincipal(tx: Queryable, tenantId: string, userId: string): Promise<Principal | null> {
-  const u = await tx.query<{ id: string; email: string; status: string }>("SELECT id, email, status FROM users WHERE id = $1", [userId]);
-  if (!u.rows[0] || u.rows[0].status !== "active") return null;
-  const b = await tx.query<{ role: string; organization_id: string | null }>(
-    `SELECT DISTINCT role, organization_id FROM role_bindings
-     WHERE (principal_kind = 'user' AND principal_id = $1) OR (principal_kind = 'team' AND principal_id IN (SELECT team_id FROM team_members WHERE user_id = $1))`,
-    [userId],
-  );
-  const bindings = b.rows.flatMap((r) => {
-    const role = RoleKey.safeParse(r.role);
-    return role.success ? [{ role: role.data, organizationId: r.organization_id }] : [];
-  });
-  return { kind: "user", id: userId, tenantId, email: u.rows[0].email, bindings };
-}
 
 async function incidentDetail(tx: Queryable, principal: Principal, row: Row) {
   const incident = toIncident(row);

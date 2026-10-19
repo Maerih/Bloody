@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppControlMode, AppControlRuleInput, Uuid } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
-import { actorId, requireAuth, requirePermission } from "../auth/rbac.js";
+import { actorId, requireAuth, requirePermission, requirePerson } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
 import type { Queryable } from "../db/pool.js";
 import { notFound } from "../http/errors.js";
@@ -35,6 +35,7 @@ export async function appControlRoutes(app: FastifyInstance, s: AppServices): Pr
   });
 
   app.put("/app-control/settings/:id", { config: { ...espm, audit: false } }, async (request) => {
+    requirePerson(request);
     const { id } = parse(IdParam, request.params);
     const auth = requirePermission(request, "asset:write", id);
     const { mode } = parse(z.object({ mode: AppControlMode }).strict(), request.body);
@@ -48,6 +49,7 @@ export async function appControlRoutes(app: FastifyInstance, s: AppServices): Pr
   });
 
   app.post("/app-control/rules", { config: { ...espm, audit: false } }, async (request, reply) => {
+    requirePerson(request);
     const body = parse(AppControlRuleInput, request.body);
     // Account-wide rules need the permission for the whole account.
     const auth = requirePermission(request, "asset:write", body.organizationId);
@@ -61,6 +63,7 @@ export async function appControlRoutes(app: FastifyInstance, s: AppServices): Pr
   });
 
   app.delete("/app-control/rules/:id", { config: { ...espm, audit: false } }, async (request, reply) => {
+    requirePerson(request);
     const auth = requireAuth(request);
     const { id } = parse(IdParam, request.params);
     await s.db.withTenant(auth.tenantId, async (tx) => {

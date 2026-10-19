@@ -73,9 +73,11 @@ export class IntelService {
     for (const r of records) {
       const source = (opts.sourceOverride ?? r.source).slice(0, 200);
       if (r.revoked) {
+        // A feed only revokes indicators in the scope it is imported into.
         const res = await tx.query(
           `UPDATE indicators SET revoked = true, expires_at = LEAST(coalesce(expires_at, now()), now())
-           WHERE NOT revoked AND ((external_ref = $1) OR (type = $2 AND value = lower($3) AND source = $4 AND organization_id IS NOT DISTINCT FROM $5::uuid))`,
+           WHERE NOT revoked AND organization_id IS NOT DISTINCT FROM $5::uuid
+             AND (external_ref = $1 OR (type = $2 AND value = lower($3) AND source = $4))`,
           [r.externalRef, r.type, r.value, source, organizationId],
         );
         summary.revoked += res.rowCount ?? 0;

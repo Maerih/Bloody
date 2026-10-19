@@ -9,7 +9,7 @@ import { AUTORUN_KIND_LABELS, HostInventoryReport } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
 import { requireAuth, requirePermission } from "../auth/rbac.js";
 import type { AppServices } from "../context.js";
-import { notFound, unauthorized } from "../http/errors.js";
+import { forbidden, notFound, unauthorized } from "../http/errors.js";
 import type { Row } from "../repo/mappers.js";
 import { SCIAT_AGENT_VERSION } from "../services/agent-enrollment.js";
 import { IdParam } from "../http/params.js";
@@ -151,6 +151,8 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
   app.get("/agents/enrollment", async (request) => {
     const auth = requireAuth(request);
     requirePermission(request, "asset:write", null);
+    // The account key enrolls computers into any customer: people only, never API keys.
+    if (auth.principal.kind !== "user") throw forbidden("API keys cannot read the agent enrollment key");
     return s.db.withTenant(auth.tenantId, async (tx) => {
       const accountKey = await svc.accountKey(tx, auth.tenantId);
       const { rows } = await tx.query<Row>(
@@ -251,7 +253,7 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
   });
 
   app.put("/agents/auto-update", { config: { audit: false } }, async (request) => {
-    const auth = requirePermission(request, "asset:write", null);
+    const auth = requirePermission(request, "settings:write", null);
     const { enabled } = parse(z.object({ enabled: z.boolean() }).strict(), request.body);
     return s.db.withTenant(auth.tenantId, async (tx) => {
       await tx.query("UPDATE accounts SET settings = settings || jsonb_build_object('agentAutoUpdate', $2::boolean) WHERE id = $1", [auth.tenantId, enabled]);

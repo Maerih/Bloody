@@ -519,6 +519,17 @@ export class NotificationService {
     const prior = existing?.config ?? {};
     const secretInputs = new Set(SECRET_FIELDS[input.kind].map((f) => f.input));
     for (const [k, v] of Object.entries(input.config)) if (!secretInputs.has(k) && k !== "smtp") out[k] = v;
+    // Stored credentials are never sent to a new destination: changing where a channel delivers
+    // means entering the credential again (otherwise an edit could redirect it to any server).
+    if (existing && input.kind === "webhook" && typeof input.config.url === "string" && input.config.authorization === undefined && typeof prior.authorizationRef === "string") {
+      throw badRequest("Enter the Authorization header again when changing the webhook URL");
+    }
+    if (existing && input.kind === "email" && input.config.smtp && typeof input.config.smtp === "object") {
+      const next = input.config.smtp as Record<string, unknown>;
+      const before = (prior.smtp as Record<string, unknown> | undefined) ?? {};
+      const moved = (next.host ?? before.host) !== before.host || (next.port ?? before.port) !== before.port || (next.user ?? before.user) !== before.user;
+      if (moved && next.password === undefined && typeof before.passwordRef === "string") throw badRequest("Enter the SMTP password again when changing the SMTP server or user");
+    }
     for (const f of SECRET_FIELDS[input.kind]) {
       const supplied = input.config[f.input];
       const priorRef = typeof prior[f.ref] === "string" ? (prior[f.ref] as string) : null;
