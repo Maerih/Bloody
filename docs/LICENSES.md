@@ -174,6 +174,17 @@ the version(s) and scope, a justification of at least 20 characters, the approve
 expiry, and for denied licences an `exceptionRef` pointing to the legal sign-off. Entries that
 match nothing are reported as stale; an upstream licence change re-opens review automatically.
 
+## 4b. Go modules (native SCIAT Agent, `apps/agent`)
+
+The native agent is statically linked; every module it links must be permissively licensed.
+
+| Module | Version | Licence (SPDX) | Used for |
+|---|---|---|---|
+| Go standard library | 1.24 | BSD-3-Clause | Everything not listed below |
+| `golang.org/x/sys` | v0.26.0 | BSD-3-Clause | Windows service, registry and network adapter calls |
+
+Ship the BSD notices with the binaries (`THIRD-PARTY-NOTICES` in the installer).
+
 ## 5. Obligations checklist for customer-hosted / air-gapped bundles
 
 - [ ] Ship this file, the SBOMs (`sbom/`) and the `LICENSE` with every bundle.
