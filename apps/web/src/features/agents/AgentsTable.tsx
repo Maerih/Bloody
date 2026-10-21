@@ -14,6 +14,7 @@ import { hrefForEntity } from "../../lib/entityLinks";
 import { humanize } from "../../lib/format";
 import { RequestActionDialog } from "../response/RequestActionDialog";
 import { ContainmentNote, isInFlight, useContainmentState } from "./ContainmentState";
+import { ComputerReportButton } from "../assets/ComputerDossier";
 
 const AGENT_TONE: Record<Agent["status"], "success" | "danger" | "warning" | "purple" | "neutral"> = {
   protected: "success",
@@ -155,6 +156,14 @@ export function AgentsTable({
       },
     });
   }
+
+  columns.push({
+    id: "report",
+    header: "Report",
+    exportable: false,
+    sortable: false,
+    cell: (a) => (a.assetId ? <ComputerReportButton assetId={a.assetId} organizationId={a.organizationId} size="xs" label="Report" /> : null),
+  });
 
   return (
     <>

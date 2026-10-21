@@ -1,5 +1,5 @@
 import type { Asset, GraphNode } from "@bloody/contracts";
-import { Boxes, Bug, Fingerprint, Lock, LockOpen, Network, Route, Siren, SquareTerminal, Sparkles } from "lucide-react";
+import { Boxes, Bug, Fingerprint, History, Lock, LockOpen, Network, Route, ShieldCheck, Siren, SquareTerminal, Sparkles } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -24,6 +24,7 @@ import { hrefForEntity } from "../../lib/entityLinks";
 import { formatDate, humanize } from "../../lib/format";
 import { agentStatusLabel } from "../agents/AgentsTable";
 import { RequestActionDialog } from "../response/RequestActionDialog";
+import { ComputerActivity, ComputerPosture, ComputerReportButton, PrintButton } from "./ComputerDossier";
 import { ContainmentNote, isInFlight, useContainmentState } from "../agents/ContainmentState";
 import type { ResponseActionKey } from "@bloody/contracts";
 
@@ -135,7 +136,7 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
             Last seen <RelativeTime value={asset.lastSeenAt} />
           </span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 print:hidden">
           {canAi ? (
             <ButtonLink size="sm" variant="primary" icon={Sparkles} to={`/ai?context=${encodeURIComponent(`asset:${asset.id}`)}`}>
               Ask AI
@@ -161,6 +162,12 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
               <Button size="sm" icon={SquareTerminal} onClick={() => setRespond({ actions: ["collect_evidence", "run_yara_scan", "kill_process", "quarantine_file"], defaultAction: "collect_evidence" })}>
                 Respond
               </Button>
+            </>
+          ) : null}
+          {isEndpoint ? (
+            <>
+              <ComputerReportButton assetId={asset.id} organizationId={org} />
+              <PrintButton />
             </>
           ) : null}
         </div>
@@ -194,6 +201,17 @@ function AssetDetailBody({ asset }: { asset: AssetDetail }) {
           ]}
         />
       </Section>
+
+      {isEndpoint ? (
+        <>
+          <Section title="Protection & posture" icon={ShieldCheck}>
+            <ComputerPosture assetId={asset.id} />
+          </Section>
+          <Section title="Activity" icon={History}>
+            <ComputerActivity assetId={asset.id} />
+          </Section>
+        </>
+      ) : null}
 
       {isEndpoint ? (
         <Section title="Host inventory" icon={Boxes}>

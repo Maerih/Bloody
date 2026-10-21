@@ -3,8 +3,9 @@
  * organizations. It honours tenant, organization scope and the [from, to) window exactly like
  * the SQL implementation must, so builders' derived metrics can be asserted precisely.
  */
-import type { RiskFactor, Severity } from "@bloody/contracts";
+import type { EndpointDossier, RiskFactor, Severity } from "@bloody/contracts";
 import type {
+  EndpointDetail,
   AwarenessFact,
   EndpointPostureFact,
   EndpointPostureTrendPoint,
@@ -451,6 +452,12 @@ export class FakeReportDataSource implements ReportDataSource {
     }));
   }
 
+  async endpointDetail(q: ReportQuery, assetId: string): Promise<EndpointDetail | null> {
+    this.log("endpointDetail", q);
+    if (assetId !== COMPUTER.asset.id || !inScope(q, COMPUTER.asset.organizationId)) return null;
+    return COMPUTER;
+  }
+
   async incidentDetail(q: ReportQuery, incidentId: string): Promise<IncidentDetail | null> {
     this.log("incidentDetail", q);
     const inc = INCIDENTS.find((i) => i.id === incidentId && inScope(q, i.organizationId));
@@ -521,3 +528,74 @@ export class EmptyReportDataSource extends FakeReportDataSource {
     return [];
   }
 }
+
+/** A finance laptop that is isolated, behind on patches and has a suspicious autostart entry. */
+export const COMPUTER_ID = "c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0";
+const DOSSIER: EndpointDossier = {
+  assetId: COMPUTER_ID,
+  organizationId: ORG_A,
+  hostname: "FIN-WS-042",
+  generatedAt: iso("2026-09-30T12:00:00Z"),
+  agents: [{ id: "ag-1", engine: "sciat", version: "1.5.0", platform: "windows", status: "isolated", isolation: { mode: "full", since: iso("2026-09-29T10:05:00Z"), source: "platform" }, enrolledAt: iso("2026-06-01T08:00:00Z"), lastCheckinAt: iso("2026-09-30T11:59:00Z") }],
+  patching: {
+    agentId: "ag-1",
+    hostname: "FIN-WS-042",
+    os: "Microsoft Windows 10 Pro 10.0.19045",
+    osSupport: { status: "ended", product: "Windows 10", endsOn: "2025-10-14", note: "Windows 10 reached end of support" },
+    source: "windows_update",
+    pendingCount: 3,
+    securityCount: 2,
+    criticalCount: 1,
+    rebootRequired: true,
+    lastInstalledAt: iso("2026-07-15T00:00:00Z"),
+    lastCheckedAt: iso("2026-09-30T06:00:00Z"),
+    securityPendingSince: iso("2026-08-20T00:00:00Z"),
+    reportedAt: iso("2026-09-30T06:00:00Z"),
+    grade: { state: "breached", reasons: ["2 security updates waiting for 41 days (deadline 30 days)."] },
+    pending: [
+      { title: "2026-09 Cumulative Update for Windows 10", id: "KB5066791", security: true, severity: "critical", version: null },
+      { title: "Microsoft Edge security update", id: "KB5066800", security: true, severity: "important", version: null },
+      { title: ".NET Framework rollup", id: "KB5066111", security: false, severity: "unspecified", version: null },
+    ],
+  },
+  hardening: {
+    score: 58,
+    collectedAt: iso("2026-09-30T06:00:00Z"),
+    checks: [
+      { key: "firewall", title: "Host firewall is on", severity: "high", status: "pass", detail: null, accepted: false, fix: "Turn the firewall on." },
+      { key: "smb1", title: "SMBv1 is disabled", severity: "high", status: "fail", detail: "SMB1Protocol enabled", accepted: false, fix: "Disable SMBv1: Disable-WindowsOptionalFeature -Online -FeatureName SMB1Protocol" },
+      { key: "lsa", title: "LSA protection (RunAsPPL)", severity: "medium", status: "fail", detail: null, accepted: true, fix: "Set RunAsPPL = 1." },
+    ],
+  },
+  footholds: [
+    { name: "WinUpdateSvc", kind: "scheduled_task", location: "\\Microsoft\\Windows\\Update", command: "powershell.exe -w hidden -enc SQBFAFgA", level: "high", score: 85, reasons: ["Encoded PowerShell command", "Hidden window"], verdict: null, isNew: true, firstSeen: iso("2026-09-29T09:40:00Z") },
+    { name: "OneDrive", kind: "run_key", location: "HKCU\\…\\Run", command: "OneDrive.exe /background", level: "low", score: 0, reasons: [], verdict: null, isNew: false, firstSeen: iso("2026-06-01T08:00:00Z") },
+  ],
+  remoteAccess: [{ name: "AnyDesk", vendor: "AnyDesk Software", approved: false, evidence: ["Running: anydesk.exe"] }],
+  activity: [
+    { at: iso("2026-09-29T10:05:00Z"), kind: "isolation", title: "Isolated from the network", detail: null, actor: "SCIAT Agent", outcome: "success", severity: null },
+    { at: iso("2026-09-29T10:01:00Z"), kind: "isolation", title: "Isolation (full) approved", detail: "Confirmed beaconing", actor: "Eli Hunter", outcome: "success", severity: null },
+    { at: iso("2026-09-29T09:55:00Z"), kind: "isolation", title: "Isolation (full) requested", detail: "Beaconing to a bare IP address", actor: "Dana Analyst", outcome: "pending", severity: null },
+    { at: iso("2026-09-29T09:45:00Z"), kind: "alert", title: "Encoded PowerShell launched by a scheduled task", detail: null, actor: null, outcome: null, severity: "high" },
+    { at: iso("2026-09-29T09:40:00Z"), kind: "persistence", title: "New autostart entry: WinUpdateSvc", detail: "powershell.exe -w hidden -enc SQBFAFgA", actor: "SCIAT Agent", outcome: null, severity: "high" },
+  ],
+  activityTruncated: false,
+  activitySince: iso("2026-09-01T00:00:00Z"),
+};
+const COMPUTER: EndpointDetail = {
+  asset: { id: COMPUTER_ID, organizationId: ORG_A, name: "FIN-WS-042", hostname: "FIN-WS-042", kind: "endpoint", criticality: "high", os: "Microsoft Windows 10 Pro 10.0.19045", ips: ["10.20.4.42"], owner: "j.doe", riskScore: 81, internetFacing: false, lastSeenAt: iso("2026-09-30T11:59:00Z"), tags: ["finance"] },
+  dossier: DOSSIER,
+  inventory: {
+    collectedAt: iso("2026-09-30T06:00:00Z"),
+    antivirus: [{ name: "Microsoft Defender Antivirus", enabled: true, upToDate: true, realTimeProtection: true, tamperProtection: false, signatureAgeDays: 0 }],
+    antivirusIssues: ["Microsoft Defender Antivirus: tamper protection is off"],
+    firewall: { enabled: true, detail: "Domain, Private, Public" },
+    software: [{ name: "AnyDesk", version: "8.0.14", publisher: "AnyDesk Software GmbH" }, { name: "Google Chrome", version: "129.0", publisher: "Google LLC" }],
+    services: { running: 112, total: 240 },
+    users: [{ name: "j.doe", admin: true, enabled: true, loggedIn: true }],
+    ports: [{ protocol: "tcp", address: "0.0.0.0", port: 3389, process: "svchost.exe" }],
+  },
+  vulnerabilities: [{ cve: "CVE-2026-3003", title: "Windows SMB remote code execution", severity: "critical", cvss: 9.8, kev: true, status: "open", firstSeenAt: iso("2026-09-05T00:00:00Z") }],
+  alerts: [{ title: "Encoded PowerShell launched by a scheduled task", severity: "high", status: "in_progress", source: "rule", firstSeenAt: iso("2026-09-29T09:45:00Z") }],
+  incidents: [{ number: 101, title: "Ransomware precursor on FIN-WS-042", severity: "critical", status: "contained", detectedAt: iso("2026-09-29T09:50:00Z") }],
+};

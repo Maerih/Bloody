@@ -44,7 +44,7 @@ export function PageHeader({ title, subtitle, actions, breadcrumbs, children, cl
           <h1 className="truncate font-display text-2xl font-bold tracking-tight text-fg">{title}</h1>
           {subtitle ? <div className="mt-0.5 text-base text-fg-muted">{subtitle}</div> : null}
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        {actions ? <div className="flex flex-wrap items-center gap-2 print:hidden">{actions}</div> : null}
       </div>
       {children ? <div className="mt-3">{children}</div> : null}
     </div>

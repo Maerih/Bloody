@@ -12,6 +12,7 @@ import type {
   DailyCount,
   EscalationFact,
   EventStats,
+  EndpointDetail,
   IncidentDetail,
   IncidentFact,
   IntelStats,
@@ -32,6 +33,8 @@ import { inOrder, type Database, type Queryable } from "../db/pool.js";
 import type { Row } from "../repo/mappers.js";
 import { AppControlService } from "./app-control.js";
 import { AttackReductionService } from "./attack-reduction.js";
+import { EndpointDossierService } from "./endpoint-dossier.js";
+import { HostInventoryService } from "./host-inventory.js";
 import type { AttackPathService } from "./attack-paths.js";
 import { FootholdsService } from "./footholds.js";
 import { PatchingService } from "./patching.js";
@@ -871,6 +874,57 @@ export class SqlReportDataSource implements ReportDataSource {
         });
       }
       return out;
+    });
+  }
+
+  async endpointDetail(q: ReportQuery, assetId: string): Promise<EndpointDetail | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(assetId)) return null;
+    return this.tx(q, async (tx) => {
+      const found = await this.sql(tx, q, `SELECT a.* FROM assets a WHERE a.id = :id::uuid AND ${org("a.organization_id")}`, { id: assetId });
+      const r = found[0];
+      if (!r) return null;
+      const at = Math.min(Date.now(), q.to.getTime());
+      const dossier = (await new EndpointDossierService(() => at).build(tx, assetId, { since: q.from.toISOString(), until: q.to.toISOString() }))!;
+      const inv = await new HostInventoryService(() => at).forAsset(tx, assetId);
+      const [vulns, alerts, incidents] = await inOrder([
+        () => tx.query<Row>("SELECT cve, title, severity, cvss, known_exploited, status, first_seen_at FROM vulnerabilities WHERE asset_id = $1 AND status IN ('open', 'in_remediation', 'accepted') ORDER BY risk_score DESC NULLS LAST, id LIMIT 200", [assetId]),
+        () => tx.query<Row>("SELECT title, severity, status, source, first_seen_at FROM alerts WHERE asset_id = $1 AND first_seen_at >= $2 AND first_seen_at < $3 ORDER BY first_seen_at DESC LIMIT 200", [assetId, q.from, q.to]),
+        () => tx.query<Row>("SELECT number, title, severity, status, detected_at FROM incidents WHERE $1 = ANY(asset_ids) AND detected_at < $3 AND (detected_at >= $2 OR closed_at IS NULL OR closed_at >= $2) ORDER BY detected_at DESC LIMIT 100", [assetId, q.from, q.to]),
+      ]);
+      const iso = (v: unknown) => new Date(v instanceof Date ? v : String(v)).toISOString();
+      return {
+        asset: {
+          id: String(r.id),
+          organizationId: String(r.organization_id),
+          name: String(r.name),
+          hostname: (r.hostname as string | null) ?? null,
+          kind: String(r.kind),
+          criticality: r.criticality as Criticality,
+          os: (r.os as string | null) ?? null,
+          ips: Array.isArray(r.ip_addresses) ? (r.ip_addresses as unknown[]).map(String) : [],
+          owner: (r.owner as string | null) ?? null,
+          riskScore: r.risk_score == null ? null : Number(r.risk_score),
+          internetFacing: r.internet_facing === true,
+          lastSeenAt: r.last_seen_at ? iso(r.last_seen_at) : null,
+          tags: Array.isArray(r.tags) ? (r.tags as unknown[]).map(String) : [],
+        },
+        dossier,
+        inventory: inv
+          ? {
+              collectedAt: inv.collectedAt,
+              antivirus: inv.antivirus.map((a) => ({ name: a.name, enabled: a.enabled, upToDate: a.upToDate ?? null, realTimeProtection: a.realTimeProtection ?? null, tamperProtection: a.tamperProtection ?? null, signatureAgeDays: a.signatureAgeDays ?? null })),
+              antivirusIssues: inv.antivirusIssues,
+              firewall: inv.firewall ? { enabled: inv.firewall.enabled, detail: inv.firewall.detail ?? null } : null,
+              software: inv.software.map((x) => ({ name: x.name, version: x.version ?? null, publisher: x.publisher ?? null })),
+              services: { running: inv.services.filter((x) => x.state === "running").length, total: inv.services.length },
+              users: inv.users.map((u) => ({ name: u.name, admin: u.admin === true, enabled: u.enabled !== false, loggedIn: u.loggedIn === true })),
+              ports: inv.ports.map((x) => ({ protocol: x.protocol, address: x.address ?? "", port: x.port, process: x.process ?? null })),
+            }
+          : null,
+        vulnerabilities: vulns.rows.map((v) => ({ cve: (v.cve as string | null) ?? null, title: String(v.title), severity: v.severity as Severity, cvss: v.cvss == null ? null : Number(v.cvss), kev: v.known_exploited === true, status: String(v.status), firstSeenAt: iso(v.first_seen_at) })),
+        alerts: alerts.rows.map((a) => ({ title: String(a.title), severity: a.severity as Severity, status: String(a.status), source: String(a.source), firstSeenAt: iso(a.first_seen_at) })),
+        incidents: incidents.rows.map((i) => ({ number: Number(i.number), title: String(i.title), severity: i.severity as Severity, status: String(i.status), detectedAt: iso(i.detected_at) })),
+      };
     });
   }
 

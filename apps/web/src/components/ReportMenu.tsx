@@ -43,7 +43,8 @@ export function ReportMenu({ reports, defaultReport, organizationId, periodDays 
 
   const download = () => {
     generate.mutate(
-      { type, format, organizationId: scope, periodDays: period, ...(parameters ? { parameters } : {}) },
+      // The API takes no organization for "all organizations" (null is refused).
+      { type, format, periodDays: period, ...(scope ? { organizationId: scope } : {}), ...(parameters ? { options: parameters } : {}) },
       {
         onSuccess: (res) => {
           const stamp = new Date().toISOString().slice(0, 10);

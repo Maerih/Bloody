@@ -7,7 +7,7 @@ import { helpMenuItems } from "./TopBar";
 export function HelpPill() {
   const ui = useUi();
   return (
-    <div className="fixed bottom-4 left-2.5 z-40">
+    <div className="fixed bottom-4 left-2.5 z-40 print:hidden">
       <Popover
         side="top"
         role="menu"

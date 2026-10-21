@@ -133,6 +133,7 @@ export async function buildReport(request: ReportRequest, deps: ReportBuildDeps)
     typeLabel: meta.label,
     title: result.title,
     subtitle: result.subtitle,
+    ...(result.fileLabel ? { fileLabel: result.fileLabel } : {}),
     audience,
     generatedAt: now.toISOString(),
     period,

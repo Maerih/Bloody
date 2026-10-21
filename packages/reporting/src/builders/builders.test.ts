@@ -2,7 +2,7 @@ import { REPORT_TYPES, type ReportType } from "@bloody/contracts";
 import { describe, expect, it } from "vitest";
 import type { Kpi, ReportData } from "../model.js";
 import { ReportScopeError } from "../datasource.js";
-import { EmptyReportDataSource, FakeReportDataSource, NOW, ORG_A, ORG_B, PERIOD, TENANT } from "../test-support/fake-datasource.js";
+import { COMPUTER_ID, EmptyReportDataSource, FakeReportDataSource, NOW, ORG_A, ORG_B, PERIOD, TENANT } from "../test-support/fake-datasource.js";
 import { buildReport, REPORT_BUILDERS } from "./index.js";
 import { ReportRequestError } from "./context.js";
 
@@ -276,5 +276,30 @@ describe("endpoint posture report", () => {
     const r = await build("endpoint_posture", { orgs: [ORG_A], ds: new Empty() });
     expect(r.summary.headline).toBe("No computer runs the SCIAT Agent yet.");
     expect(recs(r)[0]).toMatchObject({ title: "Install the SCIAT Agent" });
+  });
+});
+
+describe("single-computer report", () => {
+  it("covers the computer's isolation, patching, hardening, persistence, detections and activity", async () => {
+    const r = await build("endpoint_posture", { orgs: [ORG_A], options: { assetId: COMPUTER_ID } });
+    expect(r.title).toBe("Computer report: FIN-WS-042");
+    expect(r.summary.headline).toMatch(/^FIN-WS-042 needs attention: it is isolated from every network since/);
+    expect(kpiOf(r, "security_updates")).toMatchObject({ value: 2, status: "bad" });
+    expect(kpiOf(r, "hardening")).toMatchObject({ value: 58, status: "bad" });
+    expect(kpiOf(r, "persistence")).toMatchObject({ value: 1, status: "bad" });
+    expect(r.sections.map((s) => s.id)).toEqual(["overview", "agent", "protection", "patching", "hardening", "persistence", "detections", "activity", "inventory"]);
+    const activity = r.sections.find((s) => s.id === "activity")!.blocks[0]!;
+    expect(activity.kind === "table" ? activity.table.rows.map((x) => x.title) : []).toEqual(expect.arrayContaining(["Isolation (full) requested — Beaconing to a bare IP address", "Isolated from the network"]));
+    const hardening = r.sections.find((s) => s.id === "hardening")!.blocks[0]!;
+    // Accepted exceptions are shown as accepted, failures first.
+    expect(hardening.kind === "table" ? hardening.table.rows.map((x) => x.status) : []).toEqual(["fail", "accepted", "pass"]);
+    expect(recs(r).map((x) => x.title)).toEqual(
+      expect.arrayContaining(["Finish the investigation, then release the computer from isolation", "Review the autostart entry “WinUpdateSvc”", "Install 2 waiting security updates and restart", "Upgrade or replace the operating system", "Remove or approve AnyDesk"]),
+    );
+    expect(r.methodology.map((t) => t.term)).toEqual(expect.arrayContaining(["Endpoint isolation", "Hardening score"]));
+  });
+
+  it("refuses a computer outside the requested organizations", async () => {
+    await expect(build("endpoint_posture", { orgs: [ORG_B], options: { assetId: COMPUTER_ID } })).rejects.toBeInstanceOf(ReportRequestError);
   });
 });

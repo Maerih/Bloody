@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { CardSkeleton, Skeleton } from "../components/Skeleton";
@@ -25,9 +25,31 @@ export function PageSkeleton() {
   );
 }
 
+/** Paper is white: print in the light theme, then switch back. */
+function usePrintInLightTheme() {
+  useEffect(() => {
+    const root = document.documentElement;
+    let wasDark = false;
+    const before = () => {
+      wasDark = root.classList.contains("dark");
+      if (wasDark) root.classList.remove("dark");
+    };
+    const after = () => {
+      if (wasDark) root.classList.add("dark");
+    };
+    window.addEventListener("beforeprint", before);
+    window.addEventListener("afterprint", after);
+    return () => {
+      window.removeEventListener("beforeprint", before);
+      window.removeEventListener("afterprint", after);
+    };
+  }, []);
+}
+
 /** Authenticated application frame: top bar, left rail, content outlet and global overlays. */
 export function AppShell() {
   const location = useLocation();
+  usePrintInLightTheme();
   return (
     <TourProvider>
     <div className="min-h-screen bg-canvas">
@@ -36,9 +58,9 @@ export function AppShell() {
       </a>
       <TopBar />
       <LeftRail />
-      <main id="main" tabIndex={-1} className="min-h-screen pl-[60px] pt-11 focus:outline-none">
+      <main id="main" tabIndex={-1} className="min-h-screen pl-[60px] pt-11 focus:outline-none print:min-h-0 print:p-0">
         <SandboxBanner />
-        <div className="mx-auto max-w-[1920px] px-4 pb-16 pt-4 lg:px-6">
+        <div className="mx-auto max-w-[1920px] px-4 pb-16 pt-4 lg:px-6 print:max-w-none print:p-0">
           <ErrorBoundary resetKey={location.pathname}>
             <Suspense fallback={<PageSkeleton />}>
               <Outlet />

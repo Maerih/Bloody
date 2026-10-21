@@ -7,6 +7,8 @@ import { mergeSlaTargets, type SlaTargets, DEFAULT_SLA_TARGETS } from "../sla.js
 export interface ReportOptions {
   /** Incident report: produce a post-incident report for this incident. */
   incidentId?: string;
+  /** Endpoint posture report about this one computer (asset id). */
+  assetId?: string;
   /** Size of top-N lists (default 10, max 50). */
   topN?: number;
   /** Tenant default SLA targets (organization overrides from the data source win). */
@@ -95,6 +97,8 @@ export interface BuilderResult {
   /** Glossary terms used by this report (keys of GLOSSARY) plus custom entries. */
   terms: string[];
   recommendations: Recommendation[];
+  /** File name part in place of the report type (e.g. the computer a report is about). */
+  fileLabel?: string;
 }
 
 export type ReportBuilder = (ctx: BuildContext) => Promise<BuilderResult>;
@@ -161,6 +165,7 @@ export const GLOSSARY: Record<string, string> = {
   "Patch compliance": "Computers with no security update waiting past the 30-day SLA, a supported operating system and no stale update list, divided by computers that reported update status.",
   "Unsupported operating system": "An operating system whose vendor no longer releases security updates for it (for example Windows 10 without Extended Security Updates).",
   "Hardening score": "Share of applicable Attack Reduction checks (old protocols, credential theft, encryption, firewall…) a computer passes, 0-100, averaged over computers.",
+  "Endpoint isolation": "Cutting a computer off the network while keeping its connection to SCIAT, so it can be investigated and released remotely. LAN-only isolation blocks the local network but keeps the internet; full isolation blocks everything else.",
   "Persistent foothold": "An autostart entry (Run key, scheduled task, service, launch daemon, cron job, SSH key…) rated suspicious because of traits attackers rely on, and not marked expected by an analyst.",
   "Human risk": "Explainable 0-100 score per person over the last 12 months: phishing-simulation clicks raise it; simulations not clicked, completed training and strong quiz results lower it. High = 60 or more.",
 };

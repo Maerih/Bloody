@@ -21,7 +21,7 @@ export function renderJson(report: ReportData, opts: { pretty?: boolean } = {}):
 export function reportFilename(report: ReportData, extension: string): string {
   const who = report.scope.organizationName ?? report.branding.name;
   const end = new Date(Date.parse(report.period.to) - 1).toISOString().slice(0, 10);
-  return `${slugify(who)}-${report.type.replace(/_/g, "-")}-${end}.${extension}`;
+  return `${slugify(who)}-${report.fileLabel ? slugify(report.fileLabel) : report.type.replace(/_/g, "-")}-${end}.${extension}`;
 }
 
 /** Render a built report in any supported format. */

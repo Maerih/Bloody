@@ -1,4 +1,4 @@
-import type { AttackTechnique, Criticality, IncidentStatus, PlanKey, RiskFactor, Severity } from "@bloody/contracts";
+import type { AttackTechnique, Criticality, EndpointDossier, IncidentStatus, PlanKey, RiskFactor, Severity } from "@bloody/contracts";
 import type { SlaTargets } from "./sla.js";
 
 /**
@@ -319,6 +319,43 @@ export interface EndpointPostureTrendPoint {
   needingAttention: number;
 }
 
+/** One computer, for the single-computer report (endpoint posture report with `assetId`). */
+export interface EndpointDetail {
+  asset: {
+    id: string;
+    organizationId: string;
+    name: string;
+    hostname: string | null;
+    kind: string;
+    criticality: Criticality;
+    os: string | null;
+    ips: string[];
+    owner: string | null;
+    riskScore: number | null;
+    internetFacing: boolean;
+    lastSeenAt: string | null;
+    tags: string[];
+  };
+  /** Agents, isolation, patching, hardening, persistence, remote access and the activity in the period. */
+  dossier: EndpointDossier;
+  inventory: {
+    collectedAt: string;
+    antivirus: Array<{ name: string; enabled: boolean; upToDate: boolean | null; realTimeProtection: boolean | null; tamperProtection: boolean | null; signatureAgeDays: number | null }>;
+    antivirusIssues: string[];
+    firewall: { enabled: boolean; detail: string | null } | null;
+    software: Array<{ name: string; version: string | null; publisher: string | null }>;
+    services: { running: number; total: number };
+    users: Array<{ name: string; admin: boolean; enabled: boolean; loggedIn: boolean }>;
+    ports: Array<{ protocol: string; address: string; port: number; process: string | null }>;
+  } | null;
+  /** Open, in-remediation and accepted vulnerabilities (null without vuln:read). */
+  vulnerabilities: Array<{ cve: string | null; title: string; severity: Severity; cvss: number | null; kev: boolean; status: string; firstSeenAt: string }> | null;
+  /** Alerts first seen in the period (null without alert:read). */
+  alerts: Array<{ title: string; severity: Severity; status: string; source: string; firstSeenAt: string }> | null;
+  /** Incidents involving the computer detected in the period or still open (null without incident:read). */
+  incidents: Array<{ number: number; title: string; severity: Severity; status: string; detectedAt: string }> | null;
+}
+
 export interface ReportDataSource {
   organizations(q: ReportQuery): Promise<OrganizationFact[]>;
   /** Incidents detected in [from, to) plus incidents still open at `from` (backlog). */
@@ -351,6 +388,8 @@ export interface ReportDataSource {
   endpointPosture(q: ReportQuery): Promise<EndpointPostureFact[]>;
   /** Daily endpoint posture over the period, from the snapshots recorded each day. */
   endpointPostureTrend(q: ReportQuery): Promise<EndpointPostureTrendPoint[]>;
+  /** One computer; null when not found in the tenant/scope. */
+  endpointDetail(q: ReportQuery, assetId: string): Promise<EndpointDetail | null>;
 }
 
 /** Thrown when a data source returns a row outside the requested tenant/organization scope. */
@@ -409,6 +448,13 @@ export function scopedDataSource(ds: ReportDataSource): ReportDataSource {
     awareness: async (q) => check(await ds.awareness(q), q, "awareness"),
     endpointPosture: async (q) => check(await ds.endpointPosture(q), q, "endpointPosture"),
     endpointPostureTrend: (q) => ds.endpointPostureTrend(q),
+    endpointDetail: async (q, id) => {
+      const d = await ds.endpointDetail(q, id);
+      if (d && (!inScope(q.organizationIds, d.asset.organizationId) || d.dossier.organizationId !== d.asset.organizationId)) {
+        throw new ReportScopeError("endpointDetail: computer outside the requested scope");
+      }
+      return d;
+    },
     incidentDetail: async (q, id) => {
       const d = await ds.incidentDetail(q, id);
       if (d && !inScope(q.organizationIds, d.incident.organizationId)) throw new ReportScopeError("incidentDetail: incident outside the requested scope");

@@ -95,7 +95,8 @@ export class FootholdsService {
   }
 
   /** Every entry present on the organization's computers, grouped across computers. */
-  async overview(tx: Queryable, organizationId: string): Promise<{
+  /** All the organization's entries, or one computer's (`agentId`). */
+  async overview(tx: Queryable, organizationId: string, agentId?: string): Promise<{
     footholds: Foothold[];
     truncated: boolean;
     summary: { entries: number; suspicious: number; malicious: number; newLast7Days: number; endpointsReporting: number };
@@ -104,9 +105,9 @@ export class FootholdsService {
       `SELECT f.agent_id, a.hostname, f.fingerprint, f.kind, f.location, f.name, f.command, f.user_name, f.signed, f.signer, f.reasons, f.score,
               f.baseline, f.first_seen, f.last_seen
          FROM agent_footholds f JOIN agents a ON a.id = f.agent_id
-        WHERE f.organization_id = $1 AND f.present
+        WHERE f.organization_id = $1 AND f.present AND ($2::uuid IS NULL OR f.agent_id = $2)
         ORDER BY f.score DESC, f.first_seen DESC LIMIT ${MAX_ROWS}`,
-      [organizationId],
+      [organizationId, agentId ?? null],
     );
     const verdicts = await this.verdictMap(tx, organizationId);
     const groups = new Map<string, Foothold>();

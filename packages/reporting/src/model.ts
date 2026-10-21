@@ -163,4 +163,6 @@ export interface ReportData {
   methodology: { term: string; definition: string }[];
   /** Caveats about missing / partial data (explainability — never silently hidden). */
   dataQuality: string[];
+  /** File name part in place of the report type, e.g. "kb-fin-07-computer-report". */
+  fileLabel?: string;
 }

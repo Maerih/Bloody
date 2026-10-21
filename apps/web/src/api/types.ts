@@ -182,9 +182,11 @@ export interface UserSummary {
 export interface GenerateReportRequest {
   type: ReportType;
   format: ReportFormat;
-  organizationId: string | null;
+  /** Omitted = every organization the caller can read. */
+  organizationId?: string;
   periodDays: number;
-  parameters?: Record<string, unknown>;
+  /** Generator options, e.g. `{ incidentId }` or `{ assetId }` (one computer). */
+  options?: Record<string, unknown>;
 }
 
 /** POST /reports/schedules */

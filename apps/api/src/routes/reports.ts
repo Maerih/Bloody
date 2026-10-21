@@ -16,6 +16,8 @@ import { loadOne, parse } from "./util.js";
 const Options = z
   .object({
     incidentId: Uuid.optional(),
+    /** Endpoint posture report about one computer. */
+    assetId: Uuid.optional(),
     topN: z.number().int().min(1).max(50).optional(),
     classification: z.string().trim().min(1).max(60).optional(),
     preparedFor: z.string().trim().max(200).optional(),
@@ -137,6 +139,12 @@ export async function reportRoutes(app: FastifyInstance, s: AppServices): Promis
       const inc = await s.db.withTenant(auth.tenantId, async (tx) => (await tx.query<{ organization_id: string }>("SELECT organization_id FROM incidents WHERE id = $1", [incidentId])).rows[0]);
       if (!inc || (scope !== "all" && !scope.includes(inc.organization_id))) throw notFound("Incident");
     }
+    const assetId = body.options?.assetId;
+    if (assetId) {
+      if (body.type !== "endpoint_posture") throw badRequest("assetId applies to the endpoint posture report only");
+      const asset = await s.db.withTenant(auth.tenantId, async (tx) => (await tx.query<{ organization_id: string }>("SELECT organization_id FROM assets WHERE id = $1", [assetId])).rows[0]);
+      if (!asset || (scope !== "all" && !scope.includes(asset.organization_id))) throw notFound("Asset");
+    }
     if (body.organizationId) await s.db.withTenant(auth.tenantId, (tx) => loadOne(tx, "organizations", body.organizationId!, "Organization"));
     if (body.options?.timeZone) checkTimeZone(body.options.timeZone);
     const res = await s.reports.generate({
@@ -157,7 +165,7 @@ export async function reportRoutes(app: FastifyInstance, s: AppServices): Promis
         organizationId: body.organizationId ?? null,
         targetKind: "report_run",
         targetId: res.runId,
-        details: { type: body.type, format: body.format, scope: scope === "all" ? "all" : scope.length, bytes: res.file.content.length, sha256: res.sha256 },
+        details: { type: body.type, format: body.format, scope: scope === "all" ? "all" : scope.length, bytes: res.file.content.length, sha256: res.sha256, ...(assetId ? { assetId } : {}) },
       }),
     );
     return reply

@@ -35,7 +35,7 @@ import {
 } from "@bloody/contracts";
 import { useMemo } from "react";
 import { api, type ApiError, type DownloadResult } from "./client";
-import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate, Foothold, FootholdVerdict, PatchEndpoint, MissingUpdate, MailServerInput, MailServerView } from "@bloody/contracts";
+import type { AppControlEvent, AppControlMode, AppControlRule, AppControlRuleInput, AppInventoryItem, HostInventory, M365Assessment, M365Connection, M365ConnectionInput, RmmFinding, ExposureAuthorization, ExposureFinding, ExposureScan, ExposureSeverity, ExposureTarget, AttackReductionCheckSummary, AttackReductionEndpoint, HardeningCheckInfo, AwarenessAssignment, AwarenessAssignmentInput, AwarenessLearner, LessonForLearner, QuizResult, PhishCampaign, PhishCampaignInput, PhishTemplate, Foothold, FootholdVerdict, PatchEndpoint, MissingUpdate, MailServerInput, MailServerView, EndpointDossier } from "@bloody/contracts";
 import type {
   AlertFilters,
   AssetDetail,
@@ -762,6 +762,16 @@ export function useSetAgentAutoUpdate() {
   return useMutation<{ enabled: boolean }, ApiError, boolean>({
     mutationFn: (enabled) => api.put<{ enabled: boolean }>("/agents/auto-update", { enabled }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["agents", "auto-update"] }),
+  });
+}
+
+/** One computer's agents, isolation, patching, hardening, persistence, remote access and activity. */
+export function useEndpointDossier(assetId: string | null | undefined, days = 90, options: { enabled?: boolean } = {}) {
+  return useQuery<EndpointDossier, ApiError>({
+    queryKey: ["assets", assetId ?? "", "dossier", days],
+    queryFn: ({ signal }) => api.get<EndpointDossier>(`/assets/${encodeURIComponent(assetId!)}/dossier`, { signal, query: { days } }),
+    enabled: Boolean(assetId) && (options.enabled ?? true),
+    staleTime: 30_000,
   });
 }
 

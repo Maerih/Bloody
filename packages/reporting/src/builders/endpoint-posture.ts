@@ -4,6 +4,7 @@ import type { Recommendation } from "../model.js";
 import { chart, lineChart, narrative, plural, table } from "./blocks.js";
 import type { EndpointPostureFact } from "../datasource.js";
 import type { BuildContext, BuilderResult } from "./context.js";
+import { buildComputerReport } from "./computer.js";
 
 /** Headline figures for a set of organizations (also used for the previous period). */
 function headline(cur: readonly EndpointPostureFact[]) {
@@ -21,6 +22,7 @@ function headline(cur: readonly EndpointPostureFact[]) {
 
 /** Endpoint security posture from the SCIAT Agent: patching, unsupported OS, antivirus, hardening, persistence. */
 export async function buildEndpointPosture(ctx: BuildContext): Promise<BuilderResult> {
+  if (ctx.options.assetId) return buildComputerReport(ctx, ctx.options.assetId);
   const { ds, q, prev, topN } = ctx;
   const [cur, before, trend] = await Promise.all([ds.endpointPosture(q), ds.endpointPosture(prev), ds.endpointPostureTrend(q)]);
   // The previous period only compares when snapshots were recorded then.

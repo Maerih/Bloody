@@ -82,7 +82,7 @@ export function LeftRail() {
       <nav
         data-tour="module-rail"
         aria-label="Security modules"
-        className="scrollbar-none fixed bottom-0 left-0 top-11 z-30 w-[60px] overflow-y-auto border-r border-line bg-rail py-2"
+        className="scrollbar-none fixed bottom-0 left-0 top-11 z-30 w-[60px] overflow-y-auto border-r border-line bg-rail py-2 print:hidden"
         onMouseLeave={scheduleClose}
       >
         <ul className="flex flex-col items-center gap-1">
