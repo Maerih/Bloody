@@ -8,9 +8,10 @@
 #
 # Stages
 #   base     Node + pinned pnpm (corepack)
-#   fetch    pnpm store populated from the lockfile only (cached across source changes)
-#   build      offline install → typecheck + tsup bundle (workspace packages bundled, npm deps external)
-#   prod-deps  frozen-lockfile, offline, production-only install of the @bloody/api closure
+#   fetch    pnpm store populated from the lockfile only (cached across source changes; later
+#            installs prefer it and download only what a restored layer cache left out)
+#   build      install from the store → typecheck + tsup bundle (workspace packages bundled, npm deps external)
+#   prod-deps  frozen-lockfile, production-only install of the @bloody/api closure
 #   agent    native SCIAT Agent binaries (Go, Windows + Linux, amd64 + arm64) with SHA256SUMS
 #   runtime  distroless Node 22, non-root (65532), no shell / package manager, root-owned
 #            read-only application files; works with readOnlyRootFilesystem (writes nothing).
@@ -48,7 +49,7 @@ RUN --mount=type=cache,id=bloody-pnpm-store,target=/pnpm/store \
 FROM fetch AS build
 COPY . .
 RUN --mount=type=cache,id=bloody-pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --offline
+    pnpm install --frozen-lockfile --prefer-offline
 # Workspace packages must be bundled into dist (tsup noExternal); the runtime ships no TS source.
 RUN pnpm --filter @bloody/api run build \
  && if grep -rEq "(from|import\()[[:space:]]*['\"]@bloody/" apps/api/dist --include='*.js'; then \
@@ -64,7 +65,7 @@ RUN pnpm --filter @bloody/api run build \
 FROM fetch AS prod-deps
 COPY . .
 RUN --mount=type=cache,id=bloody-pnpm-store,target=/pnpm/store \
-    pnpm install --prod --frozen-lockfile --offline \
+    pnpm install --prod --frozen-lockfile --prefer-offline \
       --filter "@bloody/api..." --config.shamefully-hoist=true \
  && rm -rf node_modules/@bloody apps/api/node_modules/@bloody node_modules/.bin apps/api/node_modules/.bin \
  && find node_modules/.pnpm -type f \( -name '*.md' -o -name '*.markdown' -o \( -name '*.ts' ! -name '*.d.ts' \) \) -delete \

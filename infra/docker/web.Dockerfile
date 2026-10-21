@@ -49,7 +49,7 @@ ENV VITE_SALES_CONTACT_URL=${VITE_SALES_CONTACT_URL} \
     VITE_HUB_URL=${VITE_HUB_URL}
 COPY . .
 RUN --mount=type=cache,id=bloody-pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --offline
+    pnpm install --frozen-lockfile --prefer-offline
 RUN pnpm --filter @bloody/web run build \
  && test -f apps/web/dist/index.html \
  && if find apps/web/dist -name '*.map' | grep -q .; then echo "error: source maps must not ship" >&2; exit 1; fi
