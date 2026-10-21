@@ -13,7 +13,8 @@
 #           self-signed certificate on the IP). The app itself listens on localhost only. Production
 #           settings, no demo data, and a first administrator with a random password.
 #
-# It checks everything and installs what is missing (Node.js 22, pnpm, PostgreSQL, Caddy/mDNS), sets up
+# It checks everything and installs what is missing (Node.js 22, pnpm, Go, PostgreSQL, Caddy/mDNS), builds
+# the native SCIAT Agent for Windows and Linux, sets up
 # the database and a private .env, installs the `bloody` service (starts on boot), opens the
 # firewall and finishes with a health check. Safe to re-run after `git pull` or any change.
 #
@@ -162,6 +163,36 @@ if [ "$(pnpm -v 2>/dev/null || true)" != "$want_pnpm" ]; then
 fi
 command -v pnpm >/dev/null || die "pnpm could not be installed"
 note "pnpm $(as_owner pnpm -v) ✔"
+
+# ─── 3b. Native SCIAT Agent binaries (Windows + Linux), served on the Download Agent page ───
+step "Native SCIAT Agent binaries"
+want_go="$(cat apps/agent/.go-version)"
+[ -x /usr/local/go/bin/go ] && export PATH="/usr/local/go/bin:$PATH"
+go_version() { go env GOVERSION 2>/dev/null | sed 's/^go//' || true; }
+if [ "$(go_version)" != "$want_go" ]; then
+  note "installing Go $want_go into /usr/local/go (builds the agent; found: $(go_version | grep . || echo none))"
+  case "$(uname -m)" in x86_64) garch=amd64 ;; aarch64|arm64) garch=arm64 ;; *) garch="" ;; esac
+  gtmp="$(mktemp -d)"
+  gfile="go${want_go}.linux-${garch}.tar.gz"
+  if [ -n "$garch" ] && curl -fsSL "https://dl.google.com/go/$gfile" -o "$gtmp/$gfile" &&
+    [ "$(sha256sum "$gtmp/$gfile" | cut -d' ' -f1)" = "$(curl -fsSL "https://dl.google.com/go/$gfile.sha256")" ]; then
+    $SUDO rm -rf /usr/local/go && $SUDO tar -xzf "$gtmp/$gfile" -C /usr/local --no-same-owner
+    export PATH="/usr/local/go/bin:$PATH"; hash -r
+  else
+    echo "    ${Y}!${N} could not download Go $want_go (or its checksum did not match)"
+  fi
+  rm -rf "$gtmp"
+fi
+if [ "$(go_version)" = "$want_go" ]; then
+  as_owner mkdir -p logs
+  if as_owner bash scripts/build-agent.sh >logs/agent-build.log 2>&1; then
+    note "built $(cat apps/agent/VERSION) for Windows and Linux with Go $want_go ✔"
+  else
+    echo "    ${Y}!${N} the agent build failed (see logs/agent-build.log); the Download Agent page offers the script installers only"
+  fi
+else
+  echo "    ${Y}!${N} skipped: the Download Agent page offers the script installers only until Go $want_go is available"
+fi
 
 # ─── 4. PostgreSQL ───────────────────────────────────────────────────────────
 step "PostgreSQL"
