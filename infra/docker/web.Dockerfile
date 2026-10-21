@@ -74,7 +74,9 @@ ENV BLOODY_API_UPSTREAM=http://api:4000 \
     NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
 
 USER root
-RUN rm -f /etc/nginx/conf.d/default.conf \
+# Pull in Alpine security fixes published after the base image was built (the Trivy gate fails on them).
+RUN apk upgrade --no-cache \
+ && rm -f /etc/nginx/conf.d/default.conf \
  && mkdir -p /etc/nginx/snippets \
  && chown 101:0 /etc/nginx/conf.d && chmod 0775 /etc/nginx/conf.d
 COPY infra/docker/nginx/nginx.conf /etc/nginx/nginx.conf

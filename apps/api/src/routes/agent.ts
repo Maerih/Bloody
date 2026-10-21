@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -57,8 +57,58 @@ const INSTALLERS = {
 export function agentFilesDir(override?: string): string {
   if (override) return override;
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const candidates = [path.resolve(here, "../../agent"), path.resolve(here, "../../../../infra/agent")];
-  return candidates.find((d) => existsSync(path.join(d, "sciat"))) ?? candidates[1]!;
+  // Bundled image: dist/server.js with the files copied to <app>/agent; source checkout: infra/agent.
+  const candidates = [path.resolve(here, "../agent"), path.resolve(here, "../../agent"), path.resolve(here, "../../../../infra/agent")];
+  return candidates.find((d) => existsSync(path.join(d, "sciat"))) ?? candidates[2]!;
+}
+
+/** Where the native agent binaries are: the override, <files dir>/bin in the image, else the dev build. */
+export function agentBinariesDir(override: string | undefined, filesDir: string): string {
+  if (override) return override;
+  const inImage = path.join(filesDir, "bin");
+  if (existsSync(path.join(inImage, "SHA256SUMS"))) return inImage;
+  const repo = path.resolve(filesDir, "../..");
+  let version = "";
+  try {
+    version = readFileSync(path.join(repo, "apps/agent/VERSION"), "utf8").trim();
+  } catch {
+    /* not a source checkout */
+  }
+  return path.join(repo, "dist/agent", version);
+}
+
+const NATIVE_RE = /^sciat-agent-(linux|windows)-(amd64|arm64)(\.exe)?$/;
+export interface NativeRelease {
+  version: string;
+  files: Array<{ name: string; os: "linux" | "windows"; arch: "amd64" | "arm64"; sha256: string; size: number }>;
+}
+/** The binaries listed in SHA256SUMS (only names of the expected form, only files that exist). */
+export async function nativeRelease(dir: string): Promise<NativeRelease | null> {
+  let sums: string;
+  try {
+    sums = await readFile(path.join(dir, "SHA256SUMS"), "utf8");
+  } catch {
+    return null;
+  }
+  let version = path.basename(dir);
+  try {
+    version = (await readFile(path.join(dir, "VERSION"), "utf8")).trim() || version;
+  } catch {
+    /* the folder is named after the version */
+  }
+  const files: NativeRelease["files"] = [];
+  for (const line of sums.split("\n")) {
+    const m = /^([0-9a-f]{64})\s+\*?(\S+)$/.exec(line.trim());
+    const n = m ? NATIVE_RE.exec(m[2]!) : null;
+    if (!m || !n) continue;
+    try {
+      const st = await stat(path.join(dir, m[2]!));
+      files.push({ name: m[2]!, os: n[1] as "linux" | "windows", arch: n[2] as "amd64" | "arm64", sha256: m[1]!, size: st.size });
+    } catch {
+      /* listed but missing */
+    }
+  }
+  return files.length ? { version, files } : null;
 }
 
 const HOST_RE = /^[A-Za-z0-9.-]+(:\d{1,5})?$|^\[[0-9A-Fa-f:.]+\](:\d{1,5})?$/;
@@ -173,6 +223,13 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
     });
   });
 
+  // Native SCIAT Agent binaries available on this platform (Download Agent page).
+  const binariesDir = agentBinariesDir(s.config.agent.binariesDir, filesDir);
+  app.get("/agents/native", async (request) => {
+    requireAuth(request);
+    return { release: await nativeRelease(binariesDir) };
+  });
+
   app.post("/agents/enrollment/regenerate", { config: { audit: false } }, async (request) => {
     await requireRecentMfa(request, s);
     const auth = requireAuth(request);
@@ -195,6 +252,20 @@ export async function agentRoutes(app: FastifyInstance, s: AppServices): Promise
       .header("content-disposition", `attachment; filename="${inst.name}"`)
       .header("cache-control", "no-store")
       .send(script);
+  });
+
+  app.get("/agent/download/:name", { config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request, reply) => {
+    const { name } = parse(z.object({ name: z.string().regex(NATIVE_RE) }), request.params);
+    const release = await nativeRelease(binariesDir);
+    const file = release?.files.find((f) => f.name === name);
+    if (!file) throw notFound("Agent binary");
+    return reply
+      .header("content-type", "application/octet-stream")
+      .header("content-disposition", `attachment; filename="${file.name}"`)
+      .header("content-length", String(file.size))
+      .header("x-content-sha256", file.sha256)
+      .header("cache-control", "no-store")
+      .send(createReadStream(path.join(binariesDir, file.name)));
   });
 
   app.get("/agent/files/:name", { config: { public: true, audit: false, rateLimit: endpointLimit } }, async (request, reply) => {

@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { makeMe, makeSummary } from "../../test/fixtures";
 import { mockApi, renderApp } from "../../test/utils";
-import { deploymentScript, oneLiner } from "./DownloadAgentPage";
+import { deploymentScript, nativeInstallCommand, oneLiner } from "./DownloadAgentPage";
 
 const KEY = "sak_e52275396bdb4f119aa48bfdba3cb08a_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_xyz";
 const enrollment = {
@@ -92,5 +92,31 @@ describe("Automatic agent updates", () => {
     expect(box).toBeChecked();
     fireEvent.click(box);
     await waitFor(() => expect(calls.find((c) => c.method === "PUT" && c.path === "/agents/auto-update")?.body).toEqual({ enabled: false }));
+  });
+});
+
+describe("Native agent (preview)", () => {
+  const linux = { name: "sciat-agent-linux-amd64", os: "linux" as const, arch: "amd64" as const, sha256: "a".repeat(64), size: 6_300_000 };
+  const windows = { name: "sciat-agent-windows-amd64.exe", os: "windows" as const, arch: "amd64" as const, sha256: "b".repeat(64), size: 6_600_000 };
+
+  it("builds the download-and-install command for each OS", () => {
+    const k = { url: "https://soc.example", accountKey: KEY, orgKey: "nile-health" };
+    expect(nativeInstallCommand(linux, k)).toBe(
+      `curl -fsSLo sciat-agent https://soc.example/api/v1/agent/download/sciat-agent-linux-amd64 && chmod +x sciat-agent && sudo ./sciat-agent install --url https://soc.example --account-key '${KEY}' --org-key 'nile-health'`,
+    );
+    expect(nativeInstallCommand(windows, k)).toBe(
+      `Invoke-WebRequest -UseBasicParsing https://soc.example/api/v1/agent/download/sciat-agent-windows-amd64.exe -OutFile sciat-agent.exe; .\\sciat-agent.exe install --url https://soc.example --account-key '${KEY}' --org-key 'nile-health'`,
+    );
+  });
+
+  it("lists the binaries with checksums, and stays hidden when the platform has none", async () => {
+    mockApi({ "/auth/me": makeMe(), "/command-center/summary": makeSummary(), "/agents/enrollment": enrollment, "/agents/native": { release: { version: "2.0.0", files: [linux, windows] } } });
+    renderApp("/agents/download");
+    const list = await screen.findByRole("list", { name: "Native agent downloads" });
+    expect(within(list).getAllByRole("link", { name: "Download" }).map((a) => a.getAttribute("href"))).toEqual(["/api/v1/agent/download/sciat-agent-linux-amd64", "/api/v1/agent/download/sciat-agent-windows-amd64.exe"]);
+    expect(screen.getByText("b".repeat(64))).toBeInTheDocument(); // Windows x64 is preselected
+    fireEvent.click(within(list).getAllByRole("radio")[0]!);
+    expect(screen.getByText("a".repeat(64))).toBeInTheDocument();
+    expect(screen.getByLabelText("Install the native agent on Linux").textContent).toContain("sudo ./sciat-agent install");
   });
 });

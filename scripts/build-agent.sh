@@ -16,5 +16,5 @@ for target in linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
   ( cd apps/agent && CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags "$LDFLAGS" -o "../../$OUT/$name" ./cmd/sciat-agent )
   echo "built $OUT/$name ($(du -h "$OUT/$name" | cut -f1))"
 done
-( cd "$OUT" && sha256sum sciat-agent-* > SHA256SUMS )
+( cd "$OUT" && sha256sum sciat-agent-* > SHA256SUMS && echo "$VERSION" > VERSION )
 echo "checksums: $OUT/SHA256SUMS"

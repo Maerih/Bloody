@@ -86,6 +86,8 @@ const RawEnv = z.object({
   BLOODY_DEMO_ACCOUNT: z.string().uuid().optional(),
   /** Directory holding the SCIAT Agent installers (infra/agent); found automatically when unset. */
   BLOODY_AGENT_FILES_DIR: z.string().min(1).optional(),
+  /** Native SCIAT Agent binaries with SHA256SUMS and VERSION (image: <files dir>/bin; dev: dist/agent/<version>). */
+  BLOODY_AGENT_BINARIES_DIR: z.string().min(1).optional(),
   BLOODY_INVOICE_DUE_DAYS: z.coerce.number().int().min(0).max(90).default(14),
   STRIPE_SECRET_KEY: z.string().max(300).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().max(300).optional(),
@@ -228,7 +230,7 @@ export interface AppConfig {
   };
   telemetry: { otlpEndpoint: string | null; serviceName: string; resourceAttributes: string | undefined };
   bus: { kind: "memory" | "kafka"; brokers: string[]; consumerGroup: string };
-  agent: { filesDir: string | undefined };
+  agent: { filesDir: string | undefined; binariesDir: string | undefined };
   sandbox: { accountId: string | null };
   billing: {
     priceBook: PriceBook;
@@ -424,7 +426,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     features: { vulnEnrichment: e.FEATURE_VULN_ENRICHMENT },
     enrichment: { allowedHosts: e.ENRICHMENT_ALLOWED_HOSTS.map((h) => h.toLowerCase()), kevFeedUrl: e.KEV_FEED_URL, epssApiUrl: e.EPSS_API_URL },
     reports: { maxStoredBytes: e.REPORT_MAX_STORED_BYTES },
-    agent: { filesDir: e.BLOODY_AGENT_FILES_DIR },
+    agent: { filesDir: e.BLOODY_AGENT_FILES_DIR, binariesDir: e.BLOODY_AGENT_BINARIES_DIR },
     sandbox: { accountId: e.BLOODY_DEMO_ACCOUNT ?? null },
     billing: {
       priceBook,

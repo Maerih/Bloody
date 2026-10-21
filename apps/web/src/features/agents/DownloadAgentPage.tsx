@@ -1,7 +1,7 @@
 import { Apple, ArrowUpCircle, BookOpen, Download, Eye, EyeOff, KeyRound, LifeBuoy, Monitor, Plug, RefreshCw, ShieldCheck, Terminal } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { useAgentAutoUpdate, useAgentEnrollment, useRegenerateAccountKey, useSetAgentAutoUpdate } from "../../api/hooks";
+import { useAgentAutoUpdate, useAgentEnrollment, useNativeAgentRelease, useRegenerateAccountKey, useSetAgentAutoUpdate, type NativeAgentRelease } from "../../api/hooks";
 import type { AgentEnrollment } from "../../api/types";
 import { useSession } from "../../app/session";
 import { Button, ButtonLink, Card, CopyButton, Dialog, EmptyState, ErrorState, Input, PageHeader, Select, Skeleton, TabPanel, Tabs } from "../../components";
@@ -301,6 +301,68 @@ function DeploymentTools({ keys }: { keys: Keys }) {
   );
 }
 
+/** Install command for the native binary (it enrolls and installs itself as a service). */
+export function nativeInstallCommand(file: NativeAgentRelease["files"][number], k: Keys): string {
+  const src = `${k.url}/api/v1/agent/download/${file.name}`;
+  if (file.os === "windows") {
+    return `Invoke-WebRequest -UseBasicParsing ${src} -OutFile sciat-agent.exe; .\\sciat-agent.exe install --url ${k.url} --account-key ${psq(k.accountKey)} --org-key ${psq(k.orgKey)}`;
+  }
+  return `curl -fsSLo sciat-agent ${src} && chmod +x sciat-agent && sudo ./sciat-agent install --url ${k.url} --account-key ${shq(k.accountKey)} --org-key ${shq(k.orgKey)}`;
+}
+
+const OS_LABEL = { windows: "Windows", linux: "Linux" } as const;
+const ARCH_LABEL = { amd64: "Intel / AMD (x64)", arm64: "ARM64" } as const;
+
+function NativeAgentCard({ keys }: { keys: Keys }) {
+  const native = useNativeAgentRelease();
+  const release = native.data?.release ?? null;
+  const [pick, setPick] = useState<string | null>(null);
+  if (native.isLoading) return <Skeleton className="h-40 w-full" />;
+  if (!release) return null;
+  const file = release.files.find((f) => f.name === pick) ?? release.files.find((f) => f.os === "windows" && f.arch === "amd64") ?? release.files[0]!;
+  const mb = (n: number) => `${(n / 1_048_576).toFixed(1)} MB`;
+  return (
+    <Card title={<span className="inline-flex items-center gap-2"><Download className="h-4 w-4" aria-hidden /> Native agent {release.version} — preview</span>}>
+      <div className="space-y-3 text-sm">
+        <p className="rounded border border-sev-medium/40 bg-sev-medium/5 p-2 text-xs">
+          For lab and test computers only: the binaries are not code-signed yet (Windows SmartScreen and antivirus may warn) and App Control blocking is not in the native agent yet. Customer computers keep
+          the installer above.
+        </p>
+        <ul aria-label="Native agent downloads" className="divide-y divide-line rounded border border-line">
+          {release.files.map((f) => (
+            <li key={f.name} className="flex flex-wrap items-center gap-2 px-2.5 py-1.5">
+              <label className="flex min-w-0 flex-1 items-center gap-2">
+                <input type="radio" name="native-file" checked={f.name === file.name} onChange={() => setPick(f.name)} />
+                <span className="font-medium">{OS_LABEL[f.os]}</span>
+                <span className="text-xs text-fg-muted">{ARCH_LABEL[f.arch]} · {mb(f.size)}</span>
+              </label>
+              <a className="text-xs font-medium text-brand hover:underline" href={`/api/v1/agent/download/${encodeURIComponent(f.name)}`} download={f.name}>
+                Download
+              </a>
+            </li>
+          ))}
+        </ul>
+        <div>
+          <div className="mb-1 text-xs font-medium text-fg-muted">SHA-256 of {file.name}</div>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded border border-line bg-canvas px-2 py-1 font-mono text-2xs" title={file.sha256}>
+              {file.sha256}
+            </code>
+            <CopyButton value={file.sha256} label="Copy checksum" />
+          </div>
+        </div>
+        <div>
+          <div className="mb-1 text-xs font-medium text-fg-muted">Install on {OS_LABEL[file.os]} ({file.os === "windows" ? "PowerShell as Administrator" : "as root"})</div>
+          <Snippet label={`Install the native agent on ${OS_LABEL[file.os]}`} code={nativeInstallCommand(file, keys)} />
+        </div>
+        <p className="text-xs text-fg-muted">
+          Enrolls the computer (or keeps the enrollment of an existing agent), installs itself as the SCIAT Agent service and checks in. Remove with <code>sciat-agent uninstall</code>.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
 function AboutAgent({ version }: { version: string }) {
   const rows: Array<[string, ReactNode]> = [
     ["Version", version],
@@ -467,6 +529,7 @@ export function DownloadAgentPage() {
         <div className="space-y-4">
           <KeysPanel data={data} orgKey={orgKey} setOrgKey={setPicked} />
           <AboutAgent version={data.agentVersion} />
+          <NativeAgentCard keys={keys} />
           <AutoUpdateCard />
         </div>
       </div>

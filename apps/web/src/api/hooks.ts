@@ -725,6 +725,21 @@ export function useNotificationFeed(access: { escalations: boolean; approvals: b
 export * from "./moduleHooks";
 
 /** SCIAT Agent enrollment: the account key and one organization key per customer. */
+export interface NativeAgentRelease {
+  version: string;
+  files: Array<{ name: string; os: "linux" | "windows"; arch: "amd64" | "arm64"; sha256: string; size: number }>;
+}
+
+/** Native agent binaries this platform serves (null when none were built into it). */
+export function useNativeAgentRelease(options: { enabled?: boolean } = {}) {
+  return useQuery<{ release: NativeAgentRelease | null }, ApiError>({
+    queryKey: ["agents", "native"],
+    queryFn: ({ signal }) => api.get<{ release: NativeAgentRelease | null }>("/agents/native", { signal }),
+    enabled: options.enabled ?? true,
+    staleTime: 300_000,
+  });
+}
+
 export function useAgentEnrollment(options: { enabled?: boolean } = {}) {
   return useQuery<AgentEnrollment, ApiError>({
     queryKey: queryKeys.agentEnrollment,

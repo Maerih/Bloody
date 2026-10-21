@@ -11,6 +11,7 @@
 #   fetch    pnpm store populated from the lockfile only (cached across source changes)
 #   build      offline install → typecheck + tsup bundle (workspace packages bundled, npm deps external)
 #   prod-deps  frozen-lockfile, offline, production-only install of the @bloody/api closure
+#   agent    native SCIAT Agent binaries (Go, Windows + Linux, amd64 + arm64) with SHA256SUMS
 #   runtime  distroless Node 22, non-root (65532), no shell / package manager, root-owned
 #            read-only application files; works with readOnlyRootFilesystem (writes nothing).
 #
@@ -20,6 +21,7 @@
 
 ARG NODE_VERSION=22.23.3
 ARG DEBIAN_RELEASE=trixie
+ARG GO_IMAGE=golang:1.24.7-bookworm
 # Distroless tags are rolling; the digest is the pin (Renovate keeps it current).
 ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs22-debian13:nonroot@sha256:ec2313763dd43931543bd03830466e0c409ce73a487e8d46f10db72d3b816c1c
 
@@ -67,6 +69,16 @@ RUN --mount=type=cache,id=bloody-pnpm-store,target=/pnpm/store \
  && find node_modules/.pnpm -type f \( -name '*.md' -o -name '*.markdown' -o \( -name '*.ts' ! -name '*.d.ts' \) \) -delete \
  && find node_modules/.pnpm -type d \( -name __tests__ -o -name test -o -name tests -o -name example -o -name examples \) -prune -exec rm -rf {} +
 
+# ─── agent: native SCIAT Agent binaries ─────────────────────────────────────────────────────
+FROM ${GO_IMAGE} AS agent
+WORKDIR /src
+COPY apps/agent ./apps/agent
+COPY scripts/build-agent.sh ./scripts/build-agent.sh
+RUN --mount=type=cache,id=bloody-go-mod,target=/go/pkg/mod \
+    --mount=type=cache,id=bloody-go-build,target=/root/.cache/go-build \
+    scripts/build-agent.sh \
+ && mv "dist/agent/$(cat apps/agent/VERSION)" /out
+
 # ─── runtime ─────────────────────────────────────────────────────────────────────────────
 FROM ${RUNTIME_IMAGE} AS runtime
 ARG GIT_SHA=unknown
@@ -99,6 +111,8 @@ COPY --from=build /repo/apps/api/migrations ./migrations
 COPY infra/docker/healthcheck.mjs /app/healthcheck.mjs
 # SCIAT Agent installers and scripts served by /api/v1/agent/install and /api/v1/agent/files.
 COPY infra/agent ./agent
+# Native agent binaries served by /api/v1/agent/download (listed in SHA256SUMS).
+COPY --from=agent /out ./agent/bin
 
 USER 65532:65532
 EXPOSE 4000
