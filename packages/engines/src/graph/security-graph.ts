@@ -1189,6 +1189,7 @@ function strengthOf(relations: string[]): number {
 function assetNodeKind(kind: AssetKind): NodeKind {
   switch (kind) {
     case "endpoint":
+    case "mobile_device":
       return "endpoint";
     case "server":
     case "domain_controller":

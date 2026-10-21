@@ -20,6 +20,7 @@ import { agentRoutes } from "./agent.js";
 import { mailServerRoutes } from "./mail-server.js";
 import { appControlRoutes } from "./app-control.js";
 import { m365Routes } from "./m365.js";
+import { mobileRoutes } from "./mobile.js";
 import { sandboxRoutes } from "./sandbox.js";
 import { rmmGuardRoutes } from "./rmm-guard.js";
 import { footholdRoutes } from "./footholds.js";
@@ -80,6 +81,7 @@ export async function registerRoutes(app: FastifyInstance, services: AppServices
   await hostInventoryRoutes(app, services);
   await appControlRoutes(app, services);
   await m365Routes(app, services);
+  await mobileRoutes(app, services);
   await sandboxRoutes(app, services);
   await rmmGuardRoutes(app, services);
   await footholdRoutes(app, services);

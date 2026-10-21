@@ -50,6 +50,7 @@ import { AgentEnrollmentService } from "./services/agent-enrollment.js";
 import { AppControlService } from "./services/app-control.js";
 import { HostInventoryService } from "./services/host-inventory.js";
 import { M365Service, systemDnsResolver } from "./services/m365.js";
+import { AndroidService } from "./services/android.js";
 import { RmmGuardService } from "./services/rmm-guard.js";
 import { FootholdsService } from "./services/footholds.js";
 import { PatchingService } from "./services/patching.js";
@@ -270,10 +271,12 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   });
   const appControl = new AppControlService(now);
   const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
+  const android = new AndroidService({ db, secrets: secretStore, fetch: fetchImpl, publicUrl: config.http.publicUrl, now });
+  responses.attachMobile(android);
   const awareness = new AwarenessService({ db, mailer: new AwarenessMailer(mailServer), publicUrl: config.http.publicUrl, now });
   const exposure = new ExposureService({ db, events: domainEvents, probe: deps.portProbe ?? tcpProbe, now });
   const postureSnapshots = new PostureSnapshotService({ db, dataSource: reports.dataSource, now });
-  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, exposure, awareness, postureSnapshots, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, android, exposure, awareness, postureSnapshots, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
   const services: AppServices = {
     config,
@@ -310,6 +313,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     phishing: new PhishingService({ db, awareness }),
     hostInventory: new HostInventoryService(now),
     m365,
+    android,
     paymentProviders,
     intel,
     enrichment: new EnrichmentService({ db, inventory, events: domainEvents, enabled: config.features.vulnEnrichment, config: config.enrichment, fetch: engineFetch, resolveHost, now }),

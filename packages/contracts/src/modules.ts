@@ -25,6 +25,7 @@ export const MODULES = [
   { key: "email", short: "MAIL", name: "Email Security", group: "detect" },
   { key: "deception", short: "DECOY", name: "Deception", group: "detect" },
   { key: "awareness", short: "SAT", name: "Security Awareness Training", group: "respond" },
+  { key: "mdm", short: "MDM", name: "Mobile Device Management", group: "expose" },
   { key: "ai_soc", short: "AI", name: "AI SOC Analyst", group: "core" },
 ] as const;
 
@@ -57,7 +58,7 @@ export const PLANS: Record<PlanKey, PlanDefinition> = {
   professional: {
     key: "professional",
     name: "Professional",
-    modules: ["command_center", "edr", "xdr", "itdr", "ndr", "siem", "asm", "espm", "ispm", "vuln", "cti", "soar", "ai_soc"],
+    modules: ["command_center", "edr", "xdr", "itdr", "ndr", "siem", "asm", "espm", "ispm", "vuln", "cti", "soar", "ai_soc", "mdm"],
     limits: { endpoints: 2_500, organizations: 5, users: 50, eventsPerDay: 100_000_000, retentionDays: 90, aiRequestsPerDay: 5_000 },
   },
   enterprise: {

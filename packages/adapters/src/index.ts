@@ -79,3 +79,5 @@ export * from "./registry.js";
 export * from "./saas/m365/graph.js";
 export * from "./saas/m365/collect.js";
 export { M365_CHECKS, evaluateM365, scoreM365 } from "./saas/m365/checks.js";
+export * from "./mdm/android/amapi.js";
+export { SCIAT_POLICY_ID, MOBILE_STALE_DAYS, buildAndroidPolicy, evaluateAndroidDevice } from "./mdm/android/policy.js";

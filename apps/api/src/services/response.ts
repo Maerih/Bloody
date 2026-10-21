@@ -185,6 +185,16 @@ interface ExecutionOutcome {
   error: { code: string; message: string; retryable: boolean } | null;
 }
 
+/** Executes lock_device / wipe_device on an enrolled phone (the Android service). */
+export interface MobileExecutor {
+  deviceForAsset(tx: Queryable, assetId: string): Promise<{ name: string } | null>;
+  lock(tenantId: string, assetId: string): Promise<string>;
+  wipe(tenantId: string, assetId: string, reason: string): Promise<string>;
+}
+
+/** Actions run on a managed phone through its MDM (no engine connector). */
+export const MOBILE_ACTIONS: ReadonlySet<ResponseActionKey> = new Set(["lock_device", "wipe_device"]);
+
 type AiDecider = (principal: Principal, aiActionId: string, decision: "approve" | "reject", comment: string | undefined) => Promise<void>;
 type AiApprovalHook = (approval: ApprovalRequest) => Promise<void>;
 
@@ -203,6 +213,7 @@ export class ResponseService {
   private playbooks: PlaybookEngine | null = null;
   private aiDecider: AiDecider | null = null;
   private aiApprovalHook: AiApprovalHook | null = null;
+  private mobile: MobileExecutor | null = null;
 
   constructor(private readonly deps: ResponseServiceDeps) {
     deps.gate.onDecision((approval) => this.onDecision(approval));
@@ -211,6 +222,10 @@ export class ResponseService {
   /** Late wiring (the playbook engine and the AI service depend on this service). */
   attachPlaybookEngine(engine: PlaybookEngine): void {
     this.playbooks = engine;
+  }
+
+  attachMobile(executor: MobileExecutor): void {
+    this.mobile = executor;
   }
 
   attachAi(decider: AiDecider, onApproval: AiApprovalHook): void {
@@ -224,7 +239,7 @@ export class ResponseService {
     const connectors = await this.deps.integrations.availableActions(tx, organizationId);
     return RESPONSE_ACTIONS.map((a) => {
       const req = this.deps.gate.requirement(a.key);
-      const internal = INTERNAL_ACTIONS.has(a.key) || a.key === "harden_endpoint";
+      const internal = INTERNAL_ACTIONS.has(a.key) || a.key === "harden_endpoint" || MOBILE_ACTIONS.has(a.key);
       const via = connectors.get(a.key) ?? [];
       return {
         key: a.key,
@@ -312,6 +327,7 @@ export class ResponseService {
       }
       const target = await this.validateTarget(tx, input.organizationId, input.action, input.target, input.incidentId ?? null);
       const parameters = input.action === "harden_endpoint" ? await this.validateHardening(tx, target, input.parameters) : input.parameters;
+      if (MOBILE_ACTIONS.has(input.action) && !(await this.mobile?.deviceForAsset(tx, target.id))) throw badRequest("The asset is not an enrolled mobile device");
       const status: ResponseActionStatus = needsApproval ? "pending_approval" : "approved";
       const { rows } = await tx.query<Row>(
         `INSERT INTO response_actions (tenant_id, organization_id, incident_id, action, target, parameters, reason, status, risk, requested_by, requested_via,
@@ -671,7 +687,16 @@ export class ResponseService {
   private async run(tenantId: string, row: Row): Promise<ExecutionOutcome> {
     const action = row.action as ResponseActionKey;
     if (INTERNAL_ACTIONS.has(action)) return this.runInternal(tenantId, row, action);
+    if (MOBILE_ACTIONS.has(action)) return this.runMobile(tenantId, row, action);
     return (await this.dispatchToAgent(tenantId, row, action)) ?? this.runConnector(tenantId, row, action);
+  }
+
+  /** lock_device / wipe_device: the command goes to Google, which delivers it to the phone. */
+  private async runMobile(tenantId: string, row: Row, action: ResponseActionKey): Promise<ExecutionOutcome> {
+    const target = row.target as ResponseTargetInput;
+    if (!this.mobile) throw new HttpError(409, "mdm_unavailable", "Mobile device management is not available");
+    const summary = action === "lock_device" ? await this.mobile.lock(tenantId, target.id) : await this.mobile.wipe(tenantId, target.id, String(row.reason ?? ""));
+    return { status: "succeeded", executor: "mdm:android", integrationId: null, result: { summary }, error: null };
   }
 
   /**

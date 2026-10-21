@@ -20,6 +20,7 @@ export const AssetKind = z.enum([
   "saas_app",
   "external_host",
   "data_store",
+  "mobile_device",
 ]);
 export type AssetKind = z.infer<typeof AssetKind>;
 

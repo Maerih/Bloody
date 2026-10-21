@@ -21,3 +21,4 @@ export * from "./footholds.js";
 export * from "./endpoint-dossier.js";
 export * from "./mail-server.js";
 export * from "./patching.js";
+export * from "./mobile.js";

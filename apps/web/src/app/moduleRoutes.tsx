@@ -36,6 +36,7 @@ const SoarPage = lazy(() => import("../pages/modules/SoarPage"));
 const EmailPage = lazy(() => import("../pages/modules/EmailPage"));
 const DeceptionPage = lazy(() => import("../pages/modules/DeceptionPage"));
 const AwarenessPage = lazy(() => import("../pages/modules/AwarenessPage"));
+const MdmPage = lazy(() => import("../pages/modules/MdmPage"));
 
 const AiSocPage = lazy(() => import("../pages/ai/AiSocPage"));
 const AiSettingsPage = lazy(() => import("../pages/ai/AiSettingsPage"));
@@ -118,6 +119,7 @@ export const MODULE_ROUTES: AppRoute[] = [
   ...workspace("/mail", <EmailPage />),
   ...workspace("/email", <EmailPage />),
   ...workspace("/awareness", <AwarenessPage />),
+  ...workspace("/mdm", <MdmPage />),
   ...workspace("/decoy", <DeceptionPage />),
   ...workspace("/deception", <DeceptionPage />),
 

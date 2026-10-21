@@ -19,6 +19,8 @@ export const RESPONSE_ACTIONS = [
   { key: "launch_investigation", label: "Launch investigation", risk: "low", target: "incident" },
   { key: "run_yara_scan", label: "Run YARA scan", risk: "low", target: "asset" },
   { key: "send_email", label: "Send email", risk: "low", target: "incident" },
+  { key: "lock_device", label: "Lock mobile device", risk: "medium", target: "asset" },
+  { key: "wipe_device", label: "Wipe mobile device (factory reset)", risk: "high", target: "asset" },
 ] as const;
 
 export type ResponseActionKey = (typeof RESPONSE_ACTIONS)[number]["key"];

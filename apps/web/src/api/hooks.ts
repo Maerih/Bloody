@@ -8,6 +8,11 @@ import {
 import {
   ACTIVE_INCIDENT_STATUSES,
   REPORT_TYPES,
+  type AndroidAccountSettings,
+  type AndroidEnterprise,
+  type AndroidPolicySettings,
+  type MobileEnrollmentToken,
+  type MobileOverview,
   type Alert,
   type AutomationRule,
   type BillingInterval,
@@ -1162,3 +1167,28 @@ export function useSandbox() {
 /** Switching accounts changes every cached answer: the caller reloads the app afterwards. */
 export const useEnterSandbox = () => useMutation<{ ok: boolean }, ApiError, void>({ mutationFn: () => api.post("/sandbox/enter", {}) });
 export const useExitSandbox = () => useMutation<{ restored: boolean }, ApiError, void>({ mutationFn: () => api.post("/sandbox/exit", {}) });
+
+// ─── Mobile device management (Android Enterprise) ─────────────────────────
+
+export function useMobileOverview(organizationId: string | null) {
+  return useQuery<MobileOverview, ApiError>({
+    queryKey: ["mobile", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/mobile/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+  });
+}
+
+function useMobileMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation<TResult, ApiError, TVars>({ mutationFn: fn, onSuccess: () => void qc.invalidateQueries({ queryKey: ["mobile"] }) });
+}
+export const useSaveGoogleAccount = () => useMobileMutation((serviceAccountJson: string) => api.put<AndroidAccountSettings>("/mobile/android/account", { serviceAccountJson }));
+export const useRemoveGoogleAccount = () => useMobileMutation(() => api.delete<AndroidAccountSettings>("/mobile/android/account"));
+export const useStartAndroidSignup = () => useMobileMutation((input: { organizationId: string; adminEmail?: string }) => api.post<{ url: string }>("/mobile/android/enterprise/signup", input));
+export const useLinkAndroidEnterprise = () => useMobileMutation((input: { organizationId: string; enterpriseName: string }) => api.post<AndroidEnterprise>("/mobile/android/enterprise/link", input));
+export const useUnlinkAndroidEnterprise = () => useMobileMutation((organizationId: string) => api.delete(`/mobile/android/enterprise?organizationId=${encodeURIComponent(organizationId)}`));
+export const useSaveAndroidPolicy = () => useMobileMutation((input: { organizationId: string; settings: AndroidPolicySettings }) => api.put<AndroidEnterprise>("/mobile/android/policy", input));
+export const useCreateEnrollmentCode = () =>
+  useMobileMutation((input: { organizationId: string; ownership: "company" | "personal"; validDays: number; assignee?: string }) => api.post<MobileEnrollmentToken>("/mobile/android/enrollment-tokens", input));
+export const useRevokeEnrollmentCode = () => useMobileMutation((id: string) => api.delete(`/mobile/android/enrollment-tokens/${encodeURIComponent(id)}`));
+export const useSyncMobileDevices = () => useMobileMutation((organizationId: string) => api.post<{ devices: number; removed: number }>("/mobile/android/sync", { organizationId }));
