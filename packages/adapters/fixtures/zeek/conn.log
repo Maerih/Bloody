@@ -1,0 +1,1 @@
+{"ts":1791360000.123456,"uid":"CHhAvVGS1DHFjwGM9","id.orig_h":"10.0.10.21","id.orig_p":49823,"id.resp_h":"198.51.100.23","id.resp_p":443,"proto":"tcp","service":"ssl","duration":120.5,"orig_bytes":48211,"resp_bytes":1048576,"conn_state":"SF","local_orig":true,"local_resp":false,"missed_bytes":0,"history":"ShADadFf","orig_pkts":210,"resp_pkts":800}

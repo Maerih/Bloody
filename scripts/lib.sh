@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared helpers for the Bloody install/start/doctor scripts (sourced, not executed).
 
 # The address other machines reach this server on: the source address of the default route

@@ -4,7 +4,7 @@
 #
 #   bash scripts/doctor.sh
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 export PATH="/usr/local/bin:$PATH"
 . scripts/lib.sh
 

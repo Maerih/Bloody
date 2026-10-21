@@ -572,7 +572,7 @@ INVENTORY_EVERY=1800
 AC_POLICY="$STATE_DIR/app-control.policy"
 AC_PROTECTED=" system smss.exe csrss.exe wininit.exe winlogon.exe services.exe lsass.exe lsaiso.exe svchost.exe explorer.exe dwm.exe fontdrvhost.exe conhost.exe powershell.exe sciatagent.exe msmpeng.exe registry init systemd systemd-journald systemd-logind systemd-udevd dbus-daemon sshd login agetty sudo bash sh dash curl nft launchd kernel_task loginwindow sciat-agent "
 AC_PLATFORM=linux; [ "$(uname -s)" = Darwin ] && AC_PLATFORM=macos
-AC_MODE=off AC_ETAG="" AC_LOADED=""
+AC_MODE=off AC_LOADED=""
 AC_RULES=()            # "action kind platform pattern ruleId"
 # App Control enforcement reads /proc (Linux) and needs bash 4 associative arrays.
 if [ "$AC_PLATFORM" = linux ] && [ "${BASH_VERSINFO[0]}" -ge 4 ]; then
@@ -605,7 +605,7 @@ ac_load() {
   local word id action kind platform value
   while read -r word id action kind platform value; do
     case "$word" in
-      etag) AC_ETAG="$id" ;;
+      etag) ;;
       mode) [[ "$id" =~ ^(off|audit|enforce)$ ]] && AC_MODE="$id" ;;
       rule)
         [[ "$platform" == any || "$platform" == "$AC_PLATFORM" ]] || continue
@@ -628,6 +628,8 @@ ac_decide() {
   AC_VERDICT="" AC_RULE=""
   for r in ${AC_RULES[@]+"${AC_RULES[@]}"}; do
     IFS=$'\t' read -r action kind pat id <<< "$r"
+    # Rule values are wildcard patterns (built by ac_pattern): the right-hand side is unquoted on purpose.
+    # shellcheck disable=SC2053
     case "$kind" in
       name) [[ "$name" == $pat || "${path##*/}" == $pat ]] || continue ;;
       path) [[ -n "$path" && "$path" == $pat ]] || continue ;;
