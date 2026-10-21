@@ -43,7 +43,7 @@ export function parseServiceAccountKey(json: string): ServiceAccountKey {
   } catch {
     throw new AmapiError(400, "invalid_key", "The key file is not valid JSON — upload the .json key downloaded from Google Cloud");
   }
-  if (raw.type !== "service_account") throw new AmapiError(400, "invalid_key", 'The key file is not a service account key (expected "type": "service_account")');
+  if (raw.type !== "service_account") throw new AmapiError(400, "invalid_key", "The key file is not a service account key — create the key under IAM & Admin → Service accounts → Keys");
   const projectId = String(raw.project_id ?? "");
   const clientEmail = String(raw.client_email ?? "");
   const privateKey = String(raw.private_key ?? "");

@@ -520,7 +520,7 @@ function GoogleAccountCard({ o }: { o: MobileOverview }) {
           ) : canWrite ? (
             <>
               <Field label="Service account key (.json)">{(f) => <Input {...f} type="file" accept="application/json,.json" onChange={(e) => void readFile(e.target.files?.[0])} />}</Field>
-              <Field label="…or paste its contents">{(f) => <Textarea {...f} rows={5} value={json} onChange={(e) => setJson(e.target.value)} placeholder='{"type": "service_account", "project_id": …}' className="font-mono text-xs" />}</Field>
+              <Field label="…or paste its contents">{(f) => <Textarea {...f} rows={5} value={json} onChange={(e) => setJson(e.target.value)} placeholder="Paste the whole .json key file here" className="font-mono text-xs" />}</Field>
               <div className="flex gap-2">
                 <Button variant="primary" loading={save.isPending} disabled={json.trim().length < 50} onClick={() => save.mutate(json, { onSuccess: () => { setJson(""); setEditing(false); } })}>
                   Check and connect
