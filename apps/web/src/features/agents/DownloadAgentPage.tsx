@@ -318,7 +318,20 @@ function NativeAgentCard({ keys }: { keys: Keys }) {
   const release = native.data?.release ?? null;
   const [pick, setPick] = useState<string | null>(null);
   if (native.isLoading) return <Skeleton className="h-40 w-full" />;
-  if (!release) return null;
+  if (!release) {
+    return (
+      <Card title={<span className="inline-flex items-center gap-2"><Download className="h-4 w-4" aria-hidden /> Native agent — preview</span>}>
+        <div className="space-y-2 text-sm" data-testid="native-agent-missing">
+          <p>This server has no native agent binaries (Windows and Linux) to offer yet.</p>
+          <ul className="list-disc space-y-1 pl-5 text-xs text-muted">
+            <li>The SCIAT API container image includes them — deploy or update the API image and they appear here.</li>
+            <li>Running from source: build them with <code className="font-mono">scripts/build-agent.sh</code> (needs Go), then reload this page.</li>
+            <li>Or point <code className="font-mono">BLOODY_AGENT_BINARIES_DIR</code> at a folder holding the binaries and their <code className="font-mono">SHA256SUMS</code>.</li>
+          </ul>
+        </div>
+      </Card>
+    );
+  }
   const file = release.files.find((f) => f.name === pick) ?? release.files.find((f) => f.os === "windows" && f.arch === "amd64") ?? release.files[0]!;
   const mb = (n: number) => `${(n / 1_048_576).toFixed(1)} MB`;
   return (

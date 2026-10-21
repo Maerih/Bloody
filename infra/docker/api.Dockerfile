@@ -21,7 +21,7 @@
 
 ARG NODE_VERSION=22.23.3
 ARG DEBIAN_RELEASE=trixie
-ARG GO_IMAGE=golang:1.24.7-bookworm
+ARG GO_IMAGE=golang:1.27.3-trixie
 # Distroless tags are rolling; the digest is the pin (Renovate keeps it current).
 ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs22-debian13:nonroot@sha256:ec2313763dd43931543bd03830466e0c409ce73a487e8d46f10db72d3b816c1c
 

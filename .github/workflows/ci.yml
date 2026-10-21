@@ -137,7 +137,9 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
         with:
-          go-version-file: apps/agent/go.mod
+          # Pinned to a current release: Go's standard library is compiled into the binaries, so an old
+          # toolchain ships its CVEs to every endpoint (keep in step with GO_IMAGE in api.Dockerfile).
+          go-version: "1.27.3"
           cache-dependency-path: apps/agent/go.sum
       - name: vet (Linux and Windows)
         working-directory: apps/agent

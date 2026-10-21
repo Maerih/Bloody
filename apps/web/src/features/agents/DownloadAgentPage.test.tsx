@@ -109,7 +109,7 @@ describe("Native agent (preview)", () => {
     );
   });
 
-  it("lists the binaries with checksums, and stays hidden when the platform has none", async () => {
+  it("lists the binaries with checksums", async () => {
     mockApi({ "/auth/me": makeMe(), "/command-center/summary": makeSummary(), "/agents/enrollment": enrollment, "/agents/native": { release: { version: "2.0.0", files: [linux, windows] } } });
     renderApp("/agents/download");
     const list = await screen.findByRole("list", { name: "Native agent downloads" });
@@ -118,5 +118,13 @@ describe("Native agent (preview)", () => {
     fireEvent.click(within(list).getAllByRole("radio")[0]!);
     expect(screen.getByText("a".repeat(64))).toBeInTheDocument();
     expect(screen.getByLabelText("Install the native agent on Linux").textContent).toContain("sudo ./sciat-agent install");
+  });
+
+  it("says how to get the binaries when the server has none", async () => {
+    mockApi({ "/auth/me": makeMe(), "/command-center/summary": makeSummary(), "/agents/enrollment": enrollment, "/agents/native": { release: null } });
+    renderApp("/agents/download");
+    const box = await screen.findByTestId("native-agent-missing");
+    expect(box.textContent).toContain("scripts/build-agent.sh");
+    expect(screen.queryByRole("list", { name: "Native agent downloads" })).toBeNull();
   });
 });
