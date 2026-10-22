@@ -25,6 +25,9 @@ import { sha256Hex } from "../security/crypto.js";
 import { migrate } from "./migrate.js";
 import { Database, createPool } from "./pool.js";
 import { loadDotEnv } from "../env-file.js";
+import { randomBytes } from "node:crypto";
+import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
 
 // ─── Specs ──────────────────────────────────────────────────────────────────
 
@@ -534,12 +537,61 @@ interface Page<T> {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
+/** Value of a --flag value argument, if given. */
+function argValue(name: string): string | undefined {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+/** Ask for the administrator's email and password (password typed hidden, entered twice). */
+async function askAdministrator(emailArg: string | undefined, passwordEnv: string | undefined): Promise<{ email: string; password: string }> {
+  if (!process.stdin.isTTY) {
+    if (!emailArg || !passwordEnv) throw new Error("Not interactive: pass --admin-email <address> and set SEED_ADMIN_PASSWORD (12+ characters).");
+    if (passwordEnv.length < 12) throw new Error("SEED_ADMIN_PASSWORD must be 12+ characters.");
+    return { email: emailArg, password: passwordEnv };
+  }
+  const muted = new Writable({ write: (_c, _e, cb) => cb() });
+  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  const email = (emailArg ?? (await rl.question("Administrator email: "))).trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    rl.close();
+    throw new Error("That is not a valid email address.");
+  }
+  const rlHidden = createInterface({ input: process.stdin, output: muted, terminal: true });
+  const ask = async (q: string): Promise<string> => {
+    process.stdout.write(q);
+    const answer = await rlHidden.question("");
+    process.stdout.write("\n");
+    return answer;
+  };
+  const password = passwordEnv ?? (await ask("Administrator password (12+ characters, hidden): "));
+  const again = passwordEnv ?? (await ask("Repeat password: "));
+  rlHidden.close();
+  rl.close();
+  if (password !== again) throw new Error("The two passwords do not match.");
+  if (password.length < 12) throw new Error("The password must be 12+ characters.");
+  return { email, password };
+}
+
 async function main(): Promise<void> {
   loadDotEnv();
   const config = loadConfig({ ...process.env, LOG_LEVEL: process.env.LOG_LEVEL ?? "warn" });
-  if (config.env === "production") throw new Error("seed-dev refuses to run with NODE_ENV=production");
   const refresh = process.argv.includes("--refresh");
-  const password = process.env.SEED_ADMIN_PASSWORD ?? "ChangeMe!123";
+  // Production: demo data is written only on an explicit --allow-production. Then the administrator's
+  // email and password are asked for (never assumed); the demo people get random passwords nobody knows.
+  const production = config.env === "production";
+  if (production && !process.argv.includes("--allow-production")) {
+    throw new Error("Refusing to write demo data with NODE_ENV=production. To populate a production account on purpose, add --allow-production.");
+  }
+  let adminEmail = "admin@bloody.local";
+  let password = "ChangeMe!123";
+  if (production) {
+    const credentials = await askAdministrator(argValue("--admin-email"), process.env.SEED_ADMIN_PASSWORD);
+    adminEmail = credentials.email;
+    password = credentials.password;
+    console.log(`bloody seed-demo: populating a PRODUCTION account. ${adminEmail} becomes the administrator.`);
+  }
+  const staffPassword = production ? randomBytes(24).toString("base64url") : password;
 
   console.log("bloody seed-dev: applying migrations…");
   await migrate({ connectionString: config.database.privilegedUrl, appRolePassword: config.database.appPassword });
@@ -560,9 +612,9 @@ async function main(): Promise<void> {
       );
       const id = acc.rows[0]!.id;
       const user = await tx.query<{ id: string }>(
-        `INSERT INTO users (tenant_id, email, display_name, title, status) VALUES ($1, 'admin@bloody.local', 'SCIAT AFRICA Platform Admin', 'MSSP Administrator', 'active')
+        `INSERT INTO users (tenant_id, email, display_name, title, status) VALUES ($1, $2, 'SCIAT AFRICA Platform Admin', 'MSSP Administrator', 'active')
          ON CONFLICT (tenant_id, email) DO UPDATE SET status = 'active', display_name = EXCLUDED.display_name RETURNING id`,
-        [id],
+        [id, adminEmail],
       );
       const uid = user.rows[0]!.id;
       await tx.query(
@@ -596,7 +648,7 @@ async function main(): Promise<void> {
     const { app, services } = built;
     await app.ready();
     const api = new Client(app);
-    const login = await api.call<{ token: string }>("POST", "/auth/login", { email: "admin@bloody.local", password });
+    const login = await api.call<{ token: string }>("POST", "/auth/login", { email: adminEmail, password });
     api.setToken(login.body.token);
 
     const orgIds = new Map<string, string>();
@@ -629,13 +681,13 @@ async function main(): Promise<void> {
     ];
     const userIds = new Map<string, string>();
     for (const person of people) {
-      const res = await api.call<{ id: string }>("POST", "/users", { ...person, password }, [201, 409]);
+      const res = await api.call<{ id: string }>("POST", "/users", { ...person, password: staffPassword }, [201, 409]);
       if (res.status === 201) userIds.set(person.email, res.body.id);
       else {
         const found = (await api.call<Page<{ id: string; email: string }>>("GET", `/users?q=${encodeURIComponent(person.email)}`)).body.items.find((u) => u.email === person.email);
         if (found) {
           userIds.set(person.email, found.id);
-          await api.call("POST", `/users/${found.id}/password`, { password });
+          await api.call("POST", `/users/${found.id}/password`, { password: staffPassword });
         }
       }
     }
@@ -883,8 +935,9 @@ async function main(): Promise<void> {
     console.log(`Command Center      ${s.activeIncidents.total} active incidents (${s.activeIncidents.critical} critical, ${s.activeIncidents.high} high), ${s.socActions.signalsGenerated} signals from ${s.socActions.eventsAnalyzed} events, ${s.escalations.open} open escalations, ${s.intelMatches} intel matches, ${s.attackPaths.total} attack paths (${s.attackPaths.toCrownJewels} to crown jewels), exposure ${s.exposureScore}/100`);
     console.log("");
     console.log("Sign in (development only):");
-    console.log(`  admin@bloody.local / ${password}   (MSSP admin; also analyst.t1@, analyst.t2@, hunter@, responder@, engineer@, pod.kb@bloody.local)`);
-    console.log(`  ciso@kilimanjaro-bank.example, it.manager@savannah-logistics.example, viewer@nile-health.example — same password`);
+    console.log(production ? `  ${adminEmail}   (MSSP admin, the password you entered)` : `  admin@bloody.local / ${password}   (MSSP admin; also analyst.t1@, analyst.t2@, hunter@, responder@, engineer@, pod.kb@bloody.local)`);
+    if (production) console.log("  demo staff and customer users were created with random passwords (sign-in disabled for them)");
+    if (!production) console.log(`  ciso@kilimanjaro-bank.example, it.manager@savannah-logistics.example, viewer@nile-health.example — same password`);
     for (const k of newKeys) console.log(`  Ingestion API key for ${k.org}: ${k.key}`);
     if (newKeys.length === 0) console.log("  (organization ingestion API keys already exist — create new ones under Settings → API credentials)");
   } finally {
