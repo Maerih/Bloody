@@ -934,9 +934,11 @@ async function main(): Promise<void> {
     console.log(`Events ingested     ${accepted} new, ${duplicates} already present`);
     console.log(`Command Center      ${s.activeIncidents.total} active incidents (${s.activeIncidents.critical} critical, ${s.activeIncidents.high} high), ${s.socActions.signalsGenerated} signals from ${s.socActions.eventsAnalyzed} events, ${s.escalations.open} open escalations, ${s.intelMatches} intel matches, ${s.attackPaths.total} attack paths (${s.attackPaths.toCrownJewels} to crown jewels), exposure ${s.exposureScore}/100`);
     console.log("");
-    console.log("Sign in (development only):");
+    console.log(production ? "Sign in:" : "Sign in (development only):");
+    console.log(`  Open        ${config.http.publicUrl}`);
     console.log(production ? `  ${adminEmail}   (MSSP admin, the password you entered)` : `  admin@bloody.local / ${password}   (MSSP admin; also analyst.t1@, analyst.t2@, hunter@, responder@, engineer@, pod.kb@bloody.local)`);
     if (production) console.log("  demo staff and customer users were created with random passwords (sign-in disabled for them)");
+    if (production) console.log("This command does not start the platform. If it is not running, start it with:  sudo systemctl start bloody   (or re-run ./install.sh, which installs and starts the service and prints the address).");
     if (!production) console.log(`  ciso@kilimanjaro-bank.example, it.manager@savannah-logistics.example, viewer@nile-health.example — same password`);
     for (const k of newKeys) console.log(`  Ingestion API key for ${k.org}: ${k.key}`);
     if (newKeys.length === 0) console.log("  (organization ingestion API keys already exist — create new ones under Settings → API credentials)");
