@@ -1,9 +1,15 @@
-import { ANDROID_PASSWORD_LABELS, ANDROID_PASSWORD_LEVELS, type AndroidPolicySettings, type MobileCompliance, type MobileDevice, type MobileEnrollmentToken, type MobileOverview } from "@bloody/contracts";
-import { AlertTriangle, Building2, CheckCircle2, KeyRound, Lock, QrCode as QrIcon, RefreshCw, ShieldAlert, Smartphone, Trash2, Unplug, UserRound } from "lucide-react";
+import { ANDROID_PASSWORD_LABELS, ANDROID_PASSWORD_LEVELS, type AndroidPolicySettings, type AppleEnrollmentProfile, type AppleMdmOverview, type AppleMdmPolicySettings, type MobileCompliance, type MobileDevice, type MobileEnrollmentToken, type MobileOverview } from "@bloody/contracts";
+import { AlertTriangle, Apple, Building2, CheckCircle2, KeyRound, Lock, QrCode as QrIcon, RefreshCw, ShieldAlert, Smartphone, Trash2, Unplug, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { errorMessage } from "../../api/client";
 import {
+  useAppleOverview,
+  useCreateAppleEnrollment,
+  useRemoveApplePushCertificate,
+  useRevokeAppleEnrollment,
+  useSaveApplePolicy,
+  useSaveApplePushCertificate,
   useCreateEnrollmentCode,
   useLinkAndroidEnterprise,
   useMobileOverview,
@@ -620,6 +626,236 @@ function EnterpriseCard({ o }: { o: MobileOverview }) {
   );
 }
 
+// ─── iPhone & iPad (Apple MDM) ───────────────────────────────────────────────
+
+function AppleEnrollmentCard({ e, canWrite }: { e: AppleEnrollmentProfile; canWrite: boolean }) {
+  const revoke = useRevokeAppleEnrollment();
+  const company = e.ownership === "company";
+  return (
+    <Card
+      title={
+        <span className="inline-flex items-center gap-2">
+          {company ? <Building2 className="h-4 w-4" aria-hidden /> : <UserRound className="h-4 w-4" aria-hidden />}
+          {company ? "Company iPhone / iPad" : "Personal iPhone / iPad"}
+          {e.assignee ? <span className="font-normal text-fg-muted">for {e.assignee}</span> : null}
+        </span>
+      }
+      actions={
+        canWrite ? (
+          <Button size="sm" variant="ghost" icon={Trash2} loading={revoke.isPending} onClick={() => revoke.mutate(e.id)}>
+            Revoke
+          </Button>
+        ) : null
+      }
+    >
+      <div className="grid gap-4 text-sm md:grid-cols-[auto_1fr]">
+        <QrCode value={e.enrollUrl} label={`Apple enrollment QR code${e.assignee ? ` for ${e.assignee}` : ""}`} />
+        <div className="space-y-3">
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>On the iPhone or iPad, open the Camera app and scan this code.</li>
+            <li>Tap the banner, allow the profile download, then open Settings and install the profile.</li>
+            <li>{company ? "Company devices are fully managed and get the full baseline." : "Personal devices get the baseline without seeing your personal data."}</li>
+          </ol>
+          <div>
+            <div className="text-xs text-fg-muted">Enrollment link</div>
+            <div className="flex items-center gap-2">
+              <code className="break-all font-mono text-xs">{e.enrollUrl}</code>
+              <CopyButton value={e.enrollUrl} />
+            </div>
+          </div>
+          <p className="text-xs text-fg-muted">Valid until {new Date(e.expiresAt).toLocaleString()}</p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function AppleEnroll() {
+  const session = useSession();
+  const [org, setOrg] = useMdmOrg();
+  const overview = useAppleOverview(org);
+  const create = useCreateAppleEnrollment();
+  const [ownership, setOwnership] = useState<"company" | "personal">("company");
+  const [assignee, setAssignee] = useState("");
+  const [days, setDays] = useState(7);
+  const o = overview.data;
+  const canWrite = org ? session.can("asset:write", org) : false;
+  if (!org) return <OrgPicker value={org} onChange={setOrg} />;
+  return (
+    <div className="space-y-4">
+      <OrgPicker value={org} onChange={setOrg} />
+      {overview.isLoading ? (
+        <SkeletonText lines={4} />
+      ) : overview.error ? (
+        <ErrorState error={overview.error} onRetry={() => void overview.refetch()} />
+      ) : o && !o.certificate.configured ? (
+        <EmptyState icon={Apple} title="Upload the Apple push certificate first" description="Set it up under Setup → Apple push certificate." />
+      ) : o ? (
+        <>
+          {canWrite ? (
+            <Card title={<span className="inline-flex items-center gap-2"><Apple className="h-4 w-4" aria-hidden /> New iPhone / iPad enrollment</span>}>
+              <div className="grid gap-4 text-sm md:grid-cols-4">
+                <Field label="Whose device">
+                  {(f) => (
+                    <Select {...f} value={ownership} onChange={(e) => setOwnership(e.target.value as "company" | "personal")}>
+                      <option value="company">Company device — fully managed</option>
+                      <option value="personal">Personal device — baseline only</option>
+                    </Select>
+                  )}
+                </Field>
+                <Field label="For (optional)">{(f) => <Input {...f} value={assignee} maxLength={120} onChange={(e) => setAssignee(e.target.value)} placeholder="Amina Mushi" />}</Field>
+                <Field label="Valid for">
+                  {(f) => (
+                    <Select {...f} value={days} onChange={(e) => setDays(Number(e.target.value))}>
+                      <option value={1}>1 day</option>
+                      <option value={7}>7 days</option>
+                      <option value={30}>30 days</option>
+                    </Select>
+                  )}
+                </Field>
+                <div className="flex items-end">
+                  <Button variant="primary" icon={QrIcon} loading={create.isPending} onClick={() => org && create.mutate({ organizationId: org, ownership, validDays: days, ...(assignee.trim() ? { assignee: assignee.trim() } : {}) }, { onSuccess: () => setAssignee("") })}>
+                    Create QR code
+                  </Button>
+                </div>
+              </div>
+              {create.error ? <p role="alert" className="mt-2 text-sm text-sev-critical">{errorMessage(create.error)}</p> : null}
+            </Card>
+          ) : null}
+          {o.enrollments.length === 0 ? (
+            <EmptyState compact icon={QrIcon} title="No active iPhone / iPad enrollment codes" description="Create one above; the device scans the QR code with its Camera." />
+          ) : (
+            o.enrollments.map((e) => <AppleEnrollmentCard key={e.id} e={e} canWrite={canWrite} />)
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function ApplePushCertificateCard({ o }: { o: AppleMdmOverview }) {
+  const session = useSession();
+  const save = useSaveApplePushCertificate();
+  const remove = useRemoveApplePushCertificate();
+  const [cert, setCert] = useState("");
+  const [key, setKey] = useState("");
+  const [editing, setEditing] = useState(!o.certificate.configured);
+  const canWrite = session.can("integration:write", null);
+  const c = o.certificate;
+  const readFile = async (file: File | undefined, set: (v: string) => void) => {
+    if (file) set(await file.text());
+  };
+  return (
+    <Card title={<span className="inline-flex items-center gap-2"><Apple className="h-4 w-4" aria-hidden /> Apple push certificate (all customers)</span>}>
+      <div className="grid gap-6 text-sm lg:grid-cols-2">
+        <ol className="list-decimal space-y-2 pl-5">
+          <li>On a Mac, open Keychain Access and create a Certificate Signing Request (CSR) with your work email; save it to disk.</li>
+          <li>Sign in at <span className="font-medium">identity.apple.com/pushcert</span> with your organisation's Apple ID, upload the CSR, and download the signed push certificate (.pem).</li>
+          <li>Upload that certificate and the private key from your Keychain export here. It is stored encrypted and never shown again.</li>
+          <li>The certificate expires after a year; renew it on the same Apple ID before then so devices keep working.</li>
+        </ol>
+        <div className="space-y-3">
+          {c.configured && !editing ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={c.status === "ok" ? "success" : "danger"}>{c.status === "ok" ? "Connected" : c.status === "expired" ? "Expired" : "Error"}</Badge>
+                <span className="font-mono text-xs">{c.topic}</span>
+              </div>
+              <div className="text-fg-muted">Expires {c.expiresAt ? new Date(c.expiresAt).toLocaleDateString() : "—"} · updated <RelativeTime value={c.updatedAt} /></div>
+              {c.lastError ? <p className="text-sev-critical">{c.lastError}</p> : null}
+              {canWrite ? (
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => setEditing(true)}>Replace certificate</Button>
+                  <Button size="sm" variant="ghost" icon={Unplug} loading={remove.isPending} onClick={() => remove.mutate(undefined)}>Remove</Button>
+                </div>
+              ) : null}
+            </>
+          ) : canWrite ? (
+            <>
+              <Field label="Push certificate (.pem)">{(f) => <Input {...f} type="file" accept=".pem,.crt,.cer" onChange={(e) => void readFile(e.target.files?.[0], setCert)} />}</Field>
+              <Field label="Private key (.pem / .key)">{(f) => <Input {...f} type="file" accept=".pem,.key" onChange={(e) => void readFile(e.target.files?.[0], setKey)} />}</Field>
+              <div className="flex gap-2">
+                <Button variant="primary" loading={save.isPending} disabled={!cert || !key} onClick={() => save.mutate({ certificatePem: cert, privateKeyPem: key }, { onSuccess: () => { setCert(""); setKey(""); setEditing(false); } })}>
+                  Check and connect
+                </Button>
+                {c.configured ? <Button onClick={() => setEditing(false)}>Cancel</Button> : null}
+              </div>
+              {save.error ? <p role="alert" className="text-sev-critical">{errorMessage(save.error)}</p> : null}
+            </>
+          ) : (
+            <p className="text-fg-muted">An account administrator uploads the push certificate.</p>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function ApplePolicyForm({ organizationId, initial, canWrite }: { organizationId: string; initial: AppleMdmPolicySettings; canWrite: boolean }) {
+  const save = useSaveApplePolicy();
+  const [s, setS] = useState<AppleMdmPolicySettings>(initial);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => setS(initial), [initial]);
+  const set = <K extends keyof AppleMdmPolicySettings>(k: K, v: AppleMdmPolicySettings[K]) => {
+    setS((p) => ({ ...p, [k]: v }));
+    setSaved(false);
+  };
+  const toggles: Array<[keyof AppleMdmPolicySettings, string]> = [
+    ["requirePasscode", "Require a passcode"],
+    ["forceEncryptedBackup", "Require encrypted backups"],
+    ["blockCamera", "Block the camera"],
+    ["blockScreenshot", "Block screenshots"],
+    ["blockAppInstall", "Block installing apps"],
+  ];
+  return (
+    <Card title="iPhone & iPad security baseline" subtitle="Pushed to every Apple device of this organization as a configuration profile; compliance is checked by SCIAT.">
+      <fieldset disabled={!canWrite} className="space-y-5 text-sm">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Minimum passcode length">
+            {(f) => <Input {...f} type="number" min={4} max={16} value={s.minPasscodeLength} onChange={(e) => set("minPasscodeLength", Math.max(4, Math.min(16, Number(e.target.value) || 4)))} />}
+          </Field>
+          <Field label="Minimum iOS / iPadOS version" hint="0 = any">
+            {(f) => <Input {...f} type="number" min={0} max={30} value={s.minOsVersion} onChange={(e) => set("minOsVersion", Math.max(0, Math.min(30, Number(e.target.value) || 0)))} />}
+          </Field>
+        </div>
+        <div className="grid gap-2 md:grid-cols-2">
+          {toggles.map(([k, label]) => (
+            <Checkbox key={k} label={label} checked={Boolean(s[k])} onChange={(e) => set(k, e.target.checked as never)} />
+          ))}
+        </div>
+        {canWrite ? (
+          <div className="flex items-center gap-3">
+            <Button variant="primary" loading={save.isPending} onClick={() => save.mutate({ organizationId, settings: s }, { onSuccess: () => setSaved(true) })}>
+              Save and apply to devices
+            </Button>
+            {saved ? <span className="text-healthy">Saved — devices pick it up within minutes</span> : null}
+            {save.error ? <span role="alert" className="text-sev-critical">{errorMessage(save.error)}</span> : null}
+          </div>
+        ) : null}
+      </fieldset>
+    </Card>
+  );
+}
+
+function ApplePolicy() {
+  const session = useSession();
+  const [org, setOrg] = useMdmOrg();
+  const overview = useAppleOverview(org);
+  const o = overview.data;
+  return (
+    <div className="space-y-4">
+      <OrgPicker value={org} onChange={setOrg} />
+      {!org ? null : overview.isLoading ? (
+        <SkeletonText lines={4} />
+      ) : overview.error ? (
+        <ErrorState error={overview.error} onRetry={() => void overview.refetch()} />
+      ) : o ? (
+        <ApplePolicyForm organizationId={o.organizationId} initial={o.policy} canWrite={session.can("asset:write", o.organizationId)} />
+      ) : null}
+    </div>
+  );
+}
+
 const SIGNUP_ERRORS: Record<string, string> = {
   cancelled: "The Google sign-up was cancelled — nothing was created.",
   error: "Google sign-up could not be completed. Start again below; if it keeps failing check the Google account connection.",
@@ -629,6 +865,7 @@ function Setup() {
   const [params] = useSearchParams();
   const [org, setOrg] = useMdmOrg();
   const overview = useMobileOverview(org);
+  const apple = useAppleOverview(org);
   const result = params.get("android");
   return (
     <div className="space-y-4">
@@ -650,14 +887,34 @@ function Setup() {
         <>
           <GoogleAccountCard o={overview.data} />
           <EnterpriseCard o={overview.data} />
+          {apple.data ? <ApplePushCertificateCard o={apple.data} /> : null}
         </>
       ) : null}
     </div>
   );
 }
 
+/** Android and Apple side by side on the Enroll and Policy tabs. */
+function EnrollBoth() {
+  return (
+    <div className="space-y-10">
+      <section aria-labelledby="enroll-android"><h2 id="enroll-android" className="mb-3 text-base font-semibold">Android phones</h2><Enroll /></section>
+      <section aria-labelledby="enroll-apple"><h2 id="enroll-apple" className="mb-3 text-base font-semibold">iPhone & iPad</h2><AppleEnroll /></section>
+    </div>
+  );
+}
+
+function PolicyBoth() {
+  return (
+    <div className="space-y-10">
+      <section aria-labelledby="policy-android"><h2 id="policy-android" className="mb-3 text-base font-semibold">Android baseline</h2><Policy /></section>
+      <section aria-labelledby="policy-apple"><h2 id="policy-apple" className="mb-3 text-base font-semibold">iPhone & iPad baseline</h2><ApplePolicy /></section>
+    </div>
+  );
+}
+
 export default function MdmPage() {
-  return <ModuleWorkspace moduleId="mdm" sections={{ "": () => <Devices />, enroll: () => <Enroll />, policy: () => <Policy />, setup: () => <Setup /> }} />;
+  return <ModuleWorkspace moduleId="mdm" sections={{ "": () => <Devices />, enroll: () => <EnrollBoth />, policy: () => <PolicyBoth />, setup: () => <Setup /> }} />;
 }
 
 export { Devices as MdmDevicesSection, Enroll as MdmEnrollSection, Setup as MdmSetupSection };
