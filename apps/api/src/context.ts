@@ -6,6 +6,7 @@ import type { AppControlService } from "./services/app-control.js";
 import type { HostInventoryService } from "./services/host-inventory.js";
 import type { M365Service } from "./services/m365.js";
 import type { AndroidService } from "./services/android.js";
+import type { AppleMdmService } from "./services/apple-mdm.js";
 import type { RmmGuardService } from "./services/rmm-guard.js";
 import type { FootholdsService } from "./services/footholds.js";
 import type { PatchingService } from "./services/patching.js";
@@ -78,6 +79,7 @@ export interface AppServices {
   hostInventory: HostInventoryService;
   m365: M365Service;
   android: AndroidService;
+  appleMdm: AppleMdmService;
   rmmGuard: RmmGuardService;
   footholds: FootholdsService;
   patching: PatchingService;

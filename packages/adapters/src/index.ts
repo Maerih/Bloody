@@ -81,3 +81,19 @@ export * from "./saas/m365/collect.js";
 export { M365_CHECKS, evaluateM365, scoreM365 } from "./saas/m365/checks.js";
 export * from "./mdm/android/amapi.js";
 export { SCIAT_POLICY_ID, MOBILE_STALE_DAYS, buildAndroidPolicy, evaluateAndroidDevice } from "./mdm/android/policy.js";
+export * from "./mdm/apple/plist.js";
+export * from "./mdm/apple/apns.js";
+export {
+  DEFAULT_APPLE_POLICY,
+  buildEnrollmentProfile,
+  buildRestrictionsProfile,
+  buildCommand,
+  lockCommand,
+  eraseCommand,
+  installProfileCommand,
+  encodeCommand,
+  parseDeviceInformation,
+  parseSecurityInfo,
+  evaluateAppleDevice,
+} from "./mdm/apple/mdm.js";
+export type { AppleMdmPolicySettings, AppleCommand, AppleCommandType, AppleDeviceInfo, AppleSecurityInfo, EnrollmentProfileInput } from "./mdm/apple/mdm.js";

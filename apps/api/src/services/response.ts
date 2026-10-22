@@ -188,8 +188,8 @@ interface ExecutionOutcome {
 /** Executes lock_device / wipe_device on an enrolled phone (the Android service). */
 export interface MobileExecutor {
   deviceForAsset(tx: Queryable, assetId: string): Promise<{ name: string } | null>;
-  lock(tenantId: string, assetId: string): Promise<string>;
-  wipe(tenantId: string, assetId: string, reason: string): Promise<string>;
+  lock(tenantId: string, assetId: string): Promise<{ summary: string; executor: string }>;
+  wipe(tenantId: string, assetId: string, reason: string): Promise<{ summary: string; executor: string }>;
 }
 
 /** Actions run on a managed phone through its MDM (no engine connector). */
@@ -691,12 +691,12 @@ export class ResponseService {
     return (await this.dispatchToAgent(tenantId, row, action)) ?? this.runConnector(tenantId, row, action);
   }
 
-  /** lock_device / wipe_device: the command goes to Google, which delivers it to the phone. */
+  /** lock_device / wipe_device: the command goes to Google (Android) or the device's MDM queue (Apple). */
   private async runMobile(tenantId: string, row: Row, action: ResponseActionKey): Promise<ExecutionOutcome> {
     const target = row.target as ResponseTargetInput;
     if (!this.mobile) throw new HttpError(409, "mdm_unavailable", "Mobile device management is not available");
-    const summary = action === "lock_device" ? await this.mobile.lock(tenantId, target.id) : await this.mobile.wipe(tenantId, target.id, String(row.reason ?? ""));
-    return { status: "succeeded", executor: "mdm:android", integrationId: null, result: { summary }, error: null };
+    const done = action === "lock_device" ? await this.mobile.lock(tenantId, target.id) : await this.mobile.wipe(tenantId, target.id, String(row.reason ?? ""));
+    return { status: "succeeded", executor: done.executor, integrationId: null, result: { summary: done.summary }, error: null };
   }
 
   /**

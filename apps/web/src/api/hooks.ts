@@ -9,6 +9,10 @@ import {
   ACTIVE_INCIDENT_STATUSES,
   REPORT_TYPES,
   type AndroidAccountSettings,
+  type AppleEnrollmentProfile,
+  type AppleMdmOverview,
+  type AppleMdmPolicySettings,
+  type ApplePushCertificateSettings,
   type AndroidEnterprise,
   type AndroidPolicySettings,
   type MobileEnrollmentToken,
@@ -1192,3 +1196,21 @@ export const useCreateEnrollmentCode = () =>
   useMobileMutation((input: { organizationId: string; ownership: "company" | "personal"; validDays: number; assignee?: string }) => api.post<MobileEnrollmentToken>("/mobile/android/enrollment-tokens", input));
 export const useRevokeEnrollmentCode = () => useMobileMutation((id: string) => api.delete(`/mobile/android/enrollment-tokens/${encodeURIComponent(id)}`));
 export const useSyncMobileDevices = () => useMobileMutation((organizationId: string) => api.post<{ devices: number; removed: number }>("/mobile/android/sync", { organizationId }));
+
+// ─── Apple (iOS / iPadOS) device management ────────────────────────────────
+
+export function useAppleOverview(organizationId: string | null) {
+  return useQuery<AppleMdmOverview, ApiError>({
+    queryKey: ["mobile", "apple", organizationId ?? ""],
+    queryFn: ({ signal }) => api.get("/mobile/apple/overview", { signal, query: { organizationId: organizationId ?? undefined } }),
+    enabled: Boolean(organizationId),
+  });
+}
+export const useSaveApplePushCertificate = () =>
+  useMobileMutation((input: { certificatePem: string; privateKeyPem: string }) => api.put<ApplePushCertificateSettings>("/mobile/apple/certificate", input));
+export const useRemoveApplePushCertificate = () => useMobileMutation(() => api.delete<ApplePushCertificateSettings>("/mobile/apple/certificate"));
+export const useSaveApplePolicy = () => useMobileMutation((input: { organizationId: string; settings: AppleMdmPolicySettings }) => api.put<AppleMdmPolicySettings>("/mobile/apple/policy", input));
+export const useCreateAppleEnrollment = () =>
+  useMobileMutation((input: { organizationId: string; ownership: "company" | "personal"; validDays: number; assignee?: string }) => api.post<AppleEnrollmentProfile>("/mobile/apple/enrollments", input));
+export const useRevokeAppleEnrollment = () => useMobileMutation((id: string) => api.delete(`/mobile/apple/enrollments/${encodeURIComponent(id)}`));
+export const useSyncAppleDevices = () => useMobileMutation((organizationId: string) => api.post<{ devices: number }>("/mobile/apple/sync", { organizationId }));

@@ -150,3 +150,83 @@ export interface MobileOverview {
   devices: MobileDevice[];
   counts: Record<MobileCompliance, number> & { total: number };
 }
+
+// ─── Apple (iOS / iPadOS) MDM ─────────────────────────────────────────────────────────────────
+
+/**
+ * Apple device management. The SCIAT server is itself the MDM server: devices install an enrollment
+ * profile (.mobileconfig) and talk to the server directly; Apple Push wakes them for commands.
+ * The account uploads one APNs MDM push certificate (from the Apple Push Certificates Portal).
+ */
+
+export const AppleMdmPolicySettings = z.object({
+  requirePasscode: z.boolean(),
+  minPasscodeLength: z.number().int().min(4).max(16),
+  blockCamera: z.boolean(),
+  blockScreenshot: z.boolean(),
+  blockAppInstall: z.boolean(),
+  forceEncryptedBackup: z.boolean(),
+  /** Lowest iOS/iPadOS major version allowed to be compliant (0 = any). */
+  minOsVersion: z.number().int().min(0).max(30),
+});
+export type AppleMdmPolicySettings = z.infer<typeof AppleMdmPolicySettings>;
+
+export const DEFAULT_APPLE_MDM_POLICY: AppleMdmPolicySettings = {
+  requirePasscode: true,
+  minPasscodeLength: 6,
+  blockCamera: false,
+  blockScreenshot: false,
+  blockAppInstall: false,
+  forceEncryptedBackup: true,
+  minOsVersion: 16,
+};
+
+/** The MDM push certificate is uploaded as a PEM bundle (certificate + private key). */
+export const ApplePushCertificateInput = z.object({
+  /** PEM-encoded MDM push certificate from the Apple Push Certificates Portal. */
+  certificatePem: z.string().min(50).max(50_000),
+  /** PEM-encoded private key that matches the certificate. */
+  privateKeyPem: z.string().min(50).max(50_000),
+});
+
+export const AppleMdmPolicyInput = z.object({ organizationId: Uuid, settings: AppleMdmPolicySettings });
+
+export interface ApplePushCertificateSettings {
+  configured: boolean;
+  /** APNs topic (com.apple.mgmt.External.<uuid>) read from the certificate subject. */
+  topic: string | null;
+  subject: string | null;
+  expiresAt: string | null;
+  status: "ok" | "expired" | "error" | null;
+  lastError: string | null;
+  updatedAt: string | null;
+}
+
+export interface AppleEnrollmentProfile {
+  id: string;
+  organizationId: string;
+  token: string;
+  assignee: string | null;
+  ownership: "company" | "personal";
+  /** Where the device downloads the .mobileconfig. */
+  enrollUrl: string;
+  expiresAt: string;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export const AppleEnrollmentInput = z.object({
+  organizationId: Uuid,
+  ownership: z.enum(["company", "personal"]),
+  validDays: z.number().int().min(1).max(90),
+  assignee: z.string().trim().max(120).optional(),
+});
+
+export interface AppleMdmOverview {
+  organizationId: string;
+  certificate: ApplePushCertificateSettings;
+  policy: AppleMdmPolicySettings;
+  enrollments: AppleEnrollmentProfile[];
+  devices: MobileDevice[];
+  counts: Record<MobileCompliance, number> & { total: number };
+}

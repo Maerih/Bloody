@@ -51,6 +51,7 @@ import { AppControlService } from "./services/app-control.js";
 import { HostInventoryService } from "./services/host-inventory.js";
 import { M365Service, systemDnsResolver } from "./services/m365.js";
 import { AndroidService } from "./services/android.js";
+import { AppleMdmService } from "./services/apple-mdm.js";
 import { RmmGuardService } from "./services/rmm-guard.js";
 import { FootholdsService } from "./services/footholds.js";
 import { PatchingService } from "./services/patching.js";
@@ -96,6 +97,8 @@ export interface AppDeps {
   hostResolver?: ((hostname: string) => Promise<string[]>) | false;
   /** TCP reachability check for External Exposure scans (tests inject a fake). */
   portProbe?: PortProbe;
+  /** Apple MDM push transport (tests inject a fake; default: HTTP/2 + mTLS to APNs). */
+  appleApnsTransport?: (cert: string, key: string) => import("@bloody/adapters").ApnsTransport;
   /** OpenTelemetry span exporter override (tests inject an in-memory exporter). */
   spanExporter?: SpanExporter;
   /** Notification transports (tests inject capturing transports). */
@@ -272,11 +275,23 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
   const appControl = new AppControlService(now);
   const m365 = new M365Service({ db, secrets: secretStore, fetch: fetchImpl, dns: deps.dns ?? systemDnsResolver(), now });
   const android = new AndroidService({ db, secrets: secretStore, fetch: fetchImpl, publicUrl: config.http.publicUrl, now });
-  responses.attachMobile(android);
+  const appleMdm = new AppleMdmService({ db, secrets: secretStore, publicUrl: config.http.publicUrl, now, apnsTransport: deps.appleApnsTransport });
+  // lock_device / wipe_device reach whichever platform enrolled the device.
+  responses.attachMobile({
+    deviceForAsset: async (tx, assetId) => (await android.deviceForAsset(tx, assetId)) ?? (await appleMdm.deviceForAsset(tx, assetId)),
+    lock: async (tenantId, assetId) => {
+      const apple = await db.withTenant(tenantId, (tx) => appleMdm.deviceForAsset(tx, assetId));
+      return apple ? { summary: await appleMdm.lock(tenantId, assetId), executor: "mdm:apple" } : { summary: await android.lock(tenantId, assetId), executor: "mdm:android" };
+    },
+    wipe: async (tenantId, assetId, reason) => {
+      const apple = await db.withTenant(tenantId, (tx) => appleMdm.deviceForAsset(tx, assetId));
+      return apple ? { summary: await appleMdm.wipe(tenantId, assetId, reason), executor: "mdm:apple" } : { summary: await android.wipe(tenantId, assetId, reason), executor: "mdm:android" };
+    },
+  });
   const awareness = new AwarenessService({ db, mailer: new AwarenessMailer(mailServer), publicUrl: config.http.publicUrl, now });
   const exposure = new ExposureService({ db, events: domainEvents, probe: deps.portProbe ?? tcpProbe, now });
   const postureSnapshots = new PostureSnapshotService({ db, dataSource: reports.dataSource, now });
-  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, android, exposure, awareness, postureSnapshots, log, intervalSeconds: config.scheduler.intervalSeconds, now });
+  const scheduler = new Scheduler({ db, events: domainEvents, gate: approvals, playbooks: playbookEngine, reports, conversations: ai.store, entitlements, billing, responses, m365, android, appleMdm, exposure, awareness, postureSnapshots, log, intervalSeconds: config.scheduler.intervalSeconds, now });
 
   const services: AppServices = {
     config,
@@ -314,6 +329,7 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
     hostInventory: new HostInventoryService(now),
     m365,
     android,
+    appleMdm,
     paymentProviders,
     intel,
     enrichment: new EnrichmentService({ db, inventory, events: domainEvents, enabled: config.features.vulnEnrichment, config: config.enrichment, fetch: engineFetch, resolveHost, now }),

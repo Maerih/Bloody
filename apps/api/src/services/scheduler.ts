@@ -44,6 +44,7 @@ export interface SchedulerDeps {
   /** Daily Microsoft 365 re-assessment. */
   m365?: { assessDue(tenantId: string): Promise<number> };
   android?: { syncDue(tenantId: string): Promise<number> };
+  appleMdm?: { syncDue(tenantId: string): Promise<number> };
   /** Security-awareness training reminders. */
   awareness?: { remindDue(tenantId: string): Promise<number> };
   /** Daily External Exposure rescans. */
@@ -262,6 +263,9 @@ export class Scheduler {
       });
       await guard(`android-sync:${t.id}`, async () => {
         await this.deps.android?.syncDue(t.id);
+      });
+      await guard(`apple-sync:${t.id}`, async () => {
+        await this.deps.appleMdm?.syncDue(t.id);
       });
       await guard(`awareness-reminders:${t.id}`, async () => {
         await this.deps.awareness?.remindDue(t.id);
