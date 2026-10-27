@@ -23,6 +23,22 @@ export interface UserRow {
   oidc_subject: string | null;
 }
 
+interface SessionRow {
+  id: string;
+  user_id: string;
+  secret_hash: string;
+  last_seen_at: string;
+  expires_at: string;
+  idle_expires_at: string;
+  auth_method: string;
+  require_mfa: boolean;
+}
+
+/** Password sign-ins must set up MFA first when the account requires it (SSO has its own MFA). */
+function mfaSetupRequired(session: SessionRow, user: UserRow): boolean {
+  return session.require_mfa && session.auth_method === "password" && !user.mfa_enabled;
+}
+
 export interface IssuedSession {
   sessionId: string;
   cookieValue: string;
@@ -218,7 +234,7 @@ export class AuthService {
       if (!user) return null;
       await this.touchSession(tx, session);
       const principal = await this.principalFor(tx, user, session.id);
-      return { principal, method: "session" as const, tenantId: parsed.tenantId, boundOrganizationId: null, sessionId: session.id, csrfProtected: true };
+      return { principal, method: "session" as const, tenantId: parsed.tenantId, boundOrganizationId: null, sessionId: session.id, csrfProtected: true, mfaSetupRequired: mfaSetupRequired(session, user) };
     });
   }
 
@@ -235,7 +251,7 @@ export class AuthService {
       const user = await this.activeUser(tx, claims.sub);
       if (!user) return null;
       const principal = await this.principalFor(tx, user, session.id);
-      return { principal, method: "bearer" as const, tenantId: claims.tid, boundOrganizationId: null, sessionId: session.id, csrfProtected: false };
+      return { principal, method: "bearer" as const, tenantId: claims.tid, boundOrganizationId: null, sessionId: session.id, csrfProtected: false, mfaSetupRequired: mfaSetupRequired(session, user) };
     });
     if (!ctx) throw unauthorized("Session is no longer valid", "session_revoked");
     return ctx;
@@ -279,8 +295,10 @@ export class AuthService {
   }
 
   private async activeSession(tx: Queryable, sessionId: string, forUpdate = false) {
-    const { rows } = await tx.query<{ id: string; user_id: string; secret_hash: string; last_seen_at: string; expires_at: string; idle_expires_at: string }>(
-      `SELECT id, user_id, secret_hash, last_seen_at, expires_at, idle_expires_at FROM sessions
+    const { rows } = await tx.query<SessionRow>(
+      `SELECT id, user_id, secret_hash, last_seen_at, expires_at, idle_expires_at, auth_method,
+              (SELECT coalesce((a.settings->>'requireMfa')::boolean, false) FROM accounts a WHERE a.id = sessions.tenant_id) AS require_mfa
+         FROM sessions
        WHERE id = $1 AND revoked_at IS NULL AND expires_at > now() AND idle_expires_at > now()${forUpdate ? " FOR UPDATE" : ""}`,
       [sessionId],
     );

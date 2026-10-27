@@ -60,7 +60,8 @@ export interface AccountTeamMember {
 /** GET /auth/me */
 export interface MeResponse {
   principal: Principal;
-  account: Account;
+  /** `requireMfa`: everyone who signs in with a password must use an authenticator app. */
+  account: Account & { requireMfa?: boolean };
   organizations: Organization[];
   entitlements: EntitlementView[];
   plan: PlanKey;
@@ -68,6 +69,8 @@ export interface MeResponse {
   accountTeam?: AccountTeamMember[] | null;
   /** The browser session (method "sandbox" while exploring the demo sandbox). */
   session?: { id: string; method: "password" | "oidc" | "sandbox"; mfaVerified: boolean } | null;
+  /** The signed-in person (absent for API keys). */
+  user?: { id: string; email: string; displayName: string | null; mfaEnabled: boolean; mfaSetupRequired?: boolean } | null;
 }
 
 export interface EntitlementView extends Entitlement {

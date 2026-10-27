@@ -3,7 +3,8 @@ import { z } from "zod";
 import { principalOrgScope } from "@bloody/contracts";
 import { recordAudit } from "../audit/audit.js";
 import { safeReturnTo } from "../auth/oidc.js";
-import { rejectDemoAccount, requireAuth } from "../auth/rbac.js";
+import { rejectDemoAccount, requireAuth, requirePermission } from "../auth/rbac.js";
+import { requireRecentMfa } from "../auth/step-up.js";
 import { CSRF_COOKIE, CSRF_HEADER, OIDC_STATE_COOKIE, SESSION_COOKIE } from "../auth/types.js";
 import type { AppServices } from "../context.js";
 import { HttpError, badRequest, forbidden, notFound, unauthorized } from "../http/errors.js";
@@ -30,6 +31,11 @@ const OidcCallbackQuery = z.object({
   state: z.string().min(1).max(512).optional(),
   error: z.string().max(200).optional(),
 });
+
+function requireMfaSetting(account: Row): boolean {
+  const settings = account.settings as Record<string, unknown> | null | undefined;
+  return settings?.requireMfa === true;
+}
 
 /**
  * Authentication: password (+ TOTP) login, rotating cookie sessions with short-lived bearer
@@ -104,7 +110,16 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
         const u = await tx.query<Row>("SELECT id, email, display_name, title, organization_id, mfa_enabled, last_login_at FROM users WHERE id = $1", [auth.principal.id]);
         const r = u.rows[0];
         if (r) {
-          user = { id: r.id, email: r.email, displayName: r.display_name, title: r.title, organizationId: r.organization_id, mfaEnabled: r.mfa_enabled, lastLoginAt: r.last_login_at };
+          user = {
+            id: r.id,
+            email: r.email,
+            displayName: r.display_name,
+            title: r.title,
+            organizationId: r.organization_id,
+            mfaEnabled: r.mfa_enabled,
+            mfaSetupRequired: auth.mfaSetupRequired === true,
+            lastLoginAt: r.last_login_at,
+          };
         }
         if (auth.sessionId) {
           const sr = await tx.query<Row>("SELECT id, auth_method, mfa_verified, created_at, expires_at, idle_expires_at FROM sessions WHERE id = $1", [auth.sessionId]);
@@ -114,7 +129,13 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
       }
       return {
         principal: auth.principal,
-        account: { ...toAccount(account.rows[0]), plan: account.rows[0].plan, status: account.rows[0].status, trialEndsAt: account.rows[0].trial_ends_at ?? null },
+        account: {
+          ...toAccount(account.rows[0]),
+          plan: account.rows[0].plan,
+          status: account.rows[0].status,
+          trialEndsAt: account.rows[0].trial_ends_at ?? null,
+          requireMfa: requireMfaSetting(account.rows[0]),
+        },
         organizations: orgs.rows.map(toOrganization),
         entitlements,
         plan,
@@ -221,10 +242,43 @@ export async function authRoutes(app: FastifyInstance, s: AppServices): Promise<
     const auth = requireAuth(request);
     const { code } = parse(CodeBody, request.body);
     await s.db.withTenant(auth.tenantId, async (tx) => {
+      const account = (await tx.query<Row>("SELECT settings FROM accounts WHERE id = $1", [auth.tenantId])).rows[0];
+      if (account && requireMfaSetting(account)) {
+        throw new HttpError(409, "mfa_required_by_policy", "Your account requires multi-factor authentication, so it cannot be turned off. Ask an administrator to reset it if you need to move to a new phone.");
+      }
       await s.auth.disableTotp(tx, auth, code);
       await recordAudit(tx, request, { action: "auth.mfa_disabled", targetKind: "user", targetId: auth.principal.id });
     });
     return { mfaEnabled: false };
+  });
+
+  // GET/PUT /auth/mfa/policy — require MFA for everyone who signs in with a password.
+  app.get("/auth/mfa/policy", async (request) => {
+    const auth = requirePermission(request, "user:read", null);
+    return s.db.withTenant(auth.tenantId, async (tx) => {
+      const account = (await tx.query<Row>("SELECT settings FROM accounts WHERE id = $1", [auth.tenantId])).rows[0];
+      const counts = (
+        await tx.query<Row>("SELECT count(*) FILTER (WHERE mfa_enabled)::int AS enrolled, count(*) FILTER (WHERE NOT mfa_enabled)::int AS missing FROM users WHERE status = 'active' AND email NOT LIKE '%.demo.invalid'")
+      ).rows[0];
+      return { requireMfa: account ? requireMfaSetting(account) : false, usersWithMfa: Number(counts?.enrolled ?? 0), usersWithoutMfa: Number(counts?.missing ?? 0) };
+    });
+  });
+
+  app.put("/auth/mfa/policy", { config: { audit: false } }, async (request) => {
+    rejectDemoAccount(request);
+    const auth = requirePermission(request, "settings:write", null);
+    const { requireMfa } = parse(z.object({ requireMfa: z.boolean() }).strict(), request.body);
+    await requireRecentMfa(request, s);
+    return s.db.withTenant(auth.tenantId, async (tx) => {
+      if (requireMfa && auth.principal.kind === "user") {
+        const me = (await tx.query<Row>("SELECT mfa_enabled FROM users WHERE id = $1", [auth.principal.id])).rows[0];
+        // Otherwise the administrator would lock themselves out of the console on the next request.
+        if (!me?.mfa_enabled) throw new HttpError(409, "mfa_setup_first", "Set up MFA for your own sign-in first, then require it for everyone.");
+      }
+      await tx.query("UPDATE accounts SET settings = settings || jsonb_build_object('requireMfa', $2::boolean) WHERE id = $1", [auth.tenantId, requireMfa]);
+      await recordAudit(tx, request, { action: "auth.mfa_policy_changed", targetKind: "account", targetId: auth.tenantId, details: { requireMfa } });
+      return { requireMfa };
+    });
   });
 
   // POST /auth/mfa/verify — step-up: mark the current session as MFA-verified.

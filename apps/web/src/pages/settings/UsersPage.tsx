@@ -29,6 +29,8 @@ import { Dialog, Drawer } from "../../components/Overlay";
 import { PageHeader } from "../../components/PageHeader";
 import { RelativeTime } from "../../components/RelativeTime";
 import { Tabs } from "../../components/Tabs";
+import { useResetUserMfa } from "../../features/mfa/hooks";
+import { MfaPolicyCard } from "../../features/mfa/MfaPolicyCard";
 import { userLabel } from "../../features/users/useActorName";
 import { humanize } from "../../lib/format";
 import { bindingLabel, permissionCount, roleLabel, sameBinding, USER_ROLES } from "../../lib/roles";
@@ -93,12 +95,14 @@ function UserDrawer({ user, onClose }: { user: UserSummary; onClose: () => void 
   const grant = useGrantUserRole();
   const revoke = useRevokeUserRole();
   const update = useUpdateUser();
+  const resetMfa = useResetUserMfa();
+  const [confirmMfaReset, setConfirmMfaReset] = useState(false);
   const isSelf = user.id === session.principal.id;
   const canWrite = session.canAnywhere("user:write") && !isSelf;
   const [displayName, setDisplayName] = useState(user.displayName ?? "");
   const [title, setTitle] = useState(user.title ?? "");
   const disabled = user.status === "disabled" || user.disabled === true;
-  const error = grant.error ?? revoke.error ?? update.error;
+  const error = grant.error ?? revoke.error ?? update.error ?? resetMfa.error;
   return (
     <Drawer
       open
@@ -113,6 +117,23 @@ function UserDrawer({ user, onClose }: { user: UserSummary; onClose: () => void 
               <span role="alert" className="mr-auto text-sm text-sev-critical">
                 {errorMessage(error)}
               </span>
+            ) : null}
+            {user.mfaEnabled ? (
+              confirmMfaReset ? (
+                <>
+                  <span className="text-xs text-fg-muted">Remove their authenticator and sign them out?</span>
+                  <Button size="sm" variant="danger" loading={resetMfa.isPending} onClick={() => resetMfa.mutate(user.id, { onSuccess: () => setConfirmMfaReset(false) })}>
+                    Reset MFA
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setConfirmMfaReset(false)}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="secondary" title="For a lost or replaced phone: they set up a new authenticator at their next sign-in" onClick={() => setConfirmMfaReset(true)}>
+                  Reset MFA…
+                </Button>
+              )
             ) : null}
             <Button size="sm" variant={disabled ? "primary" : "danger"} loading={update.isPending && update.variables?.patch.status !== undefined} onClick={() => update.mutate({ id: user.id, patch: { status: disabled ? "active" : "disabled" } })}>
               {disabled ? "Re-enable user" : "Disable user"}
@@ -496,6 +517,7 @@ export default function UsersPage() {
           ]}
         />
       </PageHeader>
+      {view === "users" ? <MfaPolicyCard /> : null}
       {view === "users" ? (
         <DataTable
           caption="Users"

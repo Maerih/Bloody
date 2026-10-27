@@ -7,6 +7,7 @@ import { useSession } from "../app/session";
 import { useTheme, type Density, type ThemePreference } from "../app/theme";
 import { Card } from "../components/Card";
 import { DescriptionList } from "../components/DescriptionList";
+import { MfaCard } from "../features/mfa/MfaCard";
 import { Select } from "../components/Form";
 import { PageHeader } from "../components/PageHeader";
 import { ShortcutList } from "../layout/ShortcutHelpDialog";
@@ -22,14 +23,15 @@ const DENSITIES: { value: Density; label: string; icon: typeof Sun; hint: string
   { value: "compact", label: "Compact", icon: Rows4, hint: "More rows on screen for triage" },
 ];
 
-/** Per-user UI preferences (stored in this browser). */
+/** Per-user settings: multi-factor authentication, plus UI preferences stored in this browser. */
 export default function PreferencesPage() {
   const theme = useTheme();
   const session = useSession();
   return (
     <div className="max-w-4xl">
-      <PageHeader title="Preferences" subtitle="Personal settings for this browser." breadcrumbs={[{ label: "Settings", href: "/settings" }, { label: "Preferences" }]} />
+      <PageHeader title="Preferences" subtitle="Your sign-in security and personal settings for this browser." breadcrumbs={[{ label: "Settings", href: "/settings" }, { label: "Preferences" }]} />
       <div className="space-y-3">
+        <MfaCard />
         <Card title="Appearance">
           <div role="radiogroup" aria-label="Theme" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {THEMES.map((t) => {

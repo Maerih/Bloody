@@ -12,6 +12,11 @@ export interface AuthContext {
   sessionId: string | null;
   /** Cookie-authenticated unsafe requests must carry a valid CSRF token. */
   csrfProtected: boolean;
+  /**
+   * The account requires MFA and this password-signed-in user has not set it up yet: only the
+   * MFA setup endpoints (and sign-out) answer until they do.
+   */
+  mfaSetupRequired?: boolean;
 }
 
 export interface AuditState {

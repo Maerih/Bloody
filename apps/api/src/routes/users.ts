@@ -291,6 +291,26 @@ export async function userRoutes(app: FastifyInstance, s: AppServices): Promise<
     return reply.status(204).send();
   });
 
+  // DELETE /users/:id/mfa — reset someone's MFA (lost or replaced phone). They sign in with their
+  // password and set up a new authenticator; every open session of theirs is signed out.
+  app.delete("/users/:id/mfa", { config: { audit: false } }, async (request, reply) => {
+    rejectDemoAccount(request);
+    await requireRecentMfa(request, s);
+    const auth = requireAuth(request);
+    const { id } = parse(IdParam, request.params);
+    if (id === auth.principal.id) throw badRequest("Manage your own MFA in your profile (it asks for a code from your authenticator)");
+    await s.db.withTenant(auth.tenantId, async (tx) => {
+      const { row, bindings } = await loadManagedUser(tx, auth, id);
+      assertCanAdminister(request, row, bindings);
+      if (!row.mfa_enabled) throw new HttpError(409, "mfa_not_enabled", "This user has not set up MFA");
+      await tx.query("DELETE FROM mfa_totp WHERE user_id = $1", [id]);
+      await tx.query("UPDATE users SET mfa_enabled = false WHERE id = $1", [id]);
+      await tx.query("UPDATE sessions SET revoked_at = now(), revoked_reason = 'mfa_reset' WHERE user_id = $1 AND revoked_at IS NULL", [id]);
+      await recordAudit(tx, request, { action: "user.mfa_reset", organizationId: (row.organization_id as string | null) ?? null, targetKind: "user", targetId: id });
+    });
+    return reply.status(204).send();
+  });
+
   // POST /users/:id/roles { role, organizationId } — grant (only roles the caller could hold itself).
   app.post("/users/:id/roles", { config: { audit: false } }, async (request, reply) => {
     await requireRecentMfa(request, s);

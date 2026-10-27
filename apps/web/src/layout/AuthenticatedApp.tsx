@@ -1,12 +1,13 @@
 import { useEffect, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { setUnauthorizedHandler } from "../api/client";
-import { useMe } from "../api/hooks";
+import { setMfaSetupHandler, setUnauthorizedHandler } from "../api/client";
+import { queryKeys, useMe } from "../api/hooks";
 import { SessionProvider } from "../app/session";
 import { UiProvider } from "../app/ui";
 import { LogoMark } from "../components/Logo";
 import { ErrorState } from "../components/ErrorState";
+import { MfaRequiredScreen } from "../features/mfa/MfaRequiredScreen";
 import { AppShell } from "./AppShell";
 import { StepUpDialog } from "./StepUpDialog";
 
@@ -43,6 +44,9 @@ export function FullPageStatus({ children }: { children: ReactNode }) {
 export function AuthenticatedApp() {
   const me = useMe();
   const location = useLocation();
+  const qc = useQueryClient();
+  // The account may start requiring MFA mid-session: reload the profile to show the setup screen.
+  useEffect(() => setMfaSetupHandler(() => void qc.invalidateQueries({ queryKey: queryKeys.me })), [qc]);
 
   if (me.isPending) {
     return (
@@ -62,6 +66,9 @@ export function AuthenticatedApp() {
         <ErrorState error={me.error} onRetry={() => void me.refetch()} />
       </FullPageStatus>
     );
+  }
+  if (me.data.user?.mfaSetupRequired) {
+    return <MfaRequiredScreen me={me.data} onDone={() => void me.refetch()} />;
   }
   return (
     <SessionProvider me={me.data}>

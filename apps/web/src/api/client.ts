@@ -79,6 +79,18 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): () 
   };
 }
 
+/** The account requires MFA and this person has not set it up: the app shows the setup screen. */
+export const MFA_SETUP_REQUIRED = "mfa_enrollment_required";
+let mfaSetupHandler: (() => void) | null = null;
+
+/** Register what happens on `mfa_enrollment_required` (reload the profile). Returns an unsubscribe. */
+export function setMfaSetupHandler(handler: (() => void) | null): () => void {
+  mfaSetupHandler = handler;
+  return () => {
+    if (mfaSetupHandler === handler) mfaSetupHandler = null;
+  };
+}
+
 export const STEP_UP_REQUIRED = "mfa_step_up_required";
 /** Resolves true once the person has confirmed with their authenticator, false if they cancelled. */
 type StepUpHandler = () => Promise<boolean>;
@@ -214,6 +226,7 @@ async function send(path: string, opts: RequestOptions, retried = false): Promis
   if (!res.ok) {
     const error = await parseError(res);
     if (res.status === 401 && !opts.skipAuthRedirect) (unauthorizedHandler ?? defaultUnauthorized)();
+    if (error.code === MFA_SETUP_REQUIRED) mfaSetupHandler?.();
     if (error.code === STEP_UP_REQUIRED && stepUpHandler && !opts.skipStepUp && !retried && (await stepUp(stepUpHandler))) return send(path, opts, true);
     throw error;
   }

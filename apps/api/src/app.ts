@@ -440,6 +440,9 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
         throw forbidden("Missing or invalid CSRF token", "csrf");
       }
     }
+    if (request.auth.mfaSetupRequired && !isPublic && !MFA_SETUP_ROUTES.has(request.routeOptions.url ?? "")) {
+      throw new HttpError(403, "mfa_enrollment_required", "Your account requires multi-factor authentication. Set up your authenticator app to continue.");
+    }
     void reply;
   });
 
@@ -505,6 +508,9 @@ export async function buildApp(deps: AppDeps): Promise<BuiltApp> {
 
   return { app, services };
 }
+
+/** What a user who must still set up MFA may call: their profile, the MFA setup itself and sign-out. */
+const MFA_SETUP_ROUTES = new Set(["/auth/me", "/auth/mfa/totp/enroll", "/auth/mfa/totp/confirm"].map((path) => `/api/${API_VERSION}${path}`));
 
 async function authenticate(services: AppServices, request: FastifyRequest) {
   const header = request.headers.authorization;
