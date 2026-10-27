@@ -107,7 +107,7 @@ const CONFIG_SCHEMAS: Record<string, z.ZodTypeAny> = {
     username: z.string().min(1).max(200),
     portal: z.enum(["main", "customer"]).default("main"),
     customerCodes: z.array(z.string().min(1).max(100)).max(1000).optional(),
-    organizationOverrides: z.record(z.string().uuid()).optional(),
+    organizationOverrides: z.record(z.string(), z.guid()).optional(),
     minWazuhVersion: z.string().regex(/^\d+\.\d+(\.\d+)?$/).optional(),
     staleAfterHours: z.number().int().min(1).max(24 * 30).optional(),
   }).strict(),

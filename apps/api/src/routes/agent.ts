@@ -131,7 +131,7 @@ function bearer(request: FastifyRequest): string {
 const ipsOnly = z
   .array(z.string().max(64))
   .max(32)
-  .transform((v) => v.filter((x) => z.string().ip().safeParse(x).success).slice(0, 16))
+  .transform((v) => v.filter((x) => z.union([z.ipv4(), z.ipv6()]).safeParse(x).success).slice(0, 16))
   .optional();
 
 const EnrollBody = z
@@ -142,7 +142,7 @@ const EnrollBody = z
     platform: z.enum(["windows", "macos", "linux"]),
     os: z.string().max(200).optional(),
     version: z.string().min(1).max(40),
-    ips: z.array(z.string().ip()).max(32).optional(),
+    ips: z.array(z.union([z.ipv4(), z.ipv6()])).max(32).optional(),
     machineId: z.string().max(100).optional(),
   })
   .strict();
@@ -151,7 +151,7 @@ const HeartbeatBody = z
     hostname: z.string().min(1).max(253),
     os: z.string().max(200).optional(),
     version: z.string().min(1).max(40),
-    ips: z.array(z.string().ip()).max(32).optional(),
+    ips: z.array(z.union([z.ipv4(), z.ipv6()])).max(32).optional(),
     uptimeSeconds: z.number().int().min(0).max(1e10).optional(),
     isolation: z.object({ state: z.enum(["isolated", "not_isolated", "unknown"]), mode: z.string().max(20).optional() }).optional(),
     engines: z.record(z.string().max(60), z.string().max(40)).optional(),
@@ -169,7 +169,7 @@ const AppControlEventsBody = z
           path: z.string().max(1000).optional(),
           sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
           publisher: z.string().max(300).optional(),
-          ruleId: z.string().uuid().optional(),
+          ruleId: z.guid().optional(),
           verdict: z.enum(["blocked", "audited"]),
           occurredAt: z.string().datetime(),
         }),

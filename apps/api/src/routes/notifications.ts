@@ -16,11 +16,11 @@ const ChannelBody = z
     name: z.string().trim().min(1).max(200),
     kind: NotificationChannelKind,
     organizationId: Uuid.nullable().default(null),
-    config: z.record(z.unknown()).default({}),
+    config: z.record(z.string(), z.unknown()).default({}),
     enabled: z.boolean().default(true),
   })
   .strict();
-const ChannelPatch = z.object({ name: z.string().trim().min(1).max(200).optional(), config: z.record(z.unknown()).optional(), enabled: z.boolean().optional() }).strict();
+const ChannelPatch = z.object({ name: z.string().trim().min(1).max(200).optional(), config: z.record(z.string(), z.unknown()).optional(), enabled: z.boolean().optional() }).strict();
 
 const RuleBody = z
   .object({
@@ -253,7 +253,7 @@ export async function notificationRoutes(app: FastifyInstance, s: AppServices): 
   app.post("/automations/preview", { config: { audit: false } }, async (request) => {
     const auth = requireAuth(request);
     const body = parse(
-      z.object({ event: AutomationEvent, template: z.object({ subject: z.string().min(1).max(300), body: z.string().min(1).max(20_000) }), data: z.record(z.unknown()).default({}), organizationId: Uuid.nullable().default(null) }).strict(),
+      z.object({ event: AutomationEvent, template: z.object({ subject: z.string().min(1).max(300), body: z.string().min(1).max(20_000) }), data: z.record(z.string(), z.unknown()).default({}), organizationId: Uuid.nullable().default(null) }).strict(),
       request.body,
     );
     request.auditState.recorded = true;

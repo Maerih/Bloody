@@ -39,7 +39,7 @@ export const AdapterSignal = z.object({
   }),
   title: z.string().max(200),
   summary: z.string().max(4000),
-  facts: z.record(z.union([z.string(), z.number(), z.boolean()])),
+  facts: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
   audience: z.array(SignalAudience).min(1),
 });
 export type AdapterSignal = z.infer<typeof AdapterSignal>;

@@ -33,7 +33,7 @@ import { defineTool, type AnyToolDefinition } from "./types.js";
  *   execute          low-risk autonomous actions (notifications) — only with maxToolTier=execute
  */
 
-const id = z.string().uuid();
+const id = z.guid();
 const isoDate = z.string().datetime({ offset: true });
 const MAX_WINDOW_HOURS = 24 * 90;
 
@@ -559,7 +559,7 @@ export function createStandardSocTools(port: SocDataPort): AnyToolDefinition[] {
       tier: "require_approval",
       permission: "response:request",
       parameters: z
-        .object({ action: ResponseActionKey, target: ResponseTarget, incidentId: id.optional(), parameters: z.record(z.unknown()).default({}), reason: z.string().min(3).max(2000) })
+        .object({ action: ResponseActionKey, target: ResponseTarget, incidentId: id.optional(), parameters: z.record(z.string(), z.unknown()).default({}), reason: z.string().min(3).max(2000) })
         .strict()
         .superRefine((v, ctx) => {
           const expected = RESPONSE_ACTIONS.find((a) => a.key === v.action)?.target;

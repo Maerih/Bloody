@@ -8,7 +8,7 @@ import { canonicalJson, systemClock, uuidIds, type Clock, type IdGenerator } fro
 
 /** Input of the playbook editor (id/tenant/version are assigned by the system). */
 export const PlaybookDraft = z.object({
-  organizationId: z.string().uuid().nullable(),
+  organizationId: z.guid().nullable(),
   name: z.string().trim().min(1).max(120),
   description: z.string().max(4000).nullable().default(null),
   enabled: z.boolean().default(true),

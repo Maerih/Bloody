@@ -294,19 +294,19 @@ export function gradeQuiz(lesson: Lesson, answers: Record<string, number>): Quiz
   return { score, passed: score >= PASS_MARK, questions };
 }
 
-export const AwarenessLearnerInput = z.object({ organizationId: z.string().uuid(), name: z.string().trim().min(1).max(200), email: z.string().trim().toLowerCase().email().max(320) }).strict();
+export const AwarenessLearnerInput = z.object({ organizationId: z.guid(), name: z.string().trim().min(1).max(200), email: z.string().trim().toLowerCase().email().max(320) }).strict();
 export type AwarenessLearnerInput = z.infer<typeof AwarenessLearnerInput>;
 
 export const AwarenessAssignmentInput = z
   .object({
-    organizationId: z.string().uuid(),
+    organizationId: z.guid(),
     title: z.string().trim().min(3).max(200),
     lessons: z.array(z.string()).min(1).max(20).refine((ks) => ks.every((k) => lessonByKey(k)), "Unknown lesson"),
     dueAt: z.string().datetime().optional(),
     /** Email reminders when the training is due within 3 days or overdue (needs SMTP). */
     reminders: z.boolean().optional(),
     /** Learner ids; omitted = every active learner of the organization. */
-    learnerIds: z.array(z.string().uuid()).max(5000).optional(),
+    learnerIds: z.array(z.guid()).max(5000).optional(),
   })
   .strict();
 export type AwarenessAssignmentInput = z.infer<typeof AwarenessAssignmentInput>;
@@ -450,10 +450,10 @@ export function renderPhish(t: PhishTemplate, vars: { name: string; org: string;
 
 export const PhishCampaignInput = z
   .object({
-    organizationId: z.string().uuid(),
+    organizationId: z.guid(),
     name: z.string().trim().min(3).max(200),
     template: z.string().refine((k) => !!phishTemplate(k), "Unknown template"),
-    learnerIds: z.array(z.string().uuid()).max(5000).optional(),
+    learnerIds: z.array(z.guid()).max(5000).optional(),
     /** Assign the template's lesson to everyone who clicks. */
     autoAssign: z.boolean().default(true),
     /** What authorizes this simulation (contract clause, written approval). */

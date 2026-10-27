@@ -37,7 +37,7 @@ const RunBody = z
   .object({
     organizationId: Uuid.optional(),
     subjectRef: z.object({ kind: z.enum(["incident", "alert", "escalation"]), id: Uuid }).strict().optional(),
-    subject: z.record(z.unknown()).optional(),
+    subject: z.record(z.string(), z.unknown()).optional(),
     idempotencyKey: z.string().trim().min(8).max(200).optional(),
   })
   .strict();

@@ -37,12 +37,12 @@ const TestBody = z
   .object({
     /** Test unsaved content instead of the stored version. */
     source: z.string().min(1).max(100_000).optional(),
-    definition: z.record(z.unknown()).optional(),
+    definition: z.record(z.string(), z.unknown()).optional(),
     kind: z.enum(RULE_KINDS).optional(),
     lookbackHours: z.number().int().min(1).max(24 * 30).default(24),
     maxEvents: z.number().int().min(1).max(20_000).default(5_000),
     organizationId: Uuid.optional(),
-    events: z.array(z.record(z.unknown())).max(1000).optional(),
+    events: z.array(z.record(z.string(), z.unknown())).max(1000).optional(),
   })
   .strict();
 

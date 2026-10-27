@@ -160,8 +160,8 @@ export const BillingProfile = z.object({
   companyName: z.string().trim().max(200).default(""),
   billingEmail: z.string().trim().email().max(320).or(z.literal("")).default(""),
   taxId: z.string().trim().max(50).default(""),
-  billingAddress: Address.default({}),
-  shippingAddress: Address.default({}),
+  billingAddress: Address.prefault({}),
+  shippingAddress: Address.prefault({}),
 });
 export type BillingProfile = z.infer<typeof BillingProfile>;
 

@@ -1,4 +1,4 @@
-import type { ZodType, ZodTypeDef } from "zod";
+import type { ZodType } from "zod";
 import { assertResolvedSafe, redactUrl, systemResolver, UnsafeUrlError, validateEngineUrl, type HostResolver, type UrlPolicy } from "./url-guard.js";
 
 /**
@@ -84,7 +84,7 @@ export interface EngineRequest<T> {
   headers?: Record<string, string>;
   timeoutMs?: number;
   responseType?: "json" | "text" | "bytes";
-  schema?: ZodType<T, ZodTypeDef, unknown>;
+  schema?: ZodType<T, unknown>;
   /** Override idempotency for retries (default: GET/PUT/DELETE retry, POST/PATCH don't). */
   retry?: boolean;
   signal?: AbortSignal;

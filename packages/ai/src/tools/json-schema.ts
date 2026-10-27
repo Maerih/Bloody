@@ -1,4 +1,4 @@
-import { ZodFirstPartyTypeKind, type ZodTypeAny } from "zod";
+import type { z } from "zod";
 
 /**
  * Bloody's own zod → JSON Schema (draft 2020-12 subset) converter for tool parameter
@@ -12,61 +12,59 @@ export interface ZodToJsonSchemaOptions {
   maxDepth?: number;
 }
 
-type AnyDef = { typeName?: ZodFirstPartyTypeKind } & Record<string, unknown>;
+type AnySchema = z.ZodType;
+type AnyDef = { type: string; checks?: AnySchema[] } & Record<string, unknown>;
+type CheckDef = { check?: string } & Record<string, unknown>;
 
-function defOf(schema: ZodTypeAny): AnyDef {
-  return schema._def as AnyDef;
+function defOf(schema: AnySchema): AnyDef {
+  return schema._zod.def as unknown as AnyDef;
+}
+
+/** A schema's checks; top-level formats (z.email(), z.int()) carry their own check on the def. */
+function checksOf(def: AnyDef): CheckDef[] {
+  const own = typeof def.check === "string" ? [def as CheckDef] : [];
+  return [...own, ...(def.checks ?? []).map((c) => c._zod.def as unknown as CheckDef)];
 }
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 }
 
+const STRING_FORMATS: Record<string, string> = {
+  email: "email",
+  url: "uri",
+  uuid: "uuid",
+  guid: "uuid",
+  datetime: "date-time",
+  date: "date",
+  time: "time",
+  ipv4: "ipv4",
+  ipv6: "ipv6",
+};
+
 function stringSchema(def: AnyDef): JsonSchema {
   const out: JsonSchema = { type: "string" };
   const patterns: string[] = [];
-  for (const check of (def.checks as Array<Record<string, unknown>> | undefined) ?? []) {
-    switch (check.kind) {
-      case "min":
-        out.minLength = check.value;
+  for (const check of checksOf(def)) {
+    switch (check.check) {
+      case "min_length":
+        out.minLength = check.minimum;
         break;
-      case "max":
-        out.maxLength = check.value;
+      case "max_length":
+        out.maxLength = check.maximum;
         break;
-      case "length":
-        out.minLength = check.value;
-        out.maxLength = check.value;
+      case "length_equals":
+        out.minLength = check.length;
+        out.maxLength = check.length;
         break;
-      case "email":
-        out.format = "email";
+      case "string_format": {
+        const format = String(check.format);
+        if (format === "regex" && check.pattern instanceof RegExp) patterns.push(check.pattern.source);
+        else if (format === "starts_with") patterns.push(`^${escapeRegex(String(check.prefix))}`);
+        else if (format === "ends_with") patterns.push(`${escapeRegex(String(check.suffix))}$`);
+        else if (STRING_FORMATS[format]) out.format = STRING_FORMATS[format];
         break;
-      case "url":
-        out.format = "uri";
-        break;
-      case "uuid":
-        out.format = "uuid";
-        break;
-      case "datetime":
-        out.format = "date-time";
-        break;
-      case "date":
-        out.format = "date";
-        break;
-      case "time":
-        out.format = "time";
-        break;
-      case "ip":
-        out.format = check.version === "v6" ? "ipv6" : "ipv4";
-        break;
-      case "regex":
-        if (check.regex instanceof RegExp) patterns.push(check.regex.source);
-        break;
-      case "startsWith":
-        patterns.push(`^${escapeRegex(String(check.value))}`);
-        break;
-      case "endsWith":
-        patterns.push(`${escapeRegex(String(check.value))}$`);
-        break;
+      }
       default:
         break;
     }
@@ -78,20 +76,20 @@ function stringSchema(def: AnyDef): JsonSchema {
 
 function numberSchema(def: AnyDef): JsonSchema {
   const out: JsonSchema = { type: "number" };
-  for (const check of (def.checks as Array<Record<string, unknown>> | undefined) ?? []) {
-    switch (check.kind) {
-      case "int":
-        out.type = "integer";
+  for (const check of checksOf(def)) {
+    switch (check.check) {
+      case "number_format":
+        if (String(check.format).includes("int")) out.type = "integer";
         break;
-      case "min":
+      case "greater_than":
         if (check.inclusive === false) out.exclusiveMinimum = check.value;
         else out.minimum = check.value;
         break;
-      case "max":
+      case "less_than":
         if (check.inclusive === false) out.exclusiveMaximum = check.value;
         else out.maximum = check.value;
         break;
-      case "multipleOf":
+      case "multiple_of":
         out.multipleOf = check.value;
         break;
       default:
@@ -115,144 +113,133 @@ function literalType(value: unknown): string | undefined {
   }
 }
 
+function valuesSchema(values: unknown[]): JsonSchema {
+  const types = [...new Set(values.map(literalType))];
+  if (values.length === 1) return types[0] ? { type: types[0], const: values[0] } : { const: values[0] };
+  return types.length === 1 && types[0] ? { type: types[0], enum: values } : { enum: values };
+}
+
 class Converter {
   constructor(private readonly maxDepth: number) {}
 
-  convert(schema: ZodTypeAny, depth: number): JsonSchema {
+  convert(schema: AnySchema, depth: number): JsonSchema {
     if (depth > this.maxDepth) return {};
     const def = defOf(schema);
-    const out = this.convertDef(schema, def, depth);
+    const out = this.convertDef(def, depth);
     const description = schema.description;
     if (description && out.description === undefined) out.description = description;
     return out;
   }
 
-  private convertDef(schema: ZodTypeAny, def: AnyDef, depth: number): JsonSchema {
-    const next = (s: unknown): JsonSchema => this.convert(s as ZodTypeAny, depth + 1);
-    switch (def.typeName) {
-      case ZodFirstPartyTypeKind.ZodString:
+  private convertDef(def: AnyDef, depth: number): JsonSchema {
+    const next = (s: unknown): JsonSchema => this.convert(s as AnySchema, depth + 1);
+    switch (def.type) {
+      case "string":
         return stringSchema(def);
-      case ZodFirstPartyTypeKind.ZodNumber:
+      case "number":
         return numberSchema(def);
-      case ZodFirstPartyTypeKind.ZodBigInt:
+      case "bigint":
         return { type: "integer" };
-      case ZodFirstPartyTypeKind.ZodBoolean:
+      case "boolean":
         return { type: "boolean" };
-      case ZodFirstPartyTypeKind.ZodDate:
+      case "date":
         return { type: "string", format: "date-time" };
-      case ZodFirstPartyTypeKind.ZodNull:
+      case "null":
         return { type: "null" };
-      case ZodFirstPartyTypeKind.ZodLiteral: {
-        const value = def.value;
-        const type = literalType(value);
-        return type ? { type, const: value } : { const: value };
-      }
-      case ZodFirstPartyTypeKind.ZodEnum:
-        return { type: "string", enum: [...(def.values as string[])] };
-      case ZodFirstPartyTypeKind.ZodNativeEnum: {
-        const obj = def.values as Record<string, string | number>;
+      case "literal":
+        return valuesSchema(def.values as unknown[]);
+      case "enum": {
+        const entries = def.entries as Record<string, string | number>;
         // Drop the reverse mapping TypeScript emits for numeric enums.
-        const values = Object.keys(obj)
-          .filter((k) => typeof obj[obj[k] as string] !== "number")
-          .map((k) => obj[k]!);
+        const values = Object.keys(entries)
+          .filter((k) => typeof entries[entries[k] as string] !== "number")
+          .map((k) => entries[k]!);
         const types = [...new Set(values.map((v) => (typeof v === "number" ? "number" : "string")))];
         return { type: types.length === 1 ? types[0] : types, enum: values };
       }
-      case ZodFirstPartyTypeKind.ZodArray: {
-        const out: JsonSchema = { type: "array", items: next(def.type) };
-        const min = def.minLength as { value: number } | null;
-        const max = def.maxLength as { value: number } | null;
-        const exact = def.exactLength as { value: number } | null;
-        if (min) out.minItems = min.value;
-        if (max) out.maxItems = max.value;
-        if (exact) {
-          out.minItems = exact.value;
-          out.maxItems = exact.value;
+      case "array": {
+        const out: JsonSchema = { type: "array", items: next(def.element) };
+        for (const check of checksOf(def)) {
+          if (check.check === "min_length") out.minItems = check.minimum;
+          else if (check.check === "max_length") out.maxItems = check.maximum;
+          else if (check.check === "length_equals") {
+            out.minItems = check.length;
+            out.maxItems = check.length;
+          }
         }
         return out;
       }
-      case ZodFirstPartyTypeKind.ZodSet:
+      case "set":
         return { type: "array", uniqueItems: true, items: next(def.valueType) };
-      case ZodFirstPartyTypeKind.ZodTuple: {
-        const items = (def.items as ZodTypeAny[]).map((i) => next(i));
+      case "tuple": {
+        const items = (def.items as AnySchema[]).map((i) => next(i));
         const out: JsonSchema = { type: "array", prefixItems: items, minItems: items.length };
         if (def.rest) out.items = next(def.rest);
         else out.maxItems = items.length;
         return out;
       }
-      case ZodFirstPartyTypeKind.ZodObject: {
-        const shape = (def.shape as () => Record<string, ZodTypeAny>)();
+      case "object": {
+        const shape = def.shape as Record<string, AnySchema>;
         const properties: Record<string, JsonSchema> = {};
         const required: string[] = [];
         for (const [key, value] of Object.entries(shape)) {
           properties[key] = next(value);
-          if (!value.isOptional()) required.push(key);
+          if (!value._zod.optin) required.push(key);
         }
         const out: JsonSchema = { type: "object", properties };
         if (required.length > 0) out.required = required;
-        const catchall = def.catchall as ZodTypeAny | undefined;
-        const catchallIsNever = !catchall || defOf(catchall).typeName === ZodFirstPartyTypeKind.ZodNever;
-        if (!catchallIsNever) out.additionalProperties = next(catchall);
-        else out.additionalProperties = def.unknownKeys === "passthrough";
+        const catchall = def.catchall as AnySchema | undefined;
+        const catchallType = catchall ? defOf(catchall).type : "never";
+        if (catchallType === "never") out.additionalProperties = false;
+        else if (catchallType === "unknown" || catchallType === "any") out.additionalProperties = true;
+        else out.additionalProperties = next(catchall);
         return out;
       }
-      case ZodFirstPartyTypeKind.ZodRecord:
+      case "record":
         return { type: "object", additionalProperties: next(def.valueType) };
-      case ZodFirstPartyTypeKind.ZodMap:
+      case "map":
         return { type: "object" };
-      case ZodFirstPartyTypeKind.ZodUnion:
-      case ZodFirstPartyTypeKind.ZodDiscriminatedUnion: {
-        const raw = def.options as ZodTypeAny[] | Map<unknown, ZodTypeAny>;
-        const options = Array.isArray(raw) ? raw : [...raw.values()];
-        const literals = options.map((o) => defOf(o)).filter((d) => d.typeName === ZodFirstPartyTypeKind.ZodLiteral);
-        if (literals.length === options.length) {
-          const values = literals.map((d) => d.value);
-          const types = [...new Set(values.map(literalType))];
-          return types.length === 1 && types[0] ? { type: types[0], enum: values } : { enum: values };
-        }
+      case "union": {
+        const options = def.options as AnySchema[];
+        const defs = options.map((o) => defOf(o));
+        if (defs.every((d) => d.type === "literal")) return valuesSchema(defs.flatMap((d) => d.values as unknown[]));
         return { anyOf: options.map((o) => next(o)) };
       }
-      case ZodFirstPartyTypeKind.ZodIntersection:
+      case "intersection":
         return { allOf: [next(def.left), next(def.right)] };
-      case ZodFirstPartyTypeKind.ZodOptional:
+      case "optional":
+      case "nonoptional":
+      case "catch":
+      case "readonly":
         return next(def.innerType);
-      case ZodFirstPartyTypeKind.ZodNullable: {
+      case "nullable": {
         const inner = next(def.innerType);
         if (typeof inner.type === "string" && inner.enum === undefined && inner.const === undefined) return { ...inner, type: [inner.type, "null"] };
         return { anyOf: [inner, { type: "null" }] };
       }
-      case ZodFirstPartyTypeKind.ZodDefault: {
+      case "default":
+      case "prefault": {
         const inner = next(def.innerType);
         let value: unknown;
         try {
-          value = (def.defaultValue as () => unknown)();
+          value = def.defaultValue;
         } catch {
           value = undefined;
         }
         return value === undefined ? inner : { ...inner, default: value };
       }
-      case ZodFirstPartyTypeKind.ZodCatch:
-      case ZodFirstPartyTypeKind.ZodReadonly:
-        return next(def.innerType);
-      case ZodFirstPartyTypeKind.ZodEffects:
-        return next(def.schema);
-      case ZodFirstPartyTypeKind.ZodBranded:
-        return next(def.type);
-      case ZodFirstPartyTypeKind.ZodPipeline:
+      case "pipe":
         return next(def.in);
-      case ZodFirstPartyTypeKind.ZodLazy:
-        return next((def.getter as () => ZodTypeAny)());
-      case ZodFirstPartyTypeKind.ZodNever:
+      case "lazy":
+        return next((def.getter as () => AnySchema)());
+      case "never":
         return { not: {} };
-      case ZodFirstPartyTypeKind.ZodAny:
-      case ZodFirstPartyTypeKind.ZodUnknown:
       default:
-        void schema;
         return {};
     }
   }
 }
 
-export function zodToJsonSchema(schema: ZodTypeAny, options: ZodToJsonSchemaOptions = {}): JsonSchema {
+export function zodToJsonSchema(schema: z.ZodType, options: ZodToJsonSchemaOptions = {}): JsonSchema {
   return new Converter(options.maxDepth ?? 12).convert(schema, 0);
 }

@@ -137,7 +137,7 @@ export function roleHasPermission(role: RoleKey, permission: Permission): boolea
 export const RoleBinding = z.object({
   role: RoleKey,
   /** null = applies to every organization in the tenant. */
-  organizationId: z.string().uuid().nullable(),
+  organizationId: z.guid().nullable(),
 });
 export type RoleBinding = z.infer<typeof RoleBinding>;
 

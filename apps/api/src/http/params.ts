@@ -2,16 +2,18 @@ import { z } from "zod";
 import { badRequest } from "./errors.js";
 
 /** Comma-separated (or repeated) query values → validated array. `?severity=critical,high`. */
-export function csvOf<T extends z.ZodTypeAny>(item: T) {
+export function csvOf<T extends z.ZodType>(item: T) {
+  // The split values are plain strings; the item schema (often an enum) narrows them.
+  const list = z.array(item).max(50) as unknown as z.ZodType<Array<z.output<T>>, string[]>;
   return z
     .union([z.string(), z.array(z.string())])
     .transform((v) => (Array.isArray(v) ? v : [v]).flatMap((s) => s.split(",")).map((s) => s.trim()).filter((s) => s.length > 0))
-    .pipe(z.array(item).max(50));
+    .pipe(list);
 }
 
 export const Limit = (max = 200, dflt = 50) => z.coerce.number().int().min(1).max(max).default(dflt);
-export const OptionalUuid = z.string().uuid().optional();
-export const IdParam = z.object({ id: z.string().uuid() });
+export const OptionalUuid = z.guid().optional();
+export const IdParam = z.object({ id: z.guid() });
 
 /** Opaque keyset cursor: base64url(JSON [sortValue, id]). */
 export function encodeCursor(values: Array<string | number | null>): string {

@@ -16,7 +16,7 @@ import {
 
 export const InAppConfig = z.object({
   /** Specific users. */
-  userIds: z.array(z.string().uuid()).max(500).default([]),
+  userIds: z.array(z.guid()).max(500).default([]),
   /** Everyone holding one of these roles in the channel's organization (tenant-wide roles included). */
   roles: z.array(z.enum(ROLE_KEYS)).max(ROLE_KEYS.length).default([]),
 });

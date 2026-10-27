@@ -1,4 +1,4 @@
-import type { ZodType, ZodTypeDef } from "zod";
+import type { ZodType } from "zod";
 import { cachedTokenProvider, EngineClient, EngineError, type EngineClientOptions, type QueryValue } from "../http/client.js";
 import { runHealthCheck, type HealthCheckResult } from "../http/health.js";
 import {
@@ -98,7 +98,7 @@ export class CoPilotClient {
     this.http = new EngineClient({ ...rest, engine: "copilot", auth: { kind: "token_provider", getToken } });
   }
 
-  private async get<T>(path: string, schema: ZodType<T, ZodTypeDef, unknown>, query?: Record<string, QueryValue>): Promise<T> {
+  private async get<T>(path: string, schema: ZodType<T, unknown>, query?: Record<string, QueryValue>): Promise<T> {
     const res = await this.http.get<T>(`${this.prefix}${path}`, { schema, ...(query ? { query } : {}) });
     const success = (res.data as { success?: unknown }).success;
     if (success === false) {

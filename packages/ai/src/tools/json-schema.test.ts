@@ -6,7 +6,7 @@ describe("zodToJsonSchema", () => {
   it("converts objects with required/optional/default fields and constraints", () => {
     const schema = z
       .object({
-        id: z.string().uuid().describe("Entity id"),
+        id: z.uuid().describe("Entity id"),
         name: z.string().min(3).max(20).regex(/^[a-z]+$/),
         email: z.string().email().optional(),
         count: z.number().int().min(1).max(10).default(5),
@@ -16,7 +16,7 @@ describe("zodToJsonSchema", () => {
         flag: z.boolean().nullable(),
         note: z.string().nullable(),
         kind: z.union([z.literal("x"), z.literal("y")]),
-        meta: z.record(z.number()),
+        meta: z.record(z.string(), z.number()),
         nested: z.object({ at: z.string().datetime({ offset: true }) }).passthrough(),
       })
       .strict();

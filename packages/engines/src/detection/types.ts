@@ -17,7 +17,7 @@ import type { EntityRef } from "../entities/keys.js";
  * with either Sigma field names (mapped) or Bloody Canonical Event (BCE) dotted paths.
  */
 export const MatchExpression = z.object({
-  detection: z.record(z.unknown()),
+  detection: z.record(z.string(), z.unknown()),
   condition: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
 });
 export type MatchExpression = z.infer<typeof MatchExpression>;
@@ -25,7 +25,7 @@ export type MatchExpression = z.infer<typeof MatchExpression>;
 export const RuleTestCase = z.object({
   name: z.string().min(1).max(200),
   /** Partial canonical events; ids/tenancy/provenance are filled in by the test runner. */
-  events: z.array(z.record(z.unknown())).min(1).max(1000),
+  events: z.array(z.record(z.string(), z.unknown())).min(1).max(1000),
   expect: z.enum(["match", "no_match"]),
   /** Exact number of matches expected (optional, for threshold/sequence tests). */
   expectedMatches: z.number().int().min(0).optional(),
@@ -69,7 +69,7 @@ const RuleBase = z.object({
   references: z.array(z.string().max(1000)).max(50).default([]),
   falsePositives: z.array(z.string().max(500)).max(50).default([]),
   /** Restrict a rule to one tenant and/or organizations (built-in rules are global). */
-  scope: z.object({ tenantId: z.string().uuid().optional(), organizationIds: z.array(z.string().uuid()).optional() }).optional(),
+  scope: z.object({ tenantId: z.guid().optional(), organizationIds: z.array(z.guid()).optional() }).optional(),
   /** Suppress repeat matches of this rule for the same primary entity for this long (0 = off). */
   cooldownSeconds: z.number().int().min(0).max(30 * 86400).default(0),
   tests: z.array(RuleTestCase).max(100).default([]),
@@ -79,7 +79,7 @@ export const SigmaRuleDefinition = RuleBase.extend({
   kind: z.literal("sigma"),
   sigma: z.string().min(1).max(100_000),
   /** Per-rule Sigma field → BCE path overrides. */
-  fieldMapping: z.record(z.string()).default({}),
+  fieldMapping: z.record(z.string(), z.string()).default({}),
 });
 
 export const ThresholdRuleDefinition = RuleBase.extend({

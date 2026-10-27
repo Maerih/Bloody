@@ -12,12 +12,12 @@ describe("Gemini provider", () => {
   it("converts JSON schema to Gemini's OpenAPI subset", () => {
     const schema = zodToJsonSchema(
       z.object({
-        incidentId: z.string().uuid().describe("Incident id"),
+        incidentId: z.guid().describe("Incident id"),
         severity: z.enum(["low", "high"]).optional(),
         note: z.string().nullable(),
         mode: z.literal("search"),
         limit: z.number().int().min(1).max(50).default(10),
-        params: z.record(z.unknown()),
+        params: z.record(z.string(), z.unknown()),
         since: z.string().datetime({ offset: true }),
       }),
     );

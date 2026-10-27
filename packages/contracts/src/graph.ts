@@ -77,8 +77,8 @@ export const GraphNode = z.object({
   /** Natural key, unique per (tenant, org, kind): hostname, sha256, ip, CVE, principal… */
   key: z.string(),
   label: z.string(),
-  organizationId: z.string().uuid().nullable(),
-  props: z.record(z.unknown()).default({}),
+  organizationId: z.guid().nullable(),
+  props: z.record(z.string(), z.unknown()).default({}),
 });
 export type GraphNode = z.infer<typeof GraphNode>;
 
@@ -87,7 +87,7 @@ export const GraphEdge = z.object({
   kind: EdgeKind,
   from: z.string(),
   to: z.string(),
-  props: z.record(z.unknown()).default({}),
+  props: z.record(z.string(), z.unknown()).default({}),
 });
 export type GraphEdge = z.infer<typeof GraphEdge>;
 

@@ -167,7 +167,7 @@ export const CanonicalEvent = z.object({
   risk: z.number().min(0).max(100).optional(),
   detection: EventDetection.optional(),
   attack: z.array(AttackTechnique).default([]),
-  labels: z.record(z.string()).default({}),
+  labels: z.record(z.string(), z.string()).default({}),
   provenance: Provenance,
 });
 export type CanonicalEvent = z.infer<typeof CanonicalEvent>;

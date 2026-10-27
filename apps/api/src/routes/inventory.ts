@@ -35,7 +35,7 @@ const AssetListQuery = z.object({
 
 const CreateAssetBody = UpsertAssetInput.extend({
   organizationId: Uuid,
-  ipAddresses: z.array(z.string().ip()).max(64).default([]),
+  ipAddresses: z.array(z.union([z.ipv4(), z.ipv6()])).max(64).default([]),
   tags: z.array(z.string().trim().min(1).max(64)).max(64).default([]),
 }).strict();
 
@@ -44,7 +44,7 @@ const PatchAssetBody = z
     kind: AssetKind,
     name: z.string().trim().min(1).max(300),
     hostname: z.string().trim().min(1).max(255).nullable(),
-    ipAddresses: z.array(z.string().ip()).max(64),
+    ipAddresses: z.array(z.union([z.ipv4(), z.ipv6()])).max(64),
     os: z.string().trim().max(200).nullable(),
     criticality: Criticality,
     internetFacing: z.boolean(),
@@ -76,7 +76,7 @@ const UpsertAgentBody = z
     firewallEnabled: z.boolean().default(false),
     lastCheckinAt: z.string().datetime({ offset: true }).optional(),
     os: z.string().trim().max(200).optional(),
-    ipAddresses: z.array(z.string().ip()).max(16).optional(),
+    ipAddresses: z.array(z.union([z.ipv4(), z.ipv6()])).max(16).optional(),
     externalRef: z.string().trim().max(200).optional(),
   })
   .strict();

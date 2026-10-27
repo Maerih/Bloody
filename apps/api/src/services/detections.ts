@@ -36,9 +36,9 @@ export const AUTO_SUPPRESS_DAYS = 30;
 export const DetectionInput = z
   .object({
     id: z.string().trim().regex(RULE_ID_RE, "rule id may contain letters, digits, '.', '_', ':' and '-' (3-128 chars)").optional(),
-    organizationId: z.string().uuid().nullable().optional(),
+    organizationId: z.guid().nullable().optional(),
     /** Complete engine rule definition (any kind). */
-    definition: z.record(z.unknown()).optional(),
+    definition: z.record(z.string(), z.unknown()).optional(),
     kind: z.enum(RULE_KINDS).optional(),
     /** Sigma YAML (kind sigma) or the JSON definition (other kinds) as text. */
     source: z.string().min(1).max(100_000).optional(),
@@ -48,7 +48,7 @@ export const DetectionInput = z
     enabled: z.boolean().optional(),
     tags: z.array(z.string().max(100)).max(50).optional(),
     attack: z.array(z.object({ id: z.string().regex(/^T\d{4}(\.\d{3})?$/), name: z.string().optional(), tactic: z.string().optional() })).max(50).optional(),
-    tests: z.array(z.record(z.unknown())).max(100).optional(),
+    tests: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
     cooldownSeconds: z.number().int().min(0).max(30 * 86400).optional(),
     comment: z.string().trim().max(1000).optional(),
   })
@@ -463,7 +463,7 @@ export class DetectionService {
 
 export const SuppressionInput = z
   .object({
-    organizationId: z.string().uuid().nullable().default(null),
+    organizationId: z.guid().nullable().default(null),
     ruleId: z.string().trim().refine((v) => v === "*" || RULE_ID_RE.test(v), "ruleId must be a rule id or '*'"),
     entity: z.object({ kind: NodeKind, key: z.string().trim().min(1).max(2048) }).nullable().optional(),
     reason: z.string().trim().min(3).max(2000),

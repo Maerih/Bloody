@@ -3,7 +3,7 @@ import { z } from "zod";
 /** API version for the public, versioned REST surface. Bump on breaking changes. */
 export const API_VERSION = "v1" as const;
 
-export const Uuid = z.string().uuid();
+export const Uuid = z.guid();
 export type Uuid = z.infer<typeof Uuid>;
 
 export const IsoDateTime = z.string().datetime({ offset: true });

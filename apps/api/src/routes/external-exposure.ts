@@ -21,7 +21,7 @@ const AuthorizeBody = z
     attest: z.literal(true),
   })
   .strict();
-const AddTargetBody = z.object({ organizationId: Uuid, ip: z.string().ip(), note: z.string().trim().max(200).optional() }).strict();
+const AddTargetBody = z.object({ organizationId: Uuid, ip: z.union([z.ipv4(), z.ipv6()]), note: z.string().trim().max(200).optional() }).strict();
 const DecideBody = z.object({ status: z.enum(["confirmed", "ignored"]) }).strict();
 
 async function assertOrganization(tx: Queryable, organizationId: string): Promise<void> {

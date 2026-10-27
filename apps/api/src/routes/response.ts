@@ -18,7 +18,7 @@ const RequestBody = z
     organizationId: Uuid.optional(),
     incidentId: Uuid.optional(),
     target: z.object({ kind: z.enum(["asset", "identity", "indicator", "incident"]), id: z.string().trim().min(1).max(2048), label: z.string().max(300).optional() }).strict(),
-    parameters: z.record(z.unknown()).default({}),
+    parameters: z.record(z.string(), z.unknown()).default({}),
     reason: z.string().trim().min(3).max(2000),
     emergency: z.boolean().optional(),
   })

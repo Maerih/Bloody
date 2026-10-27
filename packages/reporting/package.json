@@ -13,6 +13,6 @@
     "test": "vitest run --passWithNoTests",
     "build": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": { "@bloody/contracts": "workspace:*", "zod": "^3.23.8", "pdfkit": "^0.15.1" },
+  "dependencies": { "@bloody/contracts": "workspace:*", "zod": "^4.6.7", "pdfkit": "^0.15.1" },
   "devDependencies": { "@types/pdfkit": "^0.13.5" }
 }

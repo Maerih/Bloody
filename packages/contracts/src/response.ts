@@ -61,7 +61,7 @@ export const ResponseActionRequest = z.object({
   organizationId: Uuid,
   incidentId: Uuid.optional(),
   target: z.object({ kind: z.enum(["asset", "identity", "indicator", "incident"]), id: z.string(), label: z.string().optional() }),
-  parameters: z.record(z.unknown()).default({}),
+  parameters: z.record(z.string(), z.unknown()).default({}),
   reason: z.string().min(3).max(2000),
   /** Break-glass (EMERGENCY_ACTIONS only, response:emergency): execute now, review afterwards. */
   emergency: z.boolean().optional(),
@@ -75,7 +75,7 @@ export const ResponseActionRecord = z.object({
   incidentId: Uuid.nullable(),
   action: ResponseActionKey,
   target: z.object({ kind: z.string(), id: z.string(), label: z.string().optional() }),
-  parameters: z.record(z.unknown()),
+  parameters: z.record(z.string(), z.unknown()),
   reason: z.string(),
   status: ResponseActionStatus,
   requestedBy: z.string(),
@@ -110,7 +110,7 @@ export type PlaybookCondition = z.infer<typeof PlaybookCondition>;
 export const PlaybookStep = z.object({
   id: z.string(),
   action: ResponseActionKey,
-  parameters: z.record(z.unknown()).default({}),
+  parameters: z.record(z.string(), z.unknown()).default({}),
   /** Force an approval even for low-risk actions. High-risk actions always require approval. */
   requireApproval: z.boolean().default(false),
   continueOnError: z.boolean().default(false),
@@ -142,7 +142,7 @@ export const NotificationChannel = z.object({
   name: z.string(),
   kind: NotificationChannelKind,
   /** email: { to: string[] }, webhook/slack/teams: { url } (url stored as secret ref), syslog: { host, port } */
-  config: z.record(z.unknown()),
+  config: z.record(z.string(), z.unknown()),
   enabled: z.boolean(),
 });
 export type NotificationChannel = z.infer<typeof NotificationChannel>;

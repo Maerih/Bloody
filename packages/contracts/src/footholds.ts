@@ -221,7 +221,7 @@ export type FootholdVerdict = (typeof FOOTHOLD_VERDICTS)[number];
 /** PUT /footholds/verdicts */
 export const FootholdVerdictInput = z
   .object({
-    organizationId: z.string().uuid(),
+    organizationId: z.guid(),
     fingerprints: z.array(z.string().regex(/^[0-9a-f]{16}$/)).min(1).max(200),
     /** null clears the verdict. */
     verdict: z.enum(FOOTHOLD_VERDICTS).nullable(),

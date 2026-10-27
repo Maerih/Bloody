@@ -26,7 +26,7 @@ const CreateBody = z.preprocess(
     name: z.string().trim().min(1).max(200),
     organizationId: Uuid.nullable().default(null),
     endpoint: z.string().trim().url().max(2048).nullable().optional(),
-    config: z.record(z.unknown()).default({}),
+    config: z.record(z.string(), z.unknown()).default({}),
     /** Write-only API key / password / token; stored in the secret store, never returned. */
     credential: z.string().min(1).max(16_384).optional(),
     enabled: z.boolean().default(true),
@@ -38,7 +38,7 @@ const PatchBody = z
   .object({
     name: z.string().trim().min(1).max(200).optional(),
     endpoint: z.string().trim().url().max(2048).nullable().optional(),
-    config: z.record(z.unknown()).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
     credential: z.string().min(1).max(16_384).nullable().optional(),
     enabled: z.boolean().optional(),
   })

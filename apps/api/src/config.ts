@@ -83,7 +83,7 @@ const RawEnv = z.object({
   /** Account team shown on the billing page: "Name <email>". */
   BLOODY_BILLING_CONTACT: z.string().max(300).optional(),
   /** Demo sandbox account (UUID, see `pnpm admin sandbox-setup`); unset disables the sandbox. */
-  BLOODY_DEMO_ACCOUNT: z.string().uuid().optional(),
+  BLOODY_DEMO_ACCOUNT: z.guid().optional(),
   /** Directory holding the SCIAT Agent installers (infra/agent); found automatically when unset. */
   BLOODY_AGENT_FILES_DIR: z.string().min(1).optional(),
   /** Native SCIAT Agent binaries with SHA256SUMS and VERSION (image: <files dir>/bin; dev: dist/agent/<version>). */
@@ -149,7 +149,7 @@ const RawEnv = z.object({
    * outbound requests, restricted to ENRICHMENT_ALLOWED_HOSTS (SSRF guard, https only).
    */
   FEATURE_VULN_ENRICHMENT: bool.default(false),
-  ENRICHMENT_ALLOWED_HOSTS: csv.default("www.cisa.gov,api.first.org,epss.cyentia.com"),
+  ENRICHMENT_ALLOWED_HOSTS: csv.prefault("www.cisa.gov,api.first.org,epss.cyentia.com"),
   KEV_FEED_URL: z.string().url().default("https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"),
   EPSS_API_URL: z.string().url().default("https://api.first.org/data/v1/epss"),
 

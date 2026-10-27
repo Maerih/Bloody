@@ -86,7 +86,7 @@ export const AiMessage = z.object({
   role: z.enum(["system", "user", "assistant", "tool"]),
   content: z.string(),
   toolCallId: z.string().optional(),
-  toolCalls: z.array(z.object({ id: z.string(), name: z.string(), arguments: z.record(z.unknown()) })).optional(),
+  toolCalls: z.array(z.object({ id: z.string(), name: z.string(), arguments: z.record(z.string(), z.unknown()) })).optional(),
 });
 export type AiMessage = z.infer<typeof AiMessage>;
 
@@ -106,7 +106,7 @@ export const AiActionRecord = z.object({
   conversationId: Uuid,
   tool: z.string(),
   tier: AiToolTier,
-  arguments: z.record(z.unknown()),
+  arguments: z.record(z.string(), z.unknown()),
   status: AiActionStatus,
   result: z.unknown().nullable(),
   requestedBy: z.string(),

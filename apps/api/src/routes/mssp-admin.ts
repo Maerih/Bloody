@@ -33,7 +33,7 @@ const ProvisionBody = CreateOrganizationInput.extend({
           kind: z.string().refine((k) => INTEGRATION_KINDS.includes(k), "unknown integration kind"),
           name: z.string().trim().min(1).max(200),
           endpoint: z.string().trim().url().max(2048).nullable().optional(),
-          config: z.record(z.unknown()).default({}),
+          config: z.record(z.string(), z.unknown()).default({}),
           credential: z.string().min(1).max(16_384).optional(),
         })
         .strict(),
