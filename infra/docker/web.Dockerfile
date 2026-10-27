@@ -14,7 +14,7 @@
 
 ARG NODE_VERSION=22.23.3
 ARG DEBIAN_RELEASE=trixie
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30.5-alpine
+ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30.6-alpine
 
 # ─── base / fetch (identical to api.Dockerfile so BuildKit shares the cache) ────────────
 FROM node:${NODE_VERSION}-${DEBIAN_RELEASE}-slim AS base
